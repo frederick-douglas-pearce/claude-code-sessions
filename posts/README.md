@@ -40,6 +40,15 @@ Posts that show sample session data **must** reference files in `fixtures/`, not
 
 The discipline: a reader who wants to grep for that data should be able to find it in the repo without searching post HTML.
 
+## Linking to repo files
+
+Posts are deployed to a separate GitHub Pages site, so relative paths to files in this repo (`fixtures/`, `reference/`, `tooling/`, etc.) will not resolve from the published post. **Always use full GitHub URLs** when linking to a file or directory in this repo:
+
+- File: `https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/<path>`
+- Directory: `https://github.com/frederick-douglas-pearce/claude-code-sessions/tree/main/<path>`
+
+This applies to inline markdown links **and** to attribution comments inside code fences (the `// from fixtures/...` style above — use the full URL in the comment, not the relative path). Treat any reference to an in-repo file as something the reader will click; they are not in the same repo as the post.
+
 ## Filename convention
 
 `YYYY-MM-DD-short-slug.md` (Jekyll-style). The date in the filename should match the `date:` frontmatter field.
