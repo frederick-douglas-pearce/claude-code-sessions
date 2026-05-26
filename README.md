@@ -2,7 +2,7 @@
 
 The canonical public reference for Claude Code's JSONL session data format — what's in those files at `~/.claude/projects/`, what the fields mean, how the format evolves, and how to work with it safely.
 
-**Status:** Early scaffold. Posts and reference docs are not yet populated.
+**Status:** Early scaffold. Posts and reference docs are not yet populated. See [`.claude/specs/roadmap-v0.md`](.claude/specs/roadmap-v0.md) for the initial work plan.
 
 ## What this repo contains
 

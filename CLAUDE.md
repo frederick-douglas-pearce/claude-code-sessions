@@ -89,8 +89,6 @@ If you're working on AgentFluent or CodeFluent and find new format details, they
 
 ## Status
 
-Pre-content scaffolding. The repo structure exists; populated content does not. Immediate next steps:
-1. First foundational post (anatomy of a Claude Code session)
-2. Sanitizer design + implementation
-3. Reference data dictionary populated (migrating from AgentFluent's existing notes with verification + version stamping)
-4. Sync workflow to the personal Pages repo
+Pre-content scaffolding. The repo structure exists; populated content does not.
+
+The initial roadmap lives at [`.claude/specs/roadmap-v0.md`](.claude/specs/roadmap-v0.md) — read it before starting new work. It captures the five work items (W1-W5), their priorities, dependencies, and open questions, and is the intended input for PM-agent-driven issue creation.
