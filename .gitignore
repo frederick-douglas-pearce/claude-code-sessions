@@ -1,0 +1,45 @@
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Editors
+.vscode/
+.idea/
+*.iml
+
+# Python (for sanitizer when it lands)
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Jekyll (if local previews are ever built here)
+_site/
+.jekyll-cache/
+.jekyll-metadata
+
+# Local-only artifacts
+*.local
+local/
+
+# Raw session data — defense in depth on top of the sanitizer policy.
+# Any file matching these patterns must NOT be committed.
+*.raw.jsonl
+fixtures/raw/
+fixtures/_quarantine/
+
+# Claude Code settings (local-only)
+.claude/settings.local.json
