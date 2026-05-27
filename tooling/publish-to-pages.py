@@ -19,6 +19,7 @@ Transformations:
 - Quotes bare-word elements in `tags:` / `categories:` arrays.
 - Adds `featured: false` if missing.
 - Body copied verbatim — links in posts/ already use full GitHub URLs.
+- Ensures the output ends with a trailing newline (Prettier requires this).
 
 The frontmatter parser is intentionally naive (single-line key: value pairs only),
 matching the current post template. See issue tracked for aligning the upstream
@@ -81,8 +82,12 @@ def main(src: Path, dest_dir: Path) -> None:
     new_fields = transform(parse_frontmatter(fm_block))
     new_fm = "\n".join(f"{k}: {v}" for k, v in new_fields.items())
 
+    out = f"---\n{new_fm}\n---\n{body}"
+    if not out.endswith("\n"):
+        out += "\n"
+
     dest = dest_dir / src.name
-    dest.write_text(f"---\n{new_fm}\n---\n{body}")
+    dest.write_text(out)
     print(f"wrote {dest}")
 
 
