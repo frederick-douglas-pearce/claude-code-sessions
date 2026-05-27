@@ -230,7 +230,7 @@ Practical guidance: think before sharing these files. If you want to share a ses
 
 On retention: Claude Code's documentation describes a 30-day default cleanup via the `cleanupPeriodDays` setting in `~/.claude/settings.json`. In practice, I've found older transcripts tend to persist well past 30 days on my own machine — at the time of this post's publication, 45% of my 556 session files are older than the documented default. Whether this reflects a change in enforcement, a threshold condition for cleanup triggering, or something else, I can't say with certainty.
 
-What I can say is: if long-term retention matters to you — for analysis, regression checks, or feeding tools like AgentFluent and CodeFluent that work better with history depth — set `cleanupPeriodDays` explicitly rather than relying on the default behavior. I have mine set to 3650 (ten years — effectively never):
+What I can say: if long-term retention matters to you — for analysis, regression checks, or feeding tools like AgentFluent and CodeFluent that work better with history depth — set `cleanupPeriodDays` explicitly rather than relying on the default behavior. I have mine set to 3650 (ten years — effectively never):
 
 ```json
 {
