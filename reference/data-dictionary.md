@@ -6,6 +6,8 @@ Reference docs are versioned **per section**, not per document — a single sect
 
 This doc grew out of [AgentFluent's CLAUDE.md "JSONL Data Format" section](https://github.com/frederick-douglas-pearce/agentfluent/blob/main/CLAUDE.md#jsonl-data-format), with additional fields and message types observed during verification against current sessions. Where AgentFluent's notes and observed behavior diverge, observed behavior wins.
 
+**Runtime scope.** Field-level verification in this doc is against the **Claude Code** runtime (v2.1.150). The same JSONL format is produced by the **Agent SDK** (Python and TypeScript), but the two runtimes do not necessarily exercise the format identically — for example, Claude Code restricts subagents from invoking further subagents, while the Agent SDK may not. Where this distinction matters for a specific claim, the section notes it inline. Reference docs will be updated with Agent SDK verification once representative session files are available to sample.
+
 ---
 
 ## File location
