@@ -43,3 +43,8 @@ fixtures/_quarantine/
 
 # Claude Code settings (local-only)
 .claude/settings.local.json
+
+# Social drafts — pre-publication scratch, not tracked.
+# Scoped to drafts/ so curated/finalized social assets under social/ can be
+# tracked later if desired.
+social/drafts/
