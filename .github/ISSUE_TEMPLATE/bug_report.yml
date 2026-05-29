@@ -1,0 +1,57 @@
+name: Correction / bug
+description: Report an error in a post, reference doc, fixture, or the tooling
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Post (posts/)
+        - Reference doc (reference/)
+        - Fixture (fixtures/)
+        - Tooling (sanitizer / validator / publish-to-pages)
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: location
+    attributes:
+      label: Location
+      description: File path or published URL of the affected content.
+      placeholder: "reference/data-dictionary.md#message-types, or the post URL"
+    validations:
+      required: true
+
+  - type: input
+    id: cc-version
+    attributes:
+      label: Claude Code version
+      description: The version you observed this against (format docs are version-anchored).
+      placeholder: "e.g., v2.1.150"
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What's wrong?
+      description: What's inaccurate, broken, or out of date?
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected / correct behavior
+      description: What should it say or do instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: >
+        How do you know? Link docs, or describe the observed JSONL.
+        DO NOT paste raw session data or secrets — describe the shape, or use a sanitized snippet.
+      render: text

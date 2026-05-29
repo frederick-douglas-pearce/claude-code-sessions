@@ -70,6 +70,29 @@ Scopes:
 - `feat(sanitizer):` / `fix(sanitizer):` for tooling
 - `chore(skills):` / `chore(specs):` for `.claude/` paths
 
+## Branching & PR workflow
+
+`main` is always publishable. Now that infrastructure work is underway, changes are split by what they touch:
+
+- **PR required** — anything under `tooling/`, `.claude/hooks/`, `.github/`, or `fixtures/` (including the future `tooling/sanitizer/`). These are the code/infra and data surfaces where a bad change has blast radius.
+- **Direct commit to `main` allowed** — content and docs: `posts/`, `social/`, `reference/`, README/CLAUDE.md copy edits, and typo fixes. (A PR is still welcome for substantial reference rewrites.)
+
+Workflow for PR-required changes:
+
+- **Branches:** `feature/<issue#>-short-description` or `fix/<issue#>-short-description` (e.g. `feature/12-secret-detection-hooks`).
+- Commit freely on the branch; **squash-merge** to `main` via PR. Every PR references its issue.
+- Open PRs with the sections in [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md): Summary, Test plan, **Security review**, Breaking changes.
+- **CI is being wired incrementally.** Until the validation workflows land (fixture validator, markdown lint, hook tests), PRs are gated by review, not automated checks. Run the relevant local checks first — e.g. `python3 .claude/hooks/tests/test_hooks.py` for hook changes.
+
+### Security gate (repo-specific)
+
+Because this repo documents a format that can carry secrets, every PR — and every direct content commit — must confirm:
+
+- **No raw session JSONL committed:** only synthetic fixtures, or sanitized fixtures with a `.scrubbed` sidecar.
+- **No secrets** in fixtures, posts, or examples. The `.claude/hooks/` guards cover live working sessions, not committed diffs — this is the diff-level backstop.
+
+Commit messages follow the Commit conventions above.
+
 ## Sibling project relationship
 
 [AgentFluent](https://github.com/frederick-douglas-pearce/agentfluent) and [CodeFluent](https://github.com/frederick-douglas-pearce/codefluent) both parse `~/.claude/projects/*.jsonl`. They share data sources with this repo but produce different outputs:

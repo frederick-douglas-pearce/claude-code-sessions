@@ -1,0 +1,38 @@
+name: Proposal
+description: Propose a new post, reference section, or tooling capability
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - New post (posts/)
+        - New / expanded reference section (reference/)
+        - Tooling (sanitizer / validator / CI)
+        - Format-watch / skill
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What gap or need does this address? Who benefits?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: Rough shape of the work. Link the roadmap item (W1-W5) if applicable.
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope / acceptance criteria
+      description: What does "done" look like?
