@@ -1,0 +1,7 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "tail -f ~/.claude/projects/-home-dev-example-project/00000000-0000-0000-0000-000000000001.jsonl"
+  }
+}
