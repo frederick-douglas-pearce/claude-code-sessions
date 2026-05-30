@@ -293,14 +293,47 @@ def _compile_rule(pattern_str: str, replace: str, *, where: str) -> Rule:
             raise ConfigError(
                 f"{where}.match: invalid regex {pattern_text!r}: {exc}"
             ) from exc
+        _reject_zero_width_pattern(pattern_str, compiled, where=where)
         return Rule(pattern=pattern_str, replace=replace, is_regex=True, compiled=compiled)
-    # Literal: escape so a single Pattern.search() works uniformly.
+    # Literal: escape so a single Pattern.search() works uniformly. Literal
+    # patterns can never be zero-width here (empty literals are rejected
+    # upstream in ``_build_rules``), so no zero-width check is needed.
     return Rule(
         pattern=pattern_str,
         replace=replace,
         is_regex=False,
         compiled=re.compile(re.escape(pattern_text)),
     )
+
+
+def _reject_zero_width_pattern(
+    pattern_str: str, compiled: re.Pattern[str], *, where: str
+) -> None:
+    """Reject patterns whose compiled regex matches the empty string at
+    position 0 with zero width.
+
+    Catches anchors (``^``, ``$``, ``\\A``, ``\\Z``), empty groups
+    (``(?:)``), and unbounded-optional quantifiers (``.*``, ``a*``,
+    ``a?``). These match zero characters at every position, so as a rule
+    pattern they would either substitute at every zero-width position in
+    every leaf or pollute the substitution audit log with ('' -> X) rows
+    the sidecar (PRD section 10) cannot interpret.
+
+    PRD section 11 fail-closed posture: a security tool surfaces
+    misconfigured rules loudly, rather than silently no-op-ing them.
+    The rule layer's runtime guard (``rules/paths.py`` ``_apply_rule``)
+    remains for input-dependent zero-width matches the static check
+    cannot see (lookaheads, ``\\b``).
+    """
+    test_match = compiled.match("")
+    if test_match is not None and test_match.start() == test_match.end():
+        raise ConfigError(
+            f"{where}.match: pattern {pattern_str!r} matches the empty "
+            f"string with zero width. Anchor-only patterns (^, $, (?:)) "
+            f"and unbounded-optional patterns (.*, a*, a?) cannot scrub "
+            f"any content; tighten to a consuming form (e.g. .+ instead "
+            f"of .*) or use a literal match."
+        )
 
 
 def _split_regex_prefix(pattern_str: str, *, where: str) -> tuple[str, bool]:
@@ -380,6 +413,10 @@ def _build_extras(raw: Any) -> list[ExtraSecretPattern]:
             raise ConfigError(
                 f"{where}.pattern: invalid regex {pattern_text!r}: {exc}"
             ) from exc
+        if is_regex:
+            _reject_zero_width_pattern(
+                pattern_value, compiled, where=f"{where}.pattern"
+            )
         out.append(
             ExtraSecretPattern(pattern=pattern_value, kind=kind, compiled=compiled)
         )

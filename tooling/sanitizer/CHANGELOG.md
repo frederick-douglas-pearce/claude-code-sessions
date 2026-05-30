@@ -57,11 +57,22 @@ Use semver: `MAJOR.MINOR.PATCH`.
   `re:foo-(.+) -> bar-\1` plus literal `bar-x -> Z` passes I-3 but
   cascades at runtime). Output stays scrubbed and deterministic in both
   cases.
-- Zero-width regex matches (lookahead-only patterns, `\b`, `^`) no longer
-  pollute the substitution table with `('' -> X)` rows. `_apply_rule`'s
-  callback short-circuits empty matches so the sidecar's audit log only
-  carries interpretable mappings; the zero-width substitution itself
-  becomes a no-op at that position.
+- Zero-width regex patterns are now rejected at config load time by
+  `_reject_zero_width_pattern` in `config.py`: any rule whose compiled
+  regex matches the empty string with zero span (anchors `^`, `$`, `\A`;
+  empty groups `(?:)`; unbounded-optional quantifiers `.*`, `a*`, `a?`)
+  surfaces as `ConfigError` (exit 3) instead of silently no-op-ing at
+  runtime. PRD section 11 fail-closed posture: for a security tool,
+  silent acceptance of misconfigured rules is the wrong default. The
+  check also applies to `extra_secret_patterns`, which share the same
+  matching infrastructure.
+- The rule layer's runtime backstop (`_apply_rule` in `rules/paths.py`)
+  stays for input-dependent zero-width matches the static check cannot
+  see: lookaheads (`(?=foo)`) and `\b` only match zero width when the
+  surrounding string supplies the context, so they slip past the load-
+  time check. The backstop returns an empty string so `re.sub` inserts
+  nothing at the zero-width position and the substitution table never
+  records a meaningless `('' -> X)` row.
 
 Tests (`test_paths.py`, 14 cases): home-dir replacement across the surfaces
 the issue body names (`cwd`, `tool_use.input.file_path`,
@@ -73,7 +84,11 @@ first vs general first); duplicate-rule dead-code case; two-runs-byte-
 identical determinism (now also asserts table-snapshot equality, not just
 output bytes); non-matching leaves pass through; empty rules = identity;
 backref cascade past the I-3 guard (regression pin for limitation b);
-zero-width match does not pollute the subtable.
+zero-width lookahead pattern handled by runtime backstop.
+
+Tests (`test_config.py`, +3 cases): anchor-only regex (`re:^`) and
+unbounded-optional regex (`re:.*`) rejected at load time with a clear
+`ConfigError`; the same static check applies to `extra_secret_patterns`.
 
 No version bump: this PR adds importable machinery but the CLI (#26) does
 not yet feed it. Output bytes from `ccs-sanitize` are still identity-pass.

@@ -122,11 +122,15 @@ def _apply_rule(rule: Rule, leaf: str, table: SubstitutionTable) -> str:
     def repl(match: re.Match[str]) -> str:
         original = match.group(0)
         if not original:
-            # Zero-width match (lookahead-only pattern, ``\b``, ``^``, ...).
-            # Recording an empty original would pollute the sidecar with a
-            # meaningless ('' -> X) entry the audit log can't interpret.
-            # Return the empty string so ``re.sub`` inserts nothing at the
-            # zero-width position (effective no-op for this match).
+            # Zero-width match. The config loader rejects anchor-only and
+            # unbounded-optional patterns up front (``_reject_zero_width_pattern``
+            # in ``config.py``); this branch is the backstop for input-
+            # dependent zero-width matches the static check cannot see --
+            # primarily lookaheads (``(?=foo)``) and ``\b``, which match
+            # zero width only when the surrounding string supplies the
+            # context. Recording an empty original would pollute the
+            # sidecar with a meaningless ('' -> X) entry; return "" so
+            # ``re.sub`` inserts nothing at the zero-width position.
             return ""
         replacement = match.expand(replace_template) if is_regex else replace_template
         table.record(original, replacement)
