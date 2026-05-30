@@ -34,8 +34,11 @@ VENDORED_PATTERNS: list[tuple[str, str]] = [
 ]
 
 BATCH_PATTERNS: list[tuple[str, str]] = [
+    # PEM private-key armor. Includes ENCRYPTED PRIVATE KEY (PKCS#8 encrypted,
+    # what ``openssl pkcs8`` and ``ssh-keygen`` with a passphrase produce) so
+    # encrypted keys do not slip past as if they were not key material.
     (
-        r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----",
+        r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP |ENCRYPTED )?PRIVATE KEY-----",
         "pem-private-key",
     ),
     (r"(?i)authorization:\s*bearer\s+[A-Za-z0-9._-]+", "bearer-token"),

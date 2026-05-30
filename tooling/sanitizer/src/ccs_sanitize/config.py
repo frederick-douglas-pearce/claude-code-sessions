@@ -9,12 +9,14 @@ PRD reference:
     misconfigured rule whose replacement is itself sensitive would leak
     through the sidecar (I-3). ``load_config`` runs the replacement-leak
     guard at load time: any path/identifier ``replace`` that matches any
-    other path rule, any identifier rule, or any built-in/extra secret
-    pattern is rejected with a typed error.
+    other path rule (including itself), any identifier rule, or any built-in /
+    extra secret pattern is rejected with a typed error.
 
 CLI wiring (translating ``ConfigError`` to exit code 3 per PRD section 11)
 lands with #26. A missing config file surfaces as ``FileNotFoundError`` and
-maps to exit 1 (usage error) at the CLI layer.
+maps to exit 1 (usage error) at the CLI layer; other I/O or decoding errors
+from the loader are normalized to ``ConfigError`` so the CLI can distinguish
+them cleanly.
 
 The YAML schema uses ``match:`` per the PRD; the Python field is named
 ``pattern`` to avoid visual collision with Python's ``match``/``case``
@@ -42,6 +44,14 @@ _ALLOWED_RULE_KEYS = frozenset({"match", "replace"})
 _ALLOWED_OPTION_KEYS = frozenset({"scrub_git_branch", "remap_uuids"})
 _ALLOWED_EXTRA_KEYS = frozenset({"pattern", "kind"})
 
+# Compile built-in secret patterns once at module import. This (a) catches a
+# typo in a vendored or batch pattern at import time rather than on first
+# config load, and (b) amortizes the per-load compile cost into a single
+# upfront step.
+_BUILTIN_COMPILED: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(pat), label) for pat, label in SECRET_PATTERNS
+]
+
 
 class ConfigError(ValueError):
     """Raised when a config file fails to load or validate.
@@ -62,6 +72,11 @@ class Rule:
       - Literal rules compile to ``re.escape(pattern)`` so the I-3 guard and
         future scrub layers can use one ``re.Pattern`` code path.
       - Regex rules compile the substring after ``re:``.
+
+    ``__post_init__`` validates that ``compiled`` and ``is_regex`` are
+    consistent with ``pattern``, so direct ``Rule(...)`` construction
+    (the type is public via ``__all__``) cannot produce a desynced object
+    that the I-3 guard would silently miscompare against.
     """
 
     pattern: str
@@ -69,12 +84,49 @@ class Rule:
     is_regex: bool
     compiled: re.Pattern[str]
 
+    def __post_init__(self) -> None:
+        expected_is_regex = self.pattern.startswith(_REGEX_PREFIX)
+        expected_source = (
+            self.pattern[len(_REGEX_PREFIX) :]
+            if expected_is_regex
+            else re.escape(self.pattern)
+        )
+        if self.is_regex != expected_is_regex:
+            raise ValueError(
+                f"Rule.is_regex={self.is_regex} does not match pattern={self.pattern!r}"
+            )
+        if self.compiled.pattern != expected_source:
+            raise ValueError(
+                f"Rule.compiled.pattern={self.compiled.pattern!r} does not match "
+                f"expected {expected_source!r} derived from pattern={self.pattern!r}"
+            )
+
 
 @dataclass(frozen=True)
 class ExtraSecretPattern:
+    """A user-supplied additive secret pattern (PRD section 9).
+
+    Schema parity with ``Rule``: bare ``pattern`` strings are treated as
+    literals (escaped to a regex), strings prefixed with ``re:`` are
+    compiled as regex — matching how paths and identifiers behave. The
+    earlier version of this loader compiled bare strings raw, which created
+    surprising semantics for users writing ``pattern: "C++"`` or similar.
+    """
+
     pattern: str
     kind: str
     compiled: re.Pattern[str]
+
+    def __post_init__(self) -> None:
+        if self.pattern.startswith(_REGEX_PREFIX):
+            expected_source = self.pattern[len(_REGEX_PREFIX) :]
+        else:
+            expected_source = re.escape(self.pattern)
+        if self.compiled.pattern != expected_source:
+            raise ValueError(
+                f"ExtraSecretPattern.compiled.pattern={self.compiled.pattern!r} does not "
+                f"match expected {expected_source!r} derived from pattern={self.pattern!r}"
+            )
 
 
 @dataclass(frozen=True)
@@ -85,23 +137,63 @@ class ConfigOptions:
 
 @dataclass(frozen=True)
 class Config:
+    """Validated, immutable config tree.
+
+    Field lists (``paths``, ``identifiers``, ``extra_secret_patterns``) are
+    converted to tuples in ``__post_init__`` so that ``Config`` is
+    structurally immutable. A frozen dataclass with mutable ``list`` fields
+    would allow downstream code to ``config.paths.append(...)`` post-
+    validation, bypassing the I-3 replacement-leak guard that ran at load
+    time. Tuples keep the iteration ergonomics callers expect while
+    blocking that bypass.
+    """
+
     version: int
-    paths: list[Rule] = field(default_factory=list)
-    identifiers: list[Rule] = field(default_factory=list)
+    paths: tuple[Rule, ...] = ()
+    identifiers: tuple[Rule, ...] = ()
     options: ConfigOptions = field(default_factory=ConfigOptions)
-    extra_secret_patterns: list[ExtraSecretPattern] = field(default_factory=list)
+    extra_secret_patterns: tuple[ExtraSecretPattern, ...] = ()
+
+    def __post_init__(self) -> None:
+        # Accept lists at construction time (the loader builds lists), but
+        # store as tuples so the public surface is immutable.
+        if not isinstance(self.paths, tuple):
+            object.__setattr__(self, "paths", tuple(self.paths))
+        if not isinstance(self.identifiers, tuple):
+            object.__setattr__(self, "identifiers", tuple(self.identifiers))
+        if not isinstance(self.extra_secret_patterns, tuple):
+            object.__setattr__(
+                self, "extra_secret_patterns", tuple(self.extra_secret_patterns)
+            )
 
 
 def load_config(path: Path | str) -> Config:
     """Load and validate a sanitizer config file.
 
+    The path's ``~`` prefix is expanded so callers can pass
+    ``~/.ccs-sanitize.yaml`` without pre-expansion. Read errors and
+    decode errors are normalized to ``ConfigError`` so the CLI layer
+    sees a single error class for every config-stage failure other than
+    "file does not exist".
+
     Raises:
         FileNotFoundError: the path does not exist (CLI maps to exit 1).
-        ConfigError: YAML is malformed, schema is violated, a regex fails
-            to compile, or the I-3 replacement-leak guard fires.
+        ConfigError: I/O error, file is not UTF-8, YAML is malformed,
+            schema is violated, a regex fails to compile, or the I-3
+            replacement-leak guard fires (CLI maps to exit 3).
     """
-    path = Path(path)
-    text = path.read_text(encoding="utf-8")
+    path = Path(path).expanduser()
+
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise
+    except UnicodeDecodeError as exc:
+        raise ConfigError(
+            f"config file is not valid UTF-8: {path} ({exc})"
+        ) from exc
+    except OSError as exc:
+        raise ConfigError(f"cannot read config file {path}: {exc}") from exc
 
     try:
         data = yaml.safe_load(text)
@@ -117,18 +209,30 @@ def load_config(path: Path | str) -> Config:
 
     _check_unknown_keys(data, _ALLOWED_TOP_LEVEL_KEYS, "<root>")
 
-    version = data.get("version")
-    if version is None:
+    if "version" not in data:
         raise ConfigError("missing required field: version")
+    version = data["version"]
+    # bool is a subclass of int in Python, so `True == 1` and `False == 0`;
+    # float `1.0` also compares equal to `1`. Without the isinstance gate, a
+    # YAML body of ``version: true`` or ``version: 1.0`` would pass the
+    # equality check and produce a Config carrying a non-int version. The
+    # sidecar then serializes that value into ``sanitizer_version:``, which
+    # downstream consumers (fixture-validator, sibling projects) expect to
+    # be an integer.
+    if isinstance(version, bool) or not isinstance(version, int):
+        raise ConfigError(
+            f"version must be an integer, got {type(version).__name__}: {version!r}"
+        )
     if version != _SUPPORTED_VERSION:
         raise ConfigError(
-            f"unsupported config version: {version!r} (this sanitizer reads version {_SUPPORTED_VERSION})"
+            f"unsupported config version: {version!r} "
+            f"(this sanitizer reads version {_SUPPORTED_VERSION})"
         )
 
-    paths = _build_rules(data.get("paths", []), section="paths")
-    identifiers = _build_rules(data.get("identifiers", []), section="identifiers")
-    options = _build_options(data.get("options", {}))
-    extras = _build_extras(data.get("extra_secret_patterns", []))
+    paths = _build_rules(data.get("paths"), section="paths")
+    identifiers = _build_rules(data.get("identifiers"), section="identifiers")
+    options = _build_options(data.get("options"))
+    extras = _build_extras(data.get("extra_secret_patterns"))
 
     config = Config(
         version=version,
@@ -154,6 +258,12 @@ def _check_unknown_keys(
 
 
 def _build_rules(raw: Any, *, section: str) -> list[Rule]:
+    # ``section:`` written with no value parses to ``None``; treat as empty.
+    # The earlier version raised ConfigError here for paths/identifiers/extras
+    # while ``options:`` accepted None as defaults — a usability inconsistency
+    # since users naturally write ``paths:`` to mean "no rules".
+    if raw is None:
+        return []
     if not isinstance(raw, list):
         raise ConfigError(
             f"{section} must be a list, got {type(raw).__name__}"
@@ -175,10 +285,8 @@ def _build_rules(raw: Any, *, section: str) -> list[Rule]:
 
 
 def _compile_rule(pattern_str: str, replace: str, *, where: str) -> Rule:
-    if pattern_str.startswith(_REGEX_PREFIX):
-        pattern_text = pattern_str[len(_REGEX_PREFIX) :]
-        if not pattern_text:
-            raise ConfigError(f"{where}.match: empty regex after 're:' prefix")
+    pattern_text, is_regex = _split_regex_prefix(pattern_str, where=where)
+    if is_regex:
         try:
             compiled = re.compile(pattern_text)
         except re.error as exc:
@@ -191,8 +299,23 @@ def _compile_rule(pattern_str: str, replace: str, *, where: str) -> Rule:
         pattern=pattern_str,
         replace=replace,
         is_regex=False,
-        compiled=re.compile(re.escape(pattern_str)),
+        compiled=re.compile(re.escape(pattern_text)),
     )
+
+
+def _split_regex_prefix(pattern_str: str, *, where: str) -> tuple[str, bool]:
+    """Split a YAML pattern string into ``(source, is_regex)``.
+
+    Raises ``ConfigError`` if the input is ``"re:"`` (empty after prefix
+    strip). Shared between ``_compile_rule`` and ``_build_extras`` so
+    extras get the same empty-regex guard.
+    """
+    if pattern_str.startswith(_REGEX_PREFIX):
+        pattern_text = pattern_str[len(_REGEX_PREFIX) :]
+        if not pattern_text:
+            raise ConfigError(f"{where}: empty regex after 're:' prefix")
+        return pattern_text, True
+    return pattern_str, False
 
 
 def _build_options(raw: Any) -> ConfigOptions:
@@ -201,14 +324,20 @@ def _build_options(raw: Any) -> ConfigOptions:
     if not isinstance(raw, dict):
         raise ConfigError(f"options must be a mapping, got {type(raw).__name__}")
     _check_unknown_keys(raw, _ALLOWED_OPTION_KEYS, "options")
-    return ConfigOptions(
-        scrub_git_branch=_require_bool(
-            raw.get("scrub_git_branch", True), "options.scrub_git_branch"
-        ),
-        remap_uuids=_require_bool(
-            raw.get("remap_uuids", False), "options.remap_uuids"
-        ),
-    )
+    # Forward only the keys actually present in YAML so the dataclass owns
+    # the defaults. Listing the defaults here too would mean a future change
+    # to ``ConfigOptions``' default values silently disagrees with this
+    # function for explicitly-set keys vs omitted keys.
+    kwargs: dict[str, Any] = {}
+    if "scrub_git_branch" in raw:
+        kwargs["scrub_git_branch"] = _require_bool(
+            raw["scrub_git_branch"], "options.scrub_git_branch"
+        )
+    if "remap_uuids" in raw:
+        kwargs["remap_uuids"] = _require_bool(
+            raw["remap_uuids"], "options.remap_uuids"
+        )
+    return ConfigOptions(**kwargs)
 
 
 def _require_bool(value: Any, where: str) -> bool:
@@ -220,6 +349,8 @@ def _require_bool(value: Any, where: str) -> bool:
 
 
 def _build_extras(raw: Any) -> list[ExtraSecretPattern]:
+    if raw is None:
+        return []
     if not isinstance(raw, list):
         raise ConfigError(
             f"extra_secret_patterns must be a list, got {type(raw).__name__}"
@@ -236,18 +367,22 @@ def _build_extras(raw: Any) -> list[ExtraSecretPattern]:
             raise ConfigError(f"{where}.pattern must be a non-empty string")
         if not isinstance(kind, str) or not kind:
             raise ConfigError(f"{where}.kind must be a non-empty string")
-        pattern_text = (
-            pattern_value[len(_REGEX_PREFIX) :]
-            if pattern_value.startswith(_REGEX_PREFIX)
-            else pattern_value
+        # Mirror _compile_rule so extras have parity with paths/identifiers:
+        # bare strings are literals (re.escape'd); ``re:``-prefixed strings
+        # are regex. The earlier loader compiled bare strings raw, which
+        # silently turned ``pattern: "C++"`` into a regex with a quantifier.
+        pattern_text, is_regex = _split_regex_prefix(
+            pattern_value, where=f"{where}.pattern"
         )
         try:
-            compiled = re.compile(pattern_text)
+            compiled = re.compile(pattern_text if is_regex else re.escape(pattern_text))
         except re.error as exc:
             raise ConfigError(
                 f"{where}.pattern: invalid regex {pattern_text!r}: {exc}"
             ) from exc
-        out.append(ExtraSecretPattern(pattern=pattern_value, kind=kind, compiled=compiled))
+        out.append(
+            ExtraSecretPattern(pattern=pattern_value, kind=kind, compiled=compiled)
+        )
     return out
 
 
@@ -260,26 +395,33 @@ def _check_replacement_leak(config: Config) -> None:
     happens to use a generic-looking placeholder that itself looks like a
     credential pattern, would leak through the sidecar even though the
     output file is clean.
-    """
-    builtins: list[tuple[re.Pattern[str], str]] = [
-        (re.compile(pat), label) for pat, label in SECRET_PATTERNS
-    ]
 
+    The rule-vs-rule loop deliberately includes the self-comparison: a
+    rule whose own ``replace`` contains its own ``match`` is a non-
+    idempotent rule (a second pass would re-substitute) and a sidecar leak
+    in its own right.
+    """
     all_rules = [("paths", r) for r in config.paths] + [
         ("identifiers", r) for r in config.identifiers
     ]
 
     for section, rule in all_rules:
         for other_section, other in all_rules:
-            if other is rule:
-                continue
             if other.compiled.search(rule.replace):
+                if other is rule:
+                    raise ConfigError(
+                        f"{section} rule replacement {rule.replace!r} matches "
+                        f"its own match {rule.pattern!r} — the rule is not "
+                        f"idempotent and would leak the original pattern "
+                        f"through the sidecar (PRD section 10, I-3)"
+                    )
                 raise ConfigError(
                     f"{section} rule replacement {rule.replace!r} matches "
-                    f"{other_section} rule match {other.pattern!r} — replacements "
-                    f"must not themselves match any other rule (PRD section 10, I-3)"
+                    f"{other_section} rule match {other.pattern!r} — "
+                    f"replacements must not themselves match any other rule "
+                    f"(PRD section 10, I-3)"
                 )
-        for pattern, label in builtins:
+        for pattern, label in _BUILTIN_COMPILED:
             if pattern.search(rule.replace):
                 raise ConfigError(
                     f"{section} rule replacement {rule.replace!r} matches "
