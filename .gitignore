@@ -26,6 +26,9 @@ dist/
 build/
 *.egg-info/
 
+# uv — library convention is to not commit the lockfile.
+uv.lock
+
 # Jekyll (if local previews are ever built here)
 _site/
 .jekyll-cache/
