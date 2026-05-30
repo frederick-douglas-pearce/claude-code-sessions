@@ -38,6 +38,29 @@ Use semver: `MAJOR.MINOR.PATCH`.
 
 ## [Unreleased]
 
+### Added (issue #19)
+- YAML config loader at `ccs_sanitize.config.load_config`. Reads a `.ccs-sanitize.yaml`
+  per PRD §12 schema and returns a typed `Config` (with `Rule`, `ExtraSecretPattern`,
+  `ConfigOptions` sub-types). Surfaces `ConfigError` (a `ValueError` subclass) for
+  malformed YAML, schema violations, invalid regex, attempts to add unknown keys, and
+  I-3 replacement-leak failures. A missing file surfaces as `FileNotFoundError` so the
+  CLI (#26) can map it to exit 1 distinct from `ConfigError` → exit 3 (PRD §11).
+- Replacement-leak guard (I-3) at config load time: any path/identifier `replace:`
+  value that matches any other path rule, any identifier rule, any built-in
+  `SECRET_PATTERNS` entry, or any `extra_secret_patterns` regex is rejected with a
+  message naming both the offending rule and the rule it leaked into.
+- `VENDORED_PATTERNS` (Tier-1, copied verbatim from
+  `.claude/hooks/detect_secrets_in_output.py`) and `BATCH_PATTERNS` (Tier-2, the §9
+  sanitizer-only additions: PEM keys, bearer tokens, JWTs, DB connection strings,
+  Slack tokens) land in `rules/secrets.py` so the I-3 guard has something to validate
+  against. `SECRET_PATTERNS = VENDORED_PATTERNS + BATCH_PATTERNS`. The hook sync-test
+  (I-4) and the scrub logic still land with #23.
+- `PyYAML>=6` added to runtime dependencies. YAML parsing uses `yaml.safe_load`.
+
+No version bump: this PR adds importable machinery but does not yet produce
+output bytes. Per the bump policy above, the next byte-affecting story will
+carry the bump.
+
 ## [0.1.0] — 2026-05-29
 
 Initial scaffold (issue #18). No transform logic yet.
