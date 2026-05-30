@@ -2,7 +2,7 @@
 
 CLI tool that scrubs raw Claude Code session JSONL files for safe publication.
 
-**Status:** Designed (v0 PRD landed 2026-05-29); implementation pending.
+**Status:** Scaffold landed; transform logic pending. Track Phase 2 progress in [epic #1](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/1).
 
 **Design:** [`prd-sanitizer.md`](../../.claude/specs/prd-sanitizer.md) is the canonical v0
 design. Where this README's sketches differ from the PRD — notably the [Sidecar format](#sidecar-format)
@@ -64,6 +64,25 @@ substitutions:             # one line per substitution, sorted by rule
   - identifiers: "realname@example.com" → "user@example.com"
   ...
 ```
+
+## Development
+
+The package is `uv`-managed and Python 3.11+. From `tooling/sanitizer/`:
+
+```bash
+uv venv
+source .venv/bin/activate
+uv pip install -e ".[dev]"
+pytest                          # run the test suite
+ccs-sanitize --version          # smoke-check the entry point
+```
+
+The runtime dependency surface is intentionally minimal (stdlib + PyYAML
+once the config loader lands in #19). `pytest` is the only dev dep.
+
+Version bumps follow [`CHANGELOG.md`](CHANGELOG.md)'s "bump on any
+byte-affecting change" policy — because the value lands in every
+`.scrubbed` sidecar and downstream consumers gate on it.
 
 ## Not in scope (for v0)
 
