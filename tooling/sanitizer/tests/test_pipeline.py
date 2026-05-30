@@ -12,7 +12,7 @@ yet); those land with #23.
 
 from __future__ import annotations
 
-import json
+import math
 
 import pytest
 
@@ -20,6 +20,7 @@ from ccs_sanitize.pipeline import (
     DEFAULT_STRIP_TYPES,
     PipelineError,
     default_skip_predicate,
+    make_skip_predicate,
     run_pipeline,
     serialize_line,
     walk_strings,
@@ -31,7 +32,11 @@ from ccs_sanitize.subtable import SubstitutionTable
 
 
 def _line(obj: dict) -> str:
-    return json.dumps(obj, separators=(",", ":"))
+    """Serialize a synthetic line the same way the pipeline does, so test
+    inputs and pipeline outputs use the same byte shape (otherwise a future
+    pinning change in ``serialize_line`` could silently diverge from the
+    test helper)."""
+    return serialize_line(obj)
 
 
 def _record_transform():
@@ -57,7 +62,7 @@ def test_strip_types_drops_file_history_snapshot() -> None:
     ]
     out, counts = run_pipeline(lines)
     assert len(out) == 2
-    assert counts.stripped_lines == {"file-history-snapshot": 1}
+    assert dict(counts.stripped_lines) == {"file-history-snapshot": 1}
     # The dropped line's content must not appear anywhere in the output.
     serialized = "\n".join(out)
     assert "trackedFileBackups" not in serialized
@@ -71,7 +76,7 @@ def test_strip_types_drops_attachment() -> None:
     ]
     out, counts = run_pipeline(lines)
     assert len(out) == 1
-    assert counts.stripped_lines == {"attachment": 1}
+    assert dict(counts.stripped_lines) == {"attachment": 1}
     assert "AAAAA" not in "\n".join(out)
 
 
@@ -87,14 +92,14 @@ def test_custom_strip_types_replaces_default() -> None:
     ]
     out, counts = run_pipeline(lines, strip_types=frozenset({"custom-junk"}))
     assert len(out) == 2  # the two default-stripped types now pass through
-    assert counts.stripped_lines == {"custom-junk": 1}
+    assert dict(counts.stripped_lines) == {"custom-junk": 1}
 
 
 def test_stripped_counts_aggregate_across_lines() -> None:
     lines = [_line({"type": "attachment"})] * 5
     out, counts = run_pipeline(lines)
     assert out == []
-    assert counts.stripped_lines == {"attachment": 5}
+    assert dict(counts.stripped_lines) == {"attachment": 5}
 
 
 # ----- structural traversal (PRD section 6b B) ---------------------------
@@ -208,6 +213,84 @@ def test_walk_strings_skips_documented_fields() -> None:
     assert "REASONING" in leaves
 
 
+def test_walk_strings_does_not_skip_bare_id_in_user_content() -> None:
+    """PRD section 6b B anchors ``message.id`` and ``tool_use.id`` to their
+    parents. A bare ``id`` field inside user-controlled content (e.g., an
+    MCP tool input or tool_result body) must NOT be skipped — otherwise PII
+    in those fields slips past scrubbing."""
+    transform, visited = _record_transform()
+    walk_strings(
+        {
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_envelope_id",  # tool_use.id — anchored skip
+                        "input": {
+                            "id": "/home/user/secret-doc",  # USER content — must visit
+                            "model": "gpt-4-via-/home/user",  # USER content — must visit
+                            "signature": "user-supplied-sig",  # USER content — must visit
+                        },
+                    },
+                ],
+            },
+        },
+        transform,
+    )
+    leaves = {leaf for leaf, _ in visited}
+    # Anchored skips still apply.
+    assert "toolu_envelope_id" not in leaves
+    # User content with colliding field names is visited.
+    assert "/home/user/secret-doc" in leaves
+    assert "gpt-4-via-/home/user" in leaves
+    assert "user-supplied-sig" in leaves
+
+
+def test_walk_strings_does_not_over_skip_usage_named_user_field() -> None:
+    """The skip-list scopes ``usage`` to the token-accounting subtree (PRD
+    section 6b B). A user-controlled field literally named ``usage`` (e.g.,
+    an MCP tool input documenting its own usage) must NOT be skipped."""
+    transform, visited = _record_transform()
+    walk_strings(
+        {
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "input": {
+                            # 'usage' here is a user-controlled string field,
+                            # not the token-accounting block.
+                            "usage": "call from /home/fdpearce",
+                        },
+                    },
+                ],
+            },
+        },
+        transform,
+    )
+    leaves = {leaf for leaf, _ in visited}
+    assert "call from /home/fdpearce" in leaves
+
+
+def test_walk_strings_still_skips_genuine_usage_subtree() -> None:
+    """``message.usage.service_tier`` (a string field directly under the
+    token-accounting block) IS skipped — PRD scopes the entire usage block."""
+    transform, visited = _record_transform()
+    walk_strings(
+        {
+            "message": {
+                "usage": {
+                    "service_tier": "standard",
+                    "input_tokens": 100,
+                },
+            },
+        },
+        transform,
+    )
+    leaves = {leaf for leaf, _ in visited}
+    assert "standard" not in leaves
+
+
 def test_skip_predicate_handles_tokens_suffix() -> None:
     """Any field ending in _tokens is skipped (usage.input_tokens etc.).
     Numeric in practice, but the predicate covers strings defensively."""
@@ -215,15 +298,36 @@ def test_skip_predicate_handles_tokens_suffix() -> None:
     assert default_skip_predicate(("usage", "cache_creation_input_tokens")) is True
 
 
-def test_skip_predicate_usage_subtree() -> None:
-    """Anything under usage.* is skipped, even non-token names."""
+def test_skip_predicate_usage_anchored_to_immediate_parent() -> None:
+    """Anything one level under ``usage`` is skipped, but a ``usage`` key
+    appearing as a great-grandparent does NOT cascade-skip its descendants."""
+    # Genuine usage block descendant — skipped.
     assert default_skip_predicate(("message", "usage", "service_tier")) is True
+    # User field named 'usage' is not a usage block (its descendants are
+    # user data); only direct children of the literal-name-'usage' parent
+    # are skipped, which is what the PRD scope intends.
+    assert default_skip_predicate(("message", "content", "input", "usage")) is False
 
 
 def test_skip_predicate_empty_path() -> None:
     """An empty path can't be a leaf in our walker but the predicate
     should answer cleanly anyway."""
     assert default_skip_predicate(()) is False
+
+
+def test_make_skip_predicate_remap_uuids_visits_uuid_fields() -> None:
+    """PRD section 6b B: UUID fields are skipped 'unless remap_uuids is on'.
+    The factory honors that flag so #22's identifier layer can remap UUIDs
+    consistently."""
+    predicate = make_skip_predicate(remap_uuids=True)
+    # UUID-graph fields are NOT skipped under remap_uuids.
+    assert predicate(("uuid",)) is False
+    assert predicate(("parentUuid",)) is False
+    assert predicate(("sessionId",)) is False
+    assert predicate(("agentId",)) is False
+    # But other PRD skip-list members are still skipped.
+    assert predicate(("type",)) is True
+    assert predicate(("message", "model")) is True
 
 
 # ----- serialization pins (PRD section 11 I-1) ---------------------------
@@ -247,6 +351,17 @@ def test_serialize_line_preserves_key_order() -> None:
     assert out.index("z_last") < out.index("m_middle") < out.index("a_first")
 
 
+def test_serialize_line_rejects_nan() -> None:
+    """NaN / Infinity are non-RFC-8259 JSON; we refuse to emit them."""
+    with pytest.raises(PipelineError, match="non-finite number"):
+        serialize_line({"score": float("nan")})
+
+
+def test_serialize_line_rejects_infinity() -> None:
+    with pytest.raises(PipelineError, match="non-finite number"):
+        serialize_line({"score": math.inf})
+
+
 # ----- end-to-end pipeline integration -----------------------------------
 
 
@@ -261,7 +376,7 @@ def test_identity_run_is_byte_identical_across_runs() -> None:
     out1, counts1 = run_pipeline(lines)
     out2, counts2 = run_pipeline(lines)
     assert out1 == out2
-    assert counts1.stripped_lines == counts2.stripped_lines
+    assert dict(counts1.stripped_lines) == dict(counts2.stripped_lines)
 
 
 def test_identity_run_preserves_key_order_of_input() -> None:
@@ -275,6 +390,48 @@ def test_identity_run_preserves_key_order_of_input() -> None:
 def test_malformed_jsonl_raises_pipeline_error() -> None:
     with pytest.raises(PipelineError, match="malformed JSONL"):
         run_pipeline(["this is not json"])
+
+
+def test_malformed_jsonl_error_names_input_line_number() -> None:
+    """When blank lines precede a malformed line, the error names the
+    input line position (not the post-filter record index), so a user can
+    locate the bad line in their source file."""
+    lines = ["", "   ", _line({"type": "assistant"}), "this is not json"]
+    with pytest.raises(PipelineError, match="line 4"):
+        run_pipeline(lines)
+
+
+def test_non_dict_root_raises_pipeline_error() -> None:
+    """A JSONL line whose root is a scalar/array (not a record-shaped
+    object) is treated as a shape violation, not silently walked through.
+    PRD section 11 fails closed on malformed input."""
+    # Bare string root.
+    with pytest.raises(PipelineError, match="must be a JSON object"):
+        run_pipeline(['"just a string"'])
+    # Top-level array root.
+    with pytest.raises(PipelineError, match="must be a JSON object"):
+        run_pipeline(["[1, 2, 3]"])
+    # Bare scalar root.
+    with pytest.raises(PipelineError, match="must be a JSON object"):
+        run_pipeline(["42"])
+
+
+def test_missing_type_field_raises_pipeline_error() -> None:
+    """All session JSONL records carry a ``type`` field; a missing one is
+    treated as malformed rather than silently walked."""
+    with pytest.raises(PipelineError, match="missing required 'type'"):
+        run_pipeline([_line({"uuid": "u-1"})])
+
+
+def test_non_string_type_field_raises_pipeline_error() -> None:
+    """A non-string ``type`` value (e.g., a list-laundered attachment
+    line trying to slip past the strip-type gate) is rejected."""
+    # type as list — would otherwise skip the strip check.
+    with pytest.raises(PipelineError, match="'type' field must be a string"):
+        run_pipeline(['{"type": ["attachment"], "binary_blob": "AAAA"}'])
+    # type as null — same rejection.
+    with pytest.raises(PipelineError, match="'type' field must be a string"):
+        run_pipeline(['{"type": null}'])
 
 
 def test_blank_lines_are_tolerated() -> None:
@@ -329,3 +486,12 @@ def test_pipeline_does_not_visit_skipped_fields_via_transform() -> None:
     leaves = {leaf for leaf, _ in visited}
     assert "/scrubme" in leaves  # the cwd value IS scrubbable
     assert leaves & {"assistant", "u-1", "claude-opus-4-7"} == set()
+
+
+def test_pipeline_counts_are_immutable_proxy() -> None:
+    """PipelineCounts.stripped_lines is a MappingProxyType so callers cannot
+    silently corrupt the sidecar's tallies after the fact."""
+    lines = [_line({"type": "attachment"})]
+    _, counts = run_pipeline(lines)
+    with pytest.raises(TypeError):
+        counts.stripped_lines["new_key"] = 999  # type: ignore[index]

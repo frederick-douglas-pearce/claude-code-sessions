@@ -21,10 +21,13 @@ What this module ships (issue #20):
     whose JSON path is not skipped, applies a caller-supplied ``transform``,
     and returns the rebuilt structure. Non-string leaves (numbers, bool,
     None) are passed through.
-  - ``default_skip_predicate`` — the PRD section 6b B skip-list, encoded as
-    a predicate over JSON paths. The auditable question is "which fields do
-    we deliberately NOT scrub?" — a short, reviewable list — instead of
-    "did we remember to reach every field that might carry data?".
+  - ``default_skip_predicate`` / ``make_skip_predicate`` — the PRD section 6b B
+    skip-list, encoded as a predicate over JSON paths. ``make_skip_predicate``
+    is a factory so the identifier rule layer (#22) can pass
+    ``remap_uuids=True`` to lift the UUID skip per PRD section 8. The
+    auditable question is "which fields do we deliberately NOT scrub?" — a
+    short, reviewable list — instead of "did we remember to reach every
+    field that might carry data?".
   - ``run_pipeline`` — the line loop. Parses each line, strips by ``type``,
     walks survivors through the transform, re-serializes with the pinned
     settings.
@@ -37,13 +40,17 @@ What this module does NOT ship:
     JSONL; the residual scan and atomic write live in the CLI layer.
   - Sidecar emission (#25); the pipeline returns counts that the sidecar
     will consume.
+  - The fixed-placeholder substitution for ``thinking.signature`` (PRD §2).
+    The signature is currently skip-listed, which means it passes through
+    unchanged. A later PR ships the placeholder step.
 """
 
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable, Iterator
+from types import MappingProxyType
+from typing import Any, Callable, Iterable, Iterator, Mapping
 
 JsonPath = tuple[str, ...]
 JsonNode = Any
@@ -52,27 +59,37 @@ SkipPredicate = Callable[[JsonPath], bool]
 
 DEFAULT_STRIP_TYPES: frozenset[str] = frozenset({"file-history-snapshot", "attachment"})
 
-# Per PRD section 6b B. Fields named here are NEVER passed to the transform
-# callback. The set is intentionally short so the audit question is
-# "is this list right?" rather than "did we reach every leaf?".
-#
-#   - identifier fields (UUID graph, request/tool/message ids)
-#   - type/role/version/model identity fields (no PII; analytically valuable)
-#   - thinking signatures (opaque blobs; replaced with a fixed placeholder
-#     by a separate step, not by the rule layers)
+# Per PRD section 6b B. Bare names skip-listed everywhere they appear. These
+# names are PRD-documented as content-free identity/identifier fields with
+# no user-data collision risk at any depth.
 _SKIP_LEAF_NAMES: frozenset[str] = frozenset({
-    "version",
-    "type",
-    "role",
-    "model",
+    "version",                                       # line-level format marker
+    "type",                                          # line + content-block discriminator
+    "role",                                          # message role (always known enum)
+    "requestId",                                     # request identifier
+    "tool_use_id",                                   # tool_result's link to its tool_use
+})
+
+# UUID-graph fields skip-listed when remap_uuids is False (the default).
+# PRD section 6b B: "UUID fields (unless remap_uuids is on)".
+_UUID_NAMES: frozenset[str] = frozenset({
     "uuid",
     "parentUuid",
     "sessionId",
     "agentId",
-    "id",
-    "requestId",
-    "tool_use_id",
-    "signature",
+})
+
+# Fields whose name overlaps with potential user-data field names ("id",
+# "signature", "model"). PRD section 6b B specifies these by parent path
+# (message.model, message.id, tool_use.id, thinking.signature); a bare-name
+# skip would also exempt user content like ``tool_use.input.id`` from
+# scrubbing, leaking PII. The walker drops list indices, so tool_use blocks
+# inside the content array have parent "content" in the path.
+_ANCHORED_PARENT_LAST_SKIPS: frozenset[tuple[str, str]] = frozenset({
+    ("message", "model"),     # PRD: message.model
+    ("message", "id"),        # PRD: message.id
+    ("content", "id"),        # PRD: tool_use.id (under message.content[*])
+    ("content", "signature"), # PRD: thinking.signature (under message.content[*])
 })
 
 
@@ -80,8 +97,8 @@ class PipelineError(ValueError):
     """Raised on malformed JSONL.
 
     Maps to CLI exit code 2 (safety failure, PRD section 11): on a security
-    tool, a parse error means something is wrong with the input — no
-    ``--skip-malformed`` escape hatch ships in v0.
+    tool, a parse error or shape violation means something is wrong with the
+    input — no ``--skip-malformed`` escape hatch ships in v0.
     """
 
 
@@ -92,31 +109,65 @@ class PipelineCounts:
     ``stripped_lines`` maps each stripped ``type`` value to the count of
     lines dropped for it. Only types actually encountered appear; a zero
     count is never written.
+
+    The mapping is wrapped in a ``MappingProxyType`` after construction so
+    callers cannot mutate the dict in place — the dataclass is frozen at the
+    attribute level only, but the inner dict would otherwise share state with
+    the function-local that built it (and could be mutated downstream,
+    silently corrupting the sidecar's tallies).
     """
 
-    stripped_lines: dict[str, int] = field(default_factory=dict)
+    stripped_lines: Mapping[str, int] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "stripped_lines",
+            MappingProxyType(dict(self.stripped_lines)),
+        )
 
 
-def default_skip_predicate(path: JsonPath) -> bool:
-    """Return True if a string leaf at ``path`` must NOT be scrubbed.
+def make_skip_predicate(*, remap_uuids: bool = False) -> SkipPredicate:
+    """Build a skip predicate honoring config options.
 
-    Encodes the PRD section 6b B skip-list. List indices are not part of
-    ``path`` (the walker drops them), so the predicate compares only
-    string keys.
+    Args:
+        remap_uuids: When True, UUID fields (``uuid``, ``parentUuid``,
+            ``sessionId``, ``agentId``) are NOT skipped — they're visited so
+            the identifier rule layer can remap them consistently. PRD
+            section 6b B: "UUID fields (unless ``remap_uuids`` is on)".
+
+    Returns:
+        A ``SkipPredicate`` callable that takes a JSON path and returns True
+        when the leaf at that path should NOT be scrubbed.
     """
-    if not path:
+    bare_names = _SKIP_LEAF_NAMES if remap_uuids else _SKIP_LEAF_NAMES | _UUID_NAMES
+
+    def predicate(path: JsonPath) -> bool:
+        if not path:
+            return False
+        last = path[-1]
+        if isinstance(last, str):
+            if last in bare_names:
+                return True
+            if last.endswith("_tokens"):
+                return True
+        if len(path) >= 2:
+            parent = path[-2]
+            # Defense: any field whose immediate parent is ``usage`` (the
+            # token-accounting block). PRD section 6b B scopes the skip
+            # explicitly to ``usage.*``; a previous version of this predicate
+            # used ``"usage" in path`` which over-skipped any descendant of
+            # any ``usage`` key at any depth.
+            if parent == "usage":
+                return True
+            if (parent, last) in _ANCHORED_PARENT_LAST_SKIPS:
+                return True
         return False
-    last = path[-1]
-    if last in _SKIP_LEAF_NAMES:
-        return True
-    if last.endswith("_tokens"):
-        return True
-    # ``usage.*`` defensively — usage entries are numeric in practice and
-    # never reach the transform anyway, but skip them if a future format
-    # adds a string-valued field under ``usage``.
-    if "usage" in path:
-        return True
-    return False
+
+    return predicate
+
+
+default_skip_predicate: SkipPredicate = make_skip_predicate()
 
 
 def _identity_transform(leaf: str, path: JsonPath) -> str:
@@ -128,47 +179,38 @@ def walk_strings(
     transform: TransformCallback = _identity_transform,
     *,
     skip_predicate: SkipPredicate = default_skip_predicate,
-    _path: JsonPath = (),
 ) -> JsonNode:
     """Recursively walk ``node`` and apply ``transform`` to every string
     leaf whose path is not skipped.
 
     Dicts and lists are rebuilt rather than mutated; CPython dict iteration
     preserves insertion order, so a structural copy round-trip is
-    order-stable — this is what makes the I-1 serialization contract
-    meaningful at the structure level too, not just the JSON token level.
+    order-stable.
 
     Non-string leaves are passed through untouched. Numbers, booleans, and
     None never reach the transform.
+
+    The recursion state (the current JSON path) is held in a nested helper
+    so it does not leak into the public signature — earlier versions exposed
+    a leading-underscore ``_path`` keyword, which Python does not actually
+    treat as private and which callers could accidentally pass.
     """
-    if isinstance(node, str):
-        if skip_predicate(_path):
-            return node
-        return transform(node, _path)
-    if isinstance(node, dict):
-        return {
-            key: walk_strings(
-                value,
-                transform,
-                skip_predicate=skip_predicate,
-                _path=_path + (key,),
-            )
-            for key, value in node.items()
-        }
-    if isinstance(node, list):
-        # List indices are intentionally not part of the path; the skip-list
-        # uses string keys only, and rule layers should not depend on
-        # positional addressing.
-        return [
-            walk_strings(
-                item,
-                transform,
-                skip_predicate=skip_predicate,
-                _path=_path,
-            )
-            for item in node
-        ]
-    return node
+
+    def _walk(value: JsonNode, path: JsonPath) -> JsonNode:
+        if isinstance(value, str):
+            if skip_predicate(path):
+                return value
+            return transform(value, path)
+        if isinstance(value, dict):
+            return {key: _walk(sub, path + (key,)) for key, sub in value.items()}
+        if isinstance(value, list):
+            # List indices are intentionally not part of the JSON path — the
+            # skip-list is keyed on field names only, and rule layers should
+            # not rely on positional addressing of array elements.
+            return [_walk(item, path) for item in value]
+        return value
+
+    return _walk(node, ())
 
 
 def serialize_line(obj: JsonNode) -> str:
@@ -176,15 +218,29 @@ def serialize_line(obj: JsonNode) -> str:
 
     Pinning these parameters in one place is what turns "deterministic
     output" from a claim into a property. ``ensure_ascii=False`` keeps
-    unicode content readable; ``separators=(',', ':')`` removes the
-    whitespace ``json.dumps`` would otherwise insert.
+    unicode content readable (callers MUST write the result as UTF-8;
+    locale-default encodings on Windows can mangle non-ASCII).
+    ``separators=(',', ':')`` removes the whitespace ``json.dumps`` would
+    otherwise insert. ``allow_nan=False`` forbids ``NaN`` / ``Infinity``
+    output (which is non-RFC-8259 JSON and would surface as a corrupt line
+    downstream); a NaN/Infinity in the parsed tree raises ``PipelineError``.
 
     Keys are NOT sorted: a parsed line preserves its original key order
-    (Python ``json.loads`` is insertion-order-stable), and ``walk_strings``
-    rebuilds dicts preserving that order, so the round-trip is byte-stable
-    for byte-stable input.
+    (Python ``json.loads`` is insertion-order-stable) and ``walk_strings``
+    rebuilds dicts preserving that order. Two runs of the pipeline over the
+    same parsed object produce byte-identical output, which is the
+    determinism contract the residual scan and fixture-validator depend on.
+
+    Strict source-byte preservation is NOT a goal — numeric literals
+    normalize through ``json.dumps`` (e.g. ``1e10`` becomes
+    ``10000000000.0``) and other small format-level normalizations are
+    inherent to round-tripping through Python's ``json`` module.
     """
-    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+    try:
+        return json.dumps(obj, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    except ValueError as exc:
+        # json.dumps raises ValueError on NaN/Infinity when allow_nan=False.
+        raise PipelineError(f"non-finite number in input: {exc}") from exc
 
 
 def run_pipeline(
@@ -199,7 +255,8 @@ def run_pipeline(
     Args:
         lines: input JSONL records (one per element). Whitespace-only
             elements are tolerated (newline residue from file iteration);
-            any non-blank line that fails to parse raises ``PipelineError``.
+            any non-blank line that fails to parse or has the wrong shape
+            raises ``PipelineError``.
         strip_types: line ``type`` values to drop wholesale (PRD section 6b A).
         transform: callable invoked on each string leaf surviving the
             skip-list. Defaults to identity, so a rule-free pipeline is a
@@ -212,36 +269,60 @@ def run_pipeline(
         stripped lines absent. ``counts.stripped_lines`` reports the
         per-type drop tally; rule-level counts are accumulated by the
         transform itself (typically into a ``SubstitutionTable``).
+
+    Raises:
+        ``PipelineError`` for malformed JSONL, non-object records, or
+        records whose ``type`` field is missing or non-string. Line numbers
+        in the error message are 1-indexed positions in the input iterable,
+        so they map to the source file lines a user can locate.
     """
     stripped: dict[str, int] = {}
     out: list[str] = []
-    for index, raw in enumerate(_iter_records(lines)):
+    for line_number, raw in _iter_records(lines):
         try:
             obj = json.loads(raw)
         except json.JSONDecodeError as exc:
             raise PipelineError(
-                f"malformed JSONL on record {index}: {exc.msg} (col {exc.colno})"
+                f"malformed JSONL at line {line_number}: {exc.msg} (col {exc.colno})"
             ) from exc
-        if isinstance(obj, dict):
-            line_type = obj.get("type")
-            if isinstance(line_type, str) and line_type in strip_types:
-                stripped[line_type] = stripped.get(line_type, 0) + 1
-                continue
+        if not isinstance(obj, dict):
+            raise PipelineError(
+                f"line {line_number}: record must be a JSON object, got {type(obj).__name__}"
+            )
+        if "type" not in obj:
+            raise PipelineError(
+                f"line {line_number}: missing required 'type' field"
+            )
+        line_type = obj["type"]
+        if not isinstance(line_type, str):
+            raise PipelineError(
+                f"line {line_number}: 'type' field must be a string, got {type(line_type).__name__}"
+            )
+        if line_type in strip_types:
+            stripped[line_type] = stripped.get(line_type, 0) + 1
+            continue
         transformed = walk_strings(obj, transform, skip_predicate=skip_predicate)
         out.append(serialize_line(transformed))
     return out, PipelineCounts(stripped_lines=stripped)
 
 
-def _iter_records(lines: Iterable[str]) -> Iterator[str]:
-    """Yield non-blank records. Trailing newlines and incidental blank
-    lines from file iteration are dropped silently; anything else with
-    non-whitespace content goes through to be parsed.
+def _iter_records(lines: Iterable[str]) -> Iterator[tuple[int, str]]:
+    """Yield ``(input_line_number, stripped_record)`` for each non-blank line.
+
+    The line number is 1-indexed and tracks the original input position so
+    ``PipelineError`` messages can name the file line a user can locate
+    (rather than the post-filter record index, which would be off by N when
+    blank lines precede a malformed line).
+
+    Trailing newlines and incidental blank lines from file iteration are
+    dropped silently; anything else with non-whitespace content goes through
+    to be parsed.
     """
-    for raw in lines:
+    for line_number, raw in enumerate(lines, start=1):
         stripped = raw.strip()
         if not stripped:
             continue
-        yield stripped
+        yield line_number, stripped
 
 
 __all__ = [
@@ -252,6 +333,7 @@ __all__ = [
     "SkipPredicate",
     "TransformCallback",
     "default_skip_predicate",
+    "make_skip_predicate",
     "run_pipeline",
     "serialize_line",
     "walk_strings",

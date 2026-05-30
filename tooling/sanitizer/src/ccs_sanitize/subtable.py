@@ -36,7 +36,7 @@ class SubstitutionConflictError(ValueError):
 
 @dataclass(frozen=True)
 class Entry:
-    """One row of the substitution table.
+    """One row of the substitution table, as observed by external callers.
 
     Frozen so callers can't mutate the table's view of an entry — updates
     go through ``SubstitutionTable.record``, which preserves the conflict
@@ -44,6 +44,20 @@ class Entry:
     """
 
     original: str
+    replacement: str
+    occurrences: int
+
+
+@dataclass
+class _Row:
+    """Internal mutable backing row.
+
+    Storing the replacement and counter as a typed dataclass (rather than a
+    ``list[object]`` with positional slots) keeps mypy honest, names the
+    fields, and means future fields (e.g. first-seen line index) attach
+    additively rather than via magic indices.
+    """
+
     replacement: str
     occurrences: int
 
@@ -61,7 +75,7 @@ class SubstitutionTable:
 
     def __init__(self) -> None:
         # dict preserves insertion order (CPython 3.7+ / PEP 468).
-        self._entries: dict[str, list[object]] = {}
+        self._entries: dict[str, _Row] = {}
 
     def record(self, original: str, replacement: str) -> str:
         """Record one occurrence of ``original → replacement`` and return
@@ -73,16 +87,15 @@ class SubstitutionTable:
         """
         existing = self._entries.get(original)
         if existing is None:
-            self._entries[original] = [replacement, 1]
+            self._entries[original] = _Row(replacement=replacement, occurrences=1)
             return replacement
-        canonical, count = existing
-        if canonical != replacement:
+        if existing.replacement != replacement:
             raise SubstitutionConflictError(
                 f"substitution conflict for {original!r}: "
-                f"already mapped to {canonical!r}, refused to remap to {replacement!r}"
+                f"already mapped to {existing.replacement!r}, refused to remap to {replacement!r}"
             )
-        existing[1] = count + 1
-        return replacement  # type: ignore[return-value]
+        existing.occurrences += 1
+        return replacement
 
     def get(self, original: str) -> str | None:
         """Return the recorded replacement for ``original`` without
@@ -90,23 +103,30 @@ class SubstitutionTable:
         existing = self._entries.get(original)
         if existing is None:
             return None
-        return existing[0]  # type: ignore[return-value]
+        return existing.replacement
 
     def __iter__(self) -> Iterator[Entry]:
         """Yield Entry rows in insertion order — the order the sidecar
-        emits them."""
-        for original, (replacement, occurrences) in self._entries.items():
+        emits them.
+
+        Iteration takes a snapshot of the table's current entries via
+        ``list(...)`` so that a concurrent ``record`` call (a natural
+        pattern when the sidecar emission step also drives rule application)
+        does not raise ``RuntimeError`` from "dictionary changed size during
+        iteration".
+        """
+        for original, row in list(self._entries.items()):
             yield Entry(
                 original=original,
-                replacement=replacement,  # type: ignore[arg-type]
-                occurrences=occurrences,  # type: ignore[arg-type]
+                replacement=row.replacement,
+                occurrences=row.occurrences,
             )
 
     def __len__(self) -> int:
         return len(self._entries)
 
     def total_occurrences(self) -> int:
-        return sum(count for _, count in self._entries.values())  # type: ignore[misc]
+        return sum(row.occurrences for row in self._entries.values())
 
 
 __all__ = [

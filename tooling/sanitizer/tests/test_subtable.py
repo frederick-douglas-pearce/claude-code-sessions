@@ -82,3 +82,28 @@ def test_entry_is_frozen() -> None:
     e = Entry(original="x", replacement="y", occurrences=1)
     with pytest.raises(AttributeError):
         e.occurrences = 2  # type: ignore[misc]
+
+
+def test_iteration_snapshot_tolerates_concurrent_record() -> None:
+    """A natural consumer pattern is to iterate the table while a transform
+    keeps calling ``record`` for new originals (e.g., the sidecar writer
+    drives further scrubbing). The iterator must not raise
+    ``RuntimeError: dictionary changed size during iteration`` in that case;
+    instead it yields a stable snapshot of the entries that existed at
+    iteration start."""
+    t = SubstitutionTable()
+    t.record("first", "1")
+    t.record("second", "2")
+
+    seen: list[str] = []
+    for entry in t:
+        seen.append(entry.original)
+        # Mutate mid-iteration — a new original that the snapshot does
+        # NOT need to yield, plus an increment on an existing original.
+        if entry.original == "first":
+            t.record("third", "3")
+            t.record("second", "2")  # increments the existing row
+
+    assert seen == ["first", "second"]
+    # The new third entry is visible in a fresh iteration.
+    assert [e.original for e in t] == ["first", "second", "third"]

@@ -38,6 +38,59 @@ Use semver: `MAJOR.MINOR.PATCH`.
 
 ## [Unreleased]
 
+### Fixed (review pass on issue #20)
+- `default_skip_predicate` no longer over-skips bare `id` / `signature` /
+  `model` field names that appear inside user-controlled content. PRD §6b B
+  scopes these to specific parent paths (`message.model`, `message.id`,
+  `tool_use.id`, `thinking.signature`); the predicate now anchors them via
+  a `(parent, last)` set so e.g. an MCP `tool_use.input.id` value is visited
+  by the transform and scrubbed by future rule layers instead of slipping
+  through. `id`, `signature`, and `model` were removed from the
+  unconditional bare-name set.
+- `"usage" in path` was replaced with an immediate-parent check
+  (`path[-2] == "usage"`). The previous membership-anywhere test would skip
+  any descendant of any field literally named `usage` at any depth — over-
+  broad relative to the PRD section 6b B scope.
+- `run_pipeline` now fail-closes on non-object JSONL roots (a bare string /
+  number / array slipping past the strip-types gate and being silently
+  walked), on missing `type` field, and on non-string `type` field. Each
+  raises `PipelineError` with the source line number. PRD §11 says shape
+  violations should abort.
+- `PipelineError` messages now reference the 1-indexed *input* line number
+  rather than the post-filter record index, so users can locate the bad
+  line in their source file when blank lines precede it.
+- `SubstitutionTable.__iter__` snapshots the entries via `list(...)` so
+  concurrent `record()` calls during iteration do not raise
+  `RuntimeError: dictionary changed size during iteration`. A test pins
+  the snapshot semantics.
+- `serialize_line` adds `allow_nan=False`; NaN/Infinity input now raises
+  `PipelineError` (`non-finite number in input`) instead of producing
+  non-RFC-8259 JSON output that downstream strict parsers would reject.
+- `PipelineCounts.stripped_lines` is now a `MappingProxyType`, not a raw
+  mutable dict. The dataclass is frozen at the attribute level only; the
+  proxy prevents callers from mutating the sidecar's tallies after the
+  fact via the dict reference.
+- `serialize_line` docstring weakened to the actually-achievable claim:
+  two runs over the same parsed object produce byte-identical output. The
+  previous "byte-stable for byte-stable input" wording was false for any
+  numeric literal that `json.dumps` normalizes (e.g., `1e10` →
+  `10000000000.0`).
+- `make_skip_predicate(*, remap_uuids=False)` factory introduced so the
+  identifier rule layer (#22) can produce a predicate that does NOT skip
+  UUID fields when the user sets `remap_uuids: true` per PRD §8.
+  `default_skip_predicate` is now the factory's no-arg result.
+- `walk_strings` recursion moved into a nested helper; the public
+  signature no longer exposes the `_path` recursion-state keyword that
+  callers could accidentally pass.
+- `SubstitutionTable` internal storage moved from `dict[str, list[object]]`
+  with four `# type: ignore` markers to a typed `dict[str, _Row]` where
+  `_Row` is a small mutable dataclass. No public behavior change; the
+  `Entry` frozen view is unchanged.
+- Test helper `_line()` now delegates to `serialize_line` instead of
+  reimplementing it (the previous shadow implementation omitted
+  `ensure_ascii=False`, which would have drifted from production if a
+  fixture ever used non-ASCII).
+
 ### Added (issue #20)
 - Pipeline core at `ccs_sanitize.pipeline.run_pipeline`. Line loop with
   Step A (strip-types per PRD §6b A / D-7: `file-history-snapshot` and
