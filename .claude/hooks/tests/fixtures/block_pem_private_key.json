@@ -1,0 +1,8 @@
+{
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "cat encrypted_key.pem"
+  },
+  "tool_response": "-----BEGIN ENCRYPTED PRIVATE KEY-----\nSYNTHETIC-FIXTURE-NOT-A-REAL-KEY-DO-NOT-USE-AAAAAAAAAAAA\n-----END ENCRYPTED PRIVATE KEY-----\n"
+}
