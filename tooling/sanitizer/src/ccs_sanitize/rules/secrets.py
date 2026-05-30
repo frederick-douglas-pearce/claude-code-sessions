@@ -9,9 +9,10 @@ PRD reference: section 9 (Layer 3: secrets). Two-tier pattern library:
         element-wise.
 
     Tier 2 — BATCH_PATTERNS: sanitizer-only additions for credential shapes
-        the hook never had to catch (PEM keys, JWTs, bearer tokens, DB
+        the hook does not currently catch (bearer tokens, JWTs, DB
         connection strings with embedded passwords, Slack tokens). NOT
-        compared against the hook.
+        compared against the hook. Tracked for future evaluation per
+        the option-2 backlog issue.
 
 YAML config may *add* via ``extra_secret_patterns`` (loaded by ``config.py``).
 The built-in floor in this module cannot be weakened from config (D-1).
@@ -31,16 +32,20 @@ VENDORED_PATTERNS: list[tuple[str, str]] = [
     (r"github_pat_[A-Za-z0-9_]{40,}", "github-pat-fine"),
     (r"AKIA[A-Z0-9]{16}", "aws-access-key-id"),
     (r"AIza[A-Za-z0-9_-]{35}", "gcp-api-key"),
-]
-
-BATCH_PATTERNS: list[tuple[str, str]] = [
-    # PEM private-key armor. Includes ENCRYPTED PRIVATE KEY (PKCS#8 encrypted,
-    # what ``openssl pkcs8`` and ``ssh-keygen`` with a passphrase produce) so
-    # encrypted keys do not slip past as if they were not key material.
+    # PEM private-key armor. Covers unencrypted variants and PKCS#8 encrypted
+    # (what ``openssl pkcs8``, passphrase-protected ``ssh-keygen``, and many
+    # cloud APIs produce). Promoted from BATCH_PATTERNS to Tier 1 because the
+    # hook also needs this coverage: ``cat ~/.ssh/id_rsa`` in a live tool
+    # output is exactly the catastrophic case the hook exists to block.
+    # Mirrored verbatim in the hook's SECRET_PATTERNS at the same position;
+    # the I-4 sync test (lands with #23) gates the duplication.
     (
         r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP |ENCRYPTED )?PRIVATE KEY-----",
         "pem-private-key",
     ),
+]
+
+BATCH_PATTERNS: list[tuple[str, str]] = [
     (r"(?i)authorization:\s*bearer\s+[A-Za-z0-9._-]+", "bearer-token"),
     (
         r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}",

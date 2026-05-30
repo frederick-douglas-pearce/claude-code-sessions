@@ -31,6 +31,18 @@ SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"github_pat_[A-Za-z0-9_]{40,}"), "github-pat-fine"),
     (re.compile(r"AKIA[A-Z0-9]{16}"), "aws-access-key-id"),
     (re.compile(r"AIza[A-Za-z0-9_-]{35}"), "gcp-api-key"),
+    # PEM private-key armor. Covers unencrypted variants and PKCS#8 encrypted
+    # (what `openssl pkcs8`, passphrase-protected `ssh-keygen`, and many cloud
+    # APIs produce). `cat ~/.ssh/id_rsa` and similar live tool outputs are
+    # the catastrophic case this hook exists to block from further
+    # propagation. Mirrored verbatim in the sanitizer's VENDORED_PATTERNS
+    # (PRD section 9, D-6) and gated by the I-4 sync test.
+    (
+        re.compile(
+            r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP |ENCRYPTED )?PRIVATE KEY-----"
+        ),
+        "pem-private-key",
+    ),
 ]
 
 DENY_REASON_TEMPLATE = (
