@@ -315,15 +315,27 @@ def test_secret_pattern_labels_are_unique() -> None:
 
 def test_pem_pattern_catches_encrypted_private_key() -> None:
     """Standard PKCS#8 encrypted PEM headers (what openssl pkcs8 and
-    passphrase-protected ssh-keygen produce) must match the PEM pattern;
-    an earlier version of the regex only listed the unencrypted variants."""
+    passphrase-protected ssh-keygen produce) must match the PEM pattern.
+    PEM is now a Tier-1 (VENDORED) pattern so the live hook gets it too —
+    previously it was Tier-2-only and the hook had no PEM coverage."""
     import re as _re
 
-    pem_pattern = next(p for p, label in BATCH_PATTERNS if label == "pem-private-key")
+    pem_pattern = next(p for p, label in VENDORED_PATTERNS if label == "pem-private-key")
     compiled = _re.compile(pem_pattern)
     assert compiled.search("-----BEGIN ENCRYPTED PRIVATE KEY-----") is not None
     assert compiled.search("-----BEGIN RSA PRIVATE KEY-----") is not None
     assert compiled.search("-----BEGIN PRIVATE KEY-----") is not None
+
+
+def test_pem_pattern_is_in_tier_1_not_tier_2() -> None:
+    """PEM was promoted from BATCH_PATTERNS to VENDORED_PATTERNS so the
+    live hook (which only mirrors Tier 1 via the I-4 sync test) gets PEM
+    coverage. Pin the partition so a regression bringing PEM back into
+    Tier 2 trips the test rather than silently un-syncing the hook."""
+    vendored_labels = {label for _, label in VENDORED_PATTERNS}
+    batch_labels = {label for _, label in BATCH_PATTERNS}
+    assert "pem-private-key" in vendored_labels
+    assert "pem-private-key" not in batch_labels
 
 
 # ----- /simplify review fixes -------------------------------------------

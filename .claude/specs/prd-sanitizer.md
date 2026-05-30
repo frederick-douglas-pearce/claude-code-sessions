@@ -297,18 +297,25 @@ VENDORED_PATTERNS = [               # MUST stay identical to the hook's SECRET_P
     (r"github_pat_[A-Za-z0-9_]{40,}",  "github-pat-fine"),
     (r"AKIA[A-Z0-9]{16}",              "aws-access-key-id"),
     (r"AIza[A-Za-z0-9_-]{35}",         "gcp-api-key"),
+    (r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP |ENCRYPTED )?PRIVATE KEY-----", "pem-private-key"),
 ]
 ```
 
+PEM private-key armor was promoted from Tier 2 to Tier 1 (and added to the hook's
+`SECRET_PATTERNS`) because `cat ~/.ssh/id_rsa`, `openssl pkcs8` output, and
+passphrase-protected `ssh-keygen` output are exactly the live tool-output shapes the
+hook exists to block. The `ENCRYPTED ` alternative covers PKCS#8 encrypted keys, which
+the original regex missed.
+
 **Tier 2 — batch-only additions (sanitizer floor, C-3).** The hook fires on each *live tool
 output*; the sanitizer scrubs a *whole session at rest*, which exposes credential shapes the
-hook never had to catch — PEM private keys, bearer tokens, JWTs, and DB connection strings with
-embedded passwords (all plausibly present in Bash `stdout` or a config file's contents). These
-are **not** part of the sync-set:
+hook does not currently catch — bearer tokens, JWTs, DB connection strings with embedded
+passwords, and Slack tokens (all plausibly present in Bash `stdout` or a config file's
+contents). These are **not** part of the sync-set; whether the hook should also gain them is
+tracked separately and requires architect review before promotion:
 
 ```python
 BATCH_PATTERNS = [                  # sanitizer-only; NOT compared against the hook
-    (r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----", "pem-private-key"),
     (r"(?i)authorization:\s*bearer\s+[A-Za-z0-9._-]+",               "bearer-token"),
     (r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}", "jwt"),
     (r"(?i)(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqps?)://[^:\s/]+:[^@\s]+@", "conn-string-pw"),

@@ -73,6 +73,14 @@ class HookBlockingTests(unittest.TestCase):
         self.assertEqual(d.get("decision"), "block")
         self.assertIn("anthropic-key", d.get("reason", ""))
 
+    def test_pem_private_key_blocked(self):
+        # `cat ~/.ssh/id_rsa` and similar live tool outputs are the
+        # catastrophic case the hook exists to block. The ENCRYPTED PEM
+        # header was previously not in the hook's pattern set.
+        d = self._decision("block_pem_private_key.json")
+        self.assertEqual(d.get("decision"), "block")
+        self.assertIn("pem-private-key", d.get("reason", ""))
+
     def test_fixture_read_allowed(self):
         # A fixtures/ jsonl read is legitimate and must NOT be blocked.
         self.assertEqual(self._decision("allow_fixture_read.json"), {})

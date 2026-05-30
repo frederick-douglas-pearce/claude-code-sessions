@@ -38,6 +38,24 @@ Use semver: `MAJOR.MINOR.PATCH`.
 
 ## [Unreleased]
 
+### Changed (PEM coverage promoted to the live hook)
+- `pem-private-key` is now a **Tier-1** pattern: present both in
+  `VENDORED_PATTERNS` (sanitizer) and in the hook's `SECRET_PATTERNS`
+  (`.claude/hooks/detect_secrets_in_output.py`). Previously the sanitizer
+  carried it in `BATCH_PATTERNS` and the hook had no PEM coverage at all —
+  so a live `cat ~/.ssh/id_rsa` or `openssl pkcs8` output (the
+  catastrophic case the hook exists for) was not getting the block-from-
+  further-propagation guard the hook provides for API tokens. The pattern
+  shape is unchanged from the §19 review pass (still includes the
+  `ENCRYPTED ` PKCS#8 variant).
+- PRD §9 updated: the Tier-1 list now ends with `pem-private-key`; the
+  Tier-2 rationale updated to "patterns the hook does not currently catch"
+  (no longer "never had to catch" — that framing was an oversight). A
+  separate backlog issue tracks whether the remaining Tier-2 patterns
+  (JWT, bearer-token, conn-string-pw, slack-token) should follow.
+- New hook test fixture `block_pem_private_key.json` and matching test
+  case in `.claude/hooks/tests/test_hooks.py`.
+
 ### Fixed (review pass on issue #19)
 - **PEM private-key pattern now catches `ENCRYPTED PRIVATE KEY`** (standard
   PKCS#8 encrypted PEM, the output of `openssl pkcs8` and passphrase-
