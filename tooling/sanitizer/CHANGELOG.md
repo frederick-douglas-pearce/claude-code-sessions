@@ -38,6 +38,37 @@ Use semver: `MAJOR.MINOR.PATCH`.
 
 ## [Unreleased]
 
+### Added (issue #21)
+- Layer 1 path scrubbing at `ccs_sanitize.rules.paths.build_path_transform`.
+  Factory takes a `Sequence[Rule]` (typically `Config.paths`) plus a shared
+  `SubstitutionTable` and returns a `TransformCallback` ready for
+  `run_pipeline(transform=...)`. Per visited leaf, applies each rule's
+  `re.sub` in declaration order; regex rules expand backrefs via
+  `Match.expand`, literal rules use `replace` verbatim. Every match is
+  recorded in the table so the sidecar (PRD §10) sees per-mapping
+  occurrence counts and cross-line consistency holds.
+- Declaration-order semantic is documented in the module: equivalent to
+  PRD §7 first-match-wins for the prefix-style patterns paths configs
+  actually use; the I-3 leak guard in `config.py` blocks the
+  cascading-replacement worry. The one known divergence from a true
+  leftmost-position alternation (rule 1's match starts *right* of rule 2's
+  in the same leaf) is called out so a future config can swap in a
+  combined alternation regex if needed.
+
+Tests (`test_paths.py`, 12 cases): home-dir replacement across the surfaces
+the issue body names (`cwd`, `tool_use.input.file_path`,
+`toolUseResult.stdout`/`stderr`); project-slug regex with backref-preserved
+project name; slug + cwd surfaces both scrubbed in one pipeline run;
+cross-line consistency (same input → same placeholder across 3 lines, one
+table entry with `occurrences=3`); first-match-wins ordering (more-specific
+first vs general first); duplicate-rule dead-code case; two-runs-byte-
+identical determinism; non-matching leaves pass through; empty rules =
+identity.
+
+No version bump: this PR adds importable machinery but the CLI (#26) does
+not yet feed it. Output bytes from `ccs-sanitize` are still identity-pass.
+Per the bump policy, the next byte-affecting story carries the bump.
+
 ### Changed (PEM coverage promoted to the live hook)
 - `pem-private-key` is now a **Tier-1** pattern: present both in
   `VENDORED_PATTERNS` (sanitizer) and in the hook's `SECRET_PATTERNS`
