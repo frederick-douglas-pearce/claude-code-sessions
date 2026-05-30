@@ -38,6 +38,63 @@ Use semver: `MAJOR.MINOR.PATCH`.
 
 ## [Unreleased]
 
+### Fixed (review pass on issue #19)
+- **PEM private-key pattern now catches `ENCRYPTED PRIVATE KEY`** (standard
+  PKCS#8 encrypted PEM, the output of `openssl pkcs8` and passphrase-
+  protected `ssh-keygen`). Previously only the unencrypted variants matched,
+  so an encrypted private key in session output could slip past both scrubs
+  and the residual scan.
+- `extra_secret_patterns` now mirror path/identifier rule semantics: bare
+  strings are treated as literals (`re.escape`'d), `re:`-prefixed strings
+  are compiled as regex. The earlier loader compiled bare strings raw, so
+  `pattern: "C++"` silently became a regex with a quantifier.
+- `extra_secret_patterns` with `pattern: "re:"` now raises `ConfigError`
+  (same guard `_compile_rule` has for paths/identifiers). The previous
+  loader accepted the empty regex, which matches every position and would
+  trip the I-3 guard against every rule.
+- `version` is now type-checked. YAML `version: true` (parses to Python
+  `True`) and `version: 1.0` were silently accepted because Python treats
+  `True == 1` and `1.0 == 1`; the loader now requires an `int` that is
+  not a `bool`.
+- I-3 replacement-leak guard no longer skips the self-rule comparison,
+  so a rule whose own `replace` contains its own `match` (a non-
+  idempotent rule that would leak the original pattern through the
+  sidecar) is rejected with a focused error.
+- `Config` field lists (`paths`, `identifiers`, `extra_secret_patterns`)
+  are converted to tuples in `__post_init__`. `@dataclass(frozen=True)`
+  blocks attribute reassignment but not list mutation; with mutable lists,
+  downstream code could `config.paths.append(...)` after `load_config`
+  returned, bypassing the I-3 guard.
+- `load_config(path)` now expands `~` in the input path. Quoted
+  `--config '~/.ccs-sanitize.yaml'` from the CLI was previously raising
+  `FileNotFoundError` against a literal tilde.
+- `read_text(encoding="utf-8")` errors and other `OSError` from the read
+  step are now wrapped in `ConfigError` so the CLI's (eventual)
+  `ConfigError` → exit 3 mapping catches them; previously a Windows
+  UTF-16-saved config would surface as a bare `UnicodeDecodeError` and
+  bypass the documented exit-code contract.
+- Empty YAML sections — `paths:`/`identifiers:`/`extra_secret_patterns:`
+  with no value (parses to `None`) — are now treated as empty lists,
+  matching how `options:` already handles `None`. Previously the loader
+  raised `ConfigError("paths must be a list, got NoneType")` for an
+  ergonomic shape that should mean "no rules".
+- `_check_replacement_leak` now uses a module-level `_BUILTIN_COMPILED`
+  table instead of recompiling `SECRET_PATTERNS` on every call. The
+  table compiles at module import, so a future typo in a vendored or
+  batch pattern surfaces at import time, not on first config load.
+- `ConfigOptions` defaults are owned by the dataclass; `_build_options`
+  forwards only YAML-present keys instead of restating each default.
+  Previously the defaults lived in both places and could drift.
+- `Rule` and `ExtraSecretPattern` validate that `compiled.pattern` and
+  `is_regex` are consistent with `pattern` in `__post_init__`. Both
+  types are exported via `__all__`; without the check, a direct
+  `Rule(pattern="/foo", compiled=re.compile("BAR"))` would lie about
+  itself and pass through the I-3 guard miscompared.
+
+Test suite grew from 31 to 44 cases (13 new, all passing) covering the
+above, including bare-string-as-literal behavior, encrypted PEM
+matching, and tuple-vs-list immutability.
+
 ### Added (issue #19)
 - YAML config loader at `ccs_sanitize.config.load_config`. Reads a `.ccs-sanitize.yaml`
   per PRD §12 schema and returns a typed `Config` (with `Rule`, `ExtraSecretPattern`,
