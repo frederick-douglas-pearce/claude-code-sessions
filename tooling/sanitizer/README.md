@@ -2,7 +2,12 @@
 
 CLI tool that scrubs raw Claude Code session JSONL files for safe publication.
 
-**Status:** Planned. Not yet implemented.
+**Status:** Designed (v0 PRD landed 2026-05-29); implementation pending.
+
+**Design:** [`prd-sanitizer.md`](../../.claude/specs/prd-sanitizer.md) is the canonical v0
+design. Where this README's sketches differ from the PRD — notably the [Sidecar format](#sidecar-format)
+and [Rule sources](#rule-sources) sections below — the PRD wins. The PRD is kept current;
+this README is a high-level pointer.
 
 ## Design goals
 
@@ -67,11 +72,16 @@ substitutions:             # one line per substitution, sorted by rule
 - Automatic upload to any destination
 - Reverse-mapping (the scrub is one-way)
 
-## Dependencies on this scaffold
+## Open questions — resolved
 
-The sanitizer needs its design pass before implementation. Open questions:
+These four questions originally gated implementation. All are resolved in
+[`prd-sanitizer.md` §15](../../.claude/specs/prd-sanitizer.md#15-open-questions--resolutions):
 
-1. Yaml-configured rule sets vs. code-defined rules
-2. Should the sidecar embed substitution dictionaries (more reviewable but also more leaky), or just rule-level counts?
-3. Statistical jitter granularity — per-field, per-message, per-session?
-4. Integration with the fixture-validator (does the validator re-scan, or trust the sidecar?)
+1. ~~Yaml-configured rule sets vs. code-defined rules~~ → **Hybrid** (D-1): secrets in code (non-weakenable; additive YAML extension), paths/identifiers in YAML.
+2. ~~Sidecar: embed substitution dictionaries vs. rule-level counts~~ → **Redacted detail** (D-2): per-substitution detail with category placeholders and the non-sensitive replacement; secrets count-only; originals never recorded.
+3. ~~Statistical jitter granularity~~ → **Deferred to v1** (D-3); designed as a per-session timestamp offset coupled to a future session-bundle mode.
+4. ~~Fixture-validator integration~~ → **Independent re-scan** (D-4); the validator never trusts the sidecar.
+
+The PRD also adds [D-7](../../.claude/specs/prd-sanitizer.md#decision-d-7--v0-drops-high-risk-line-types):
+v0 drops `file-history-snapshot` and `attachment` lines wholesale rather than scrub arbitrary
+file bodies or opaque binary payloads.
