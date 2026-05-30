@@ -14,27 +14,35 @@ order, each via ``re.sub`` over the leaf. The PRD specifies "first match
 wins"; sequential application is declaration-order, which equals the
 position-by-position interpretation for the patterns paths.py rules
 realistically use (prefixes, suffixes, full-leaf shapes -- nothing where two
-rules' match *ranges* partially overlap in the same string). Two reasons
-this is safe for v0:
+rules' match *ranges* partially overlap in the same string). For overlapping
+*patterns* with prefix/subset relationships (rule 1 =
+``/home/fdpearce/secret``, rule 2 = ``/home/fdpearce``), the earlier rule's
+``re.sub`` consumes the match first, leaving nothing for the later rule --
+declaration-order wins, matching the PRD intent.
 
-1. The config loader's I-3 replacement-leak guard
-   (``_check_replacement_leak`` in ``config.py``) refuses any config where
-   one rule's ``replace`` value would match another rule's pattern. With
-   that invariant, rule 2 cannot fire on text that rule 1 just produced --
-   so cascading replacements are impossible.
-2. For overlapping *patterns* with prefix/subset relationships (rule 1 =
-   ``/home/fdpearce/secret``, rule 2 = ``/home/fdpearce``), the earlier
-   rule's ``re.sub`` consumes the match first, leaving nothing for the
-   later rule -- declaration-order wins, matching the PRD intent.
+**Two known limitations of sequential application:**
 
-The one known divergence from a true leftmost-position alternation: if rule
-1's match starts to the *right* of rule 2's match in the same leaf, sequential
-application still fires rule 1 first (because declaration order beats
-position order). A position-order scanner would pick rule 2. Path configs in
-the wild don't hit this -- ``cwd`` and project-slug rules are prefix-bound
--- so the simpler implementation is acceptable for v0. If a config ever
-needs leftmost-wins semantics, swap the per-rule loop for a single
-alternation regex.
+1. *Leftmost-position divergence.* If rule 1's match starts to the *right*
+   of rule 2's match in the same leaf, sequential application still fires
+   rule 1 first (declaration order beats position order). A position-order
+   scanner would pick rule 2. Path configs in the wild don't hit this --
+   ``cwd`` and project-slug rules are prefix-bound -- so the simpler
+   implementation is acceptable for v0.
+2. *Backref cascades the I-3 guard cannot see.* The config loader's I-3
+   replacement-leak guard (``_check_replacement_leak`` in ``config.py``)
+   refuses any config where the *literal* ``replace`` template matches
+   another rule's pattern. For regex rules with backrefs, the runtime-
+   expanded replacement can be a substring the template was not -- so a
+   config like rule 1 = ``re:foo-(.+)`` → ``bar-\\1``, rule 2 = literal
+   ``bar-x`` → ``Z`` passes I-3 (the literal ``bar-\\1`` template doesn't
+   contain ``bar-x``) but cascades at runtime: rule 1 turns ``foo-x`` into
+   ``bar-x``, then rule 2 turns ``bar-x`` into ``Z``. The output is still
+   scrubbed and deterministic; the sidecar honestly reports both hops. But
+   the result is harder to read than a single-mapping audit trail.
+
+Either limitation can be fixed later by swapping the per-rule loop for a
+single alternation regex with named groups (each position decided once),
+without changing the public ``build_path_transform`` signature.
 
 **Determinism.** PRD section 7 names consistency as the safety property:
 sanitizing a parent session and a subagent trace in two separate runs must
@@ -113,6 +121,13 @@ def _apply_rule(rule: Rule, leaf: str, table: SubstitutionTable) -> str:
 
     def repl(match: re.Match[str]) -> str:
         original = match.group(0)
+        if not original:
+            # Zero-width match (lookahead-only pattern, ``\b``, ``^``, ...).
+            # Recording an empty original would pollute the sidecar with a
+            # meaningless ('' -> X) entry the audit log can't interpret.
+            # Return the empty string so ``re.sub`` inserts nothing at the
+            # zero-width position (effective no-op for this match).
+            return ""
         replacement = match.expand(replace_template) if is_regex else replace_template
         table.record(original, replacement)
         return replacement

@@ -47,23 +47,33 @@ Use semver: `MAJOR.MINOR.PATCH`.
   `Match.expand`, literal rules use `replace` verbatim. Every match is
   recorded in the table so the sidecar (PRD §10) sees per-mapping
   occurrence counts and cross-line consistency holds.
-- Declaration-order semantic is documented in the module: equivalent to
-  PRD §7 first-match-wins for the prefix-style patterns paths configs
-  actually use; the I-3 leak guard in `config.py` blocks the
-  cascading-replacement worry. The one known divergence from a true
-  leftmost-position alternation (rule 1's match starts *right* of rule 2's
-  in the same leaf) is called out so a future config can swap in a
-  combined alternation regex if needed.
+- Declaration-order semantic is documented in the module. Two limitations
+  of sequential application are called out so a future swap to a combined
+  alternation regex doesn't change behavior silently: (a) leftmost-position
+  divergence when one rule's match starts to the right of another's in the
+  same leaf; (b) backref-bearing regex rules whose runtime-expanded
+  replacement matches a later rule's pattern (the I-3 leak guard checks
+  the literal `replace` template, not the expansion, so a config like
+  `re:foo-(.+) -> bar-\1` plus literal `bar-x -> Z` passes I-3 but
+  cascades at runtime). Output stays scrubbed and deterministic in both
+  cases.
+- Zero-width regex matches (lookahead-only patterns, `\b`, `^`) no longer
+  pollute the substitution table with `('' -> X)` rows. `_apply_rule`'s
+  callback short-circuits empty matches so the sidecar's audit log only
+  carries interpretable mappings; the zero-width substitution itself
+  becomes a no-op at that position.
 
-Tests (`test_paths.py`, 12 cases): home-dir replacement across the surfaces
+Tests (`test_paths.py`, 14 cases): home-dir replacement across the surfaces
 the issue body names (`cwd`, `tool_use.input.file_path`,
 `toolUseResult.stdout`/`stderr`); project-slug regex with backref-preserved
 project name; slug + cwd surfaces both scrubbed in one pipeline run;
 cross-line consistency (same input → same placeholder across 3 lines, one
 table entry with `occurrences=3`); first-match-wins ordering (more-specific
 first vs general first); duplicate-rule dead-code case; two-runs-byte-
-identical determinism; non-matching leaves pass through; empty rules =
-identity.
+identical determinism (now also asserts table-snapshot equality, not just
+output bytes); non-matching leaves pass through; empty rules = identity;
+backref cascade past the I-3 guard (regression pin for limitation b);
+zero-width match does not pollute the subtable.
 
 No version bump: this PR adds importable machinery but the CLI (#26) does
 not yet feed it. Output bytes from `ccs-sanitize` are still identity-pass.

@@ -20,8 +20,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable
 
-import pytest
-
 from ccs_sanitize.config import Rule, load_config
 from ccs_sanitize.pipeline import run_pipeline, serialize_line
 from ccs_sanitize.rules.paths import build_path_transform
@@ -51,6 +49,16 @@ def _run(rules: Iterable[Rule], lines: list[str]):
     transform = build_path_transform(tuple(rules), table)
     out, counts = run_pipeline(lines, transform=transform)
     return out, counts, table
+
+
+def _table_snapshot(table: SubstitutionTable) -> list[tuple[str, str, int]]:
+    """Flatten a SubstitutionTable into a comparable list-of-tuples.
+
+    Used to compare two runs' tables in the determinism test: the public
+    ``__iter__`` yields ``Entry`` rows in insertion order, so equal
+    snapshots imply equal table contents and equal insertion order.
+    """
+    return [(e.original, e.replacement, e.occurrences) for e in table]
 
 
 # ----- home dir replacement across the issue-body surfaces ---------------
@@ -337,8 +345,12 @@ paths:
 
 def test_two_runs_byte_identical(tmp_path: Path) -> None:
     """No randomness, no time-dependent state -- two pipeline runs over the
-    same input produce identical bytes. This is the property that lets the
-    fixture validator gate on the sanitizer output (PRD section 13)."""
+    same input produce identical bytes AND identical substitution tables
+    (originals, replacements, occurrence counts, insertion order).
+
+    The sidecar (PRD section 10) emits the table verbatim, so table-shape
+    determinism is part of the same contract as output-bytes determinism.
+    The fixture validator (PRD section 13) gates on both."""
     body = """
 version: 1
 paths:
@@ -361,9 +373,10 @@ paths:
             }
         ),
     ]
-    out1, _, _ = _run(config.paths, lines)
-    out2, _, _ = _run(config.paths, lines)
+    out1, _, table1 = _run(config.paths, lines)
+    out2, _, table2 = _run(config.paths, lines)
     assert out1 == out2
+    assert _table_snapshot(table1) == _table_snapshot(table2)
 
 
 # ----- no-op paths --------------------------------------------------------
@@ -398,4 +411,52 @@ def test_empty_rules_is_identity(tmp_path: Path) -> None:
     line = serialize_line({"type": "user", "cwd": "/home/fdpearce/proj"})
     out, _, table = _run(config.paths, [line])
     assert "/home/fdpearce/proj" in out[0]
+    assert list(table) == []
+
+
+# ----- documented limitations (regression-pin) ---------------------------
+
+
+def test_backref_expansion_can_cascade_past_i3_guard(tmp_path: Path) -> None:
+    """Pin the second limitation called out in ``paths.py`` module docstring:
+    the I-3 leak guard checks the *literal* ``replace`` template, so a regex
+    rule whose backref-expanded replacement happens to match a later rule's
+    pattern slips through. The output is still scrubbed; the sidecar records
+    both hops honestly. The test exists so a future config-loader change
+    (e.g. expanding I-3 to consider backrefs) doesn't silently flip
+    behavior."""
+    body = """
+version: 1
+paths:
+  - match: "re:foo-(.+)"
+    replace: 'bar-\\1'
+  - match: "bar-x"
+    replace: "Z"
+"""
+    config = _config(tmp_path, body)
+    line = serialize_line({"type": "user", "cwd": "foo-x"})
+    out, _, table = _run(config.paths, [line])
+    # Cascade applies: rule 1 produces ``bar-x``, rule 2 then replaces it.
+    assert '"cwd":"Z"' in out[0]
+    snap = {e.original: e for e in table}
+    assert snap["foo-x"].replacement == "bar-x"
+    assert snap["bar-x"].replacement == "Z"
+
+
+def test_zero_width_match_does_not_pollute_subtable(tmp_path: Path) -> None:
+    """A zero-width regex match (lookahead, ``\\b``, ``^``, ...) must not
+    record an empty-original entry in the substitution table; the sidecar
+    cannot interpret a ('' -> X) row. The rule's substitution is a no-op
+    at the zero-width position rather than inserting the replacement."""
+    body = """
+version: 1
+paths:
+  - match: "re:(?=fdpearce)"
+    replace: "X"
+"""
+    config = _config(tmp_path, body)
+    line = serialize_line({"type": "user", "cwd": "/home/fdpearce/proj"})
+    out, _, table = _run(config.paths, [line])
+    # Leaf unchanged at the zero-width position; no record produced.
+    assert '"cwd":"/home/fdpearce/proj"' in out[0]
     assert list(table) == []
