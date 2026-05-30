@@ -38,6 +38,62 @@ Use semver: `MAJOR.MINOR.PATCH`.
 
 ## [Unreleased]
 
+### Added (issue #21)
+- Layer 1 path scrubbing at `ccs_sanitize.rules.paths.build_path_transform`.
+  Factory takes a `Sequence[Rule]` (typically `Config.paths`) plus a shared
+  `SubstitutionTable` and returns a `TransformCallback` ready for
+  `run_pipeline(transform=...)`. Per visited leaf, applies each rule's
+  `re.sub` in declaration order; regex rules expand backrefs via
+  `Match.expand`, literal rules use `replace` verbatim. Every match is
+  recorded in the table so the sidecar (PRD §10) sees per-mapping
+  occurrence counts and cross-line consistency holds.
+- Declaration-order semantic is documented in the module. Two limitations
+  of sequential application are called out so a future swap to a combined
+  alternation regex doesn't change behavior silently: (a) leftmost-position
+  divergence when one rule's match starts to the right of another's in the
+  same leaf; (b) backref-bearing regex rules whose runtime-expanded
+  replacement matches a later rule's pattern (the I-3 leak guard checks
+  the literal `replace` template, not the expansion, so a config like
+  `re:foo-(.+) -> bar-\1` plus literal `bar-x -> Z` passes I-3 but
+  cascades at runtime). Output stays scrubbed and deterministic in both
+  cases.
+- Zero-width regex patterns are now rejected at config load time by
+  `_reject_zero_width_pattern` in `config.py`: any rule whose compiled
+  regex matches the empty string with zero span (anchors `^`, `$`, `\A`;
+  empty groups `(?:)`; unbounded-optional quantifiers `.*`, `a*`, `a?`)
+  surfaces as `ConfigError` (exit 3) instead of silently no-op-ing at
+  runtime. PRD section 11 fail-closed posture: for a security tool,
+  silent acceptance of misconfigured rules is the wrong default. The
+  check also applies to `extra_secret_patterns`, which share the same
+  matching infrastructure.
+- The rule layer's runtime backstop (`_apply_rule` in `rules/paths.py`)
+  stays for input-dependent zero-width matches the static check cannot
+  see: lookaheads (`(?=foo)`) and `\b` only match zero width when the
+  surrounding string supplies the context, so they slip past the load-
+  time check. The backstop returns an empty string so `re.sub` inserts
+  nothing at the zero-width position and the substitution table never
+  records a meaningless `('' -> X)` row.
+
+Tests (`test_paths.py`, 14 cases): home-dir replacement across the surfaces
+the issue body names (`cwd`, `tool_use.input.file_path`,
+`toolUseResult.stdout`/`stderr`); project-slug regex with backref-preserved
+project name; slug + cwd surfaces both scrubbed in one pipeline run;
+cross-line consistency (same input → same placeholder across 3 lines, one
+table entry with `occurrences=3`); first-match-wins ordering (more-specific
+first vs general first); duplicate-rule dead-code case; two-runs-byte-
+identical determinism (now also asserts table-snapshot equality, not just
+output bytes); non-matching leaves pass through; empty rules = identity;
+backref cascade past the I-3 guard (regression pin for limitation b);
+zero-width lookahead pattern handled by runtime backstop.
+
+Tests (`test_config.py`, +3 cases): anchor-only regex (`re:^`) and
+unbounded-optional regex (`re:.*`) rejected at load time with a clear
+`ConfigError`; the same static check applies to `extra_secret_patterns`.
+
+No version bump: this PR adds importable machinery but the CLI (#26) does
+not yet feed it. Output bytes from `ccs-sanitize` are still identity-pass.
+Per the bump policy, the next byte-affecting story carries the bump.
+
 ### Changed (PEM coverage promoted to the live hook)
 - `pem-private-key` is now a **Tier-1** pattern: present both in
   `VENDORED_PATTERNS` (sanitizer) and in the hook's `SECRET_PATTERNS`

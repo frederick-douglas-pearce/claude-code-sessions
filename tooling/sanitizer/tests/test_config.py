@@ -171,6 +171,40 @@ def test_empty_regex_prefix_raises(tmp_path: Path) -> None:
         load_config(_write(tmp_path, body))
 
 
+def test_anchor_only_regex_rejected_at_load_time(tmp_path: Path) -> None:
+    """Anchor-only patterns (``^``, ``$``, ``\\A``) match zero characters
+    and as a scrub rule would either insert at every position or pollute
+    the audit log with empty-original rows. The loader rejects them so the
+    user gets a ``ConfigError`` (exit 3) instead of a silent no-op rule.
+    PRD section 11 fail-closed posture for security-relevant misconfig."""
+    body = 'version: 1\npaths:\n  - match: "re:^"\n    replace: "X"\n'
+    with pytest.raises(ConfigError, match="zero width"):
+        load_config(_write(tmp_path, body))
+
+
+def test_unbounded_optional_regex_rejected_at_load_time(tmp_path: Path) -> None:
+    """``.*``, ``a*``, ``a?`` all match the empty string. A user who wrote
+    ``re:.*`` as a path rule almost certainly meant ``re:.+`` (a likely
+    typo); rejecting at load time surfaces the bug instead of letting the
+    rule erase every leaf or silently match nothing."""
+    body = 'version: 1\npaths:\n  - match: "re:.*"\n    replace: "X"\n'
+    with pytest.raises(ConfigError, match="zero width"):
+        load_config(_write(tmp_path, body))
+
+
+def test_extra_secret_anchor_pattern_rejected(tmp_path: Path) -> None:
+    """The static zero-width check applies to ``extra_secret_patterns``
+    too, since they share the same matching infrastructure."""
+    body = """
+version: 1
+extra_secret_patterns:
+  - pattern: "re:^"
+    kind: "broken"
+"""
+    with pytest.raises(ConfigError, match="zero width"):
+        load_config(_write(tmp_path, body))
+
+
 def test_paths_not_a_list_raises(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="paths must be a list"):
         load_config(_write(tmp_path, "version: 1\npaths: {}\n"))
