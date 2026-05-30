@@ -23,7 +23,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
     "Topic :: Utilities",
 ]
-dependencies = []
+dependencies = ["PyYAML>=6"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
