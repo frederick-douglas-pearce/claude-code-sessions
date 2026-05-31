@@ -349,6 +349,123 @@ extra_secret_patterns:
         load_config(_write(tmp_path, body))
 
 
+# ----- I-3 leak guard #38: extras vs placeholders, rules vs <REDACTED:k> -
+
+
+def test_i3_rejects_extra_matching_git_branch_placeholder(tmp_path: Path) -> None:
+    """Symmetric to ``test_i3_rejects_user_rule_matching_git_branch_placeholder``
+    on the extras side. An extra matching ``feature/example`` would cause
+    the residual scan to fire on every output where gitBranch was scrubbed,
+    making the orchestrator's clean-return invariant unreachable."""
+    body = """
+version: 1
+extra_secret_patterns:
+  - pattern: "feature/example"
+    kind: "branch-shape"
+"""
+    with pytest.raises(ConfigError, match="gitBranch placeholder"):
+        load_config(_write(tmp_path, body))
+
+
+def test_i3_rejects_extra_matching_redaction_placeholder(tmp_path: Path) -> None:
+    """The headline #38 scenario: an extra whose pattern matches the
+    ``<REDACTED:kind>`` template. Every successfully-redacted built-in
+    secret would then trip the residual scan, refusing to write any
+    clean output."""
+    body = """
+version: 1
+extra_secret_patterns:
+  - pattern: "re:REDACTED:.+"
+    kind: "corp-leak-shape"
+"""
+    with pytest.raises(ConfigError, match="secret-redaction placeholder"):
+        load_config(_write(tmp_path, body))
+
+
+def test_i3_rejects_extra_matching_specific_builtin_kind_placeholder(
+    tmp_path: Path,
+) -> None:
+    """Narrower than the wildcard case above: an extra that only matches
+    one specific built-in placeholder (here ``<REDACTED:anthropic-key>``)
+    still trips the guard. Pins the per-kind check, not just the wildcard."""
+    body = """
+version: 1
+extra_secret_patterns:
+  - pattern: "<REDACTED:anthropic-key>"
+    kind: "anthropic-placeholder-shape"
+"""
+    with pytest.raises(ConfigError, match="anthropic-key"):
+        load_config(_write(tmp_path, body))
+
+
+def test_i3_rejects_extra_matching_its_own_redaction_placeholder(
+    tmp_path: Path,
+) -> None:
+    """An extra whose pattern matches the placeholder for ITS OWN kind:
+    ``re:REDACTED:foo`` against kind ``foo``. The runtime would redact a
+    real match to ``<REDACTED:foo>``, then residual would re-match the
+    same extra against its own placeholder and fire. The placeholder for
+    the extra's own kind is built into the leak-guard set so this is
+    caught."""
+    body = """
+version: 1
+extra_secret_patterns:
+  - pattern: "re:foo-self-[A-Z]{4}"
+    kind: "foo"
+  - pattern: "re:<REDACTED:foo>"
+    kind: "bar"
+"""
+    with pytest.raises(ConfigError, match="secret-redaction placeholder"):
+        load_config(_write(tmp_path, body))
+
+
+def test_i3_rejects_user_rule_matching_redaction_placeholder(
+    tmp_path: Path,
+) -> None:
+    """A path or identifier rule whose pattern matches
+    ``<REDACTED:kind>``. During a first pass paths/identifiers run BEFORE
+    secrets, so the rule cannot fire then -- but on a second pass
+    (idempotency, fixture-validator re-run) the rule would re-substitute
+    the placeholder, breaking the determinism contract (PRD section 14)."""
+    body = """
+version: 1
+paths:
+  - match: "re:<REDACTED:[a-z-]+>"
+    replace: "<placeholder>"
+"""
+    with pytest.raises(ConfigError, match="secret-redaction placeholder"):
+        load_config(_write(tmp_path, body))
+
+
+def test_i3_rejects_identifier_rule_matching_redaction_placeholder(
+    tmp_path: Path,
+) -> None:
+    """Symmetric to the path-rule case above; identifier-rule pattern
+    matching the placeholder is rejected for the same reason."""
+    body = """
+version: 1
+identifiers:
+  - match: "<REDACTED:anthropic-key>"
+    replace: "[hidden]"
+"""
+    with pytest.raises(ConfigError, match="secret-redaction placeholder"):
+        load_config(_write(tmp_path, body))
+
+
+def test_i3_extras_with_unrelated_pattern_load_cleanly(tmp_path: Path) -> None:
+    """Negative case: a well-formed extra whose pattern does NOT touch any
+    placeholder loads without error. Pins that the guard doesn't false-
+    positive on the common configuration shape."""
+    body = """
+version: 1
+extra_secret_patterns:
+  - pattern: "re:CORP-[A-Z0-9]{32}"
+    kind: "corp-token"
+"""
+    config = load_config(_write(tmp_path, body))
+    assert config.extra_secret_patterns[0].kind == "corp-token"
+
+
 def test_i3_generic_placeholders_pass(tmp_path: Path) -> None:
     """The PRD's recommended placeholders ('/home/user', 'user@example.com')
     must not trip the I-3 guard."""

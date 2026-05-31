@@ -120,7 +120,7 @@ def iter_all_secret_patterns(
         yield extra.compiled, extra.kind
 
 
-def _placeholder_for(kind: str) -> str:
+def placeholder_for(kind: str) -> str:
     """Build the ``<REDACTED:kind>`` placeholder for a given kind label.
 
     Uses string concatenation rather than ``str.format`` so a ``kind``
@@ -128,8 +128,20 @@ def _placeholder_for(kind: str) -> str:
     with the template language at all. The loader still validates
     ``ExtraSecretPattern.kind`` shape; this is a defense-in-depth that
     keeps the format step pure.
+
+    Public so the config loader's I-3 leak guard (#38) can enumerate the
+    placeholder strings every kind in the config can emit, and reject
+    any user rule or extra pattern that would match one. The secret
+    transform consumes the same helper, so detect-time placeholders and
+    leak-guard checks share one definition.
     """
     return "<REDACTED:" + kind + ">"
+
+
+# Backward-compatible private alias. The leading-underscore form was the
+# original spelling; ``placeholder_for`` is the public name. Keep the
+# alias so no in-repo call site has to change in one PR.
+_placeholder_for = placeholder_for
 
 
 @dataclass
@@ -270,4 +282,5 @@ __all__ = [
     "VENDORED_PATTERNS",
     "build_secret_transform",
     "iter_all_secret_patterns",
+    "placeholder_for",
 ]

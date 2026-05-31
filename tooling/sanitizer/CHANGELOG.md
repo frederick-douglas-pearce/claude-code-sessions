@@ -38,6 +38,29 @@ Use semver: `MAJOR.MINOR.PATCH`.
 
 ## [Unreleased]
 
+### Fixed (issue #38 — I-3 leak guard extension)
+- `_check_replacement_leak` now rejects:
+  - any user rule (path or identifier) whose `match:` matches a
+    `<REDACTED:kind>` placeholder for any built-in or extra kind. On a
+    second pass (idempotency, fixture-validator re-run) such a rule
+    would re-substitute the placeholder, breaking the determinism
+    contract;
+  - any `extra_secret_patterns` rule whose pattern matches the
+    `gitBranch` placeholder (`feature/example`). Symmetric to the
+    existing user-rule check; an unguarded extra would cause the
+    residual scan to fire on every output where gitBranch was scrubbed;
+  - any `extra_secret_patterns` rule whose pattern matches any
+    `<REDACTED:kind>` placeholder for any built-in or extra kind
+    (including its own kind). An extra catching a redaction placeholder
+    would make the orchestrator's "if `sanitize_session` returns,
+    residual passed" invariant unreachable for any input containing a
+    built-in secret.
+- `rules/secrets.py` promotes `_placeholder_for` to public
+  `placeholder_for`. The loader's I-3 guard and the secret transform
+  now share one definition of the redaction-placeholder format. A
+  private alias `_placeholder_for` is kept for the existing internal
+  call site.
+
 ### Changed (review pass on issue #24)
 - `scan_residual` now scans per-line instead of over a joined buffer.
   Eliminates two latent gate-weakening footguns at once: anchored extras
