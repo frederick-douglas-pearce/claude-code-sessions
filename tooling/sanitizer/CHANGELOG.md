@@ -38,6 +38,80 @@ Use semver: `MAJOR.MINOR.PATCH`.
 
 ## [Unreleased]
 
+### Added (issue #22)
+- Layer 2 identifier scrubbing at
+  `ccs_sanitize.rules.identifiers.build_identifier_transform`. Factory
+  takes a `Sequence[Rule]` (typically `Config.identifiers`), a shared
+  `SubstitutionTable`, and three identifier-specific options
+  (`scrub_git_branch`, `remap_uuids`, `uuid_seed`) that the CLI in #26
+  will source from `Config.options`. Per visited leaf the transform makes
+  one routing decision in priority order: gitBranch field → whole-value
+  replacement with `GIT_BRANCH_PLACEHOLDER` ("feature/example"); UUID-graph
+  field under `remap_uuids` → deterministic SHA-256-based remap to a
+  UUID-shaped string; default → apply each identifier rule via the shared
+  `apply_rule` engine. Field-anchored substitutions and identifier regex
+  rules do not compose: the whole-value placeholder wins so the audit
+  trail stays clean.
+- Shared per-rule engine extracted to `ccs_sanitize.rules._engine.apply_rule`.
+  Both Layer 1 (`rules/paths.py`) and Layer 2 (`rules/identifiers.py`)
+  import it so the subtle zero-width handling lives in one place. Drift
+  between the two layers would silently produce divergent substitution
+  tables for the same input, breaking the PRD §7 determinism contract.
+  `paths.py` no longer carries its own copy of `_apply_rule`; its module
+  docstring points at `_engine.py` for the per-rule semantics.
+- `ConfigOptions.uuid_seed` field (default `"ccs-sanitize/v1"`). Surfacing
+  the seed on `Config.options` rather than burying it in a function
+  default makes the determinism contract auditable: the sidecar can
+  report which seed produced its substitution table, and a seed change in
+  a config diff signals that every remapped UUID in every fixture will
+  change. The YAML key is validated as a non-empty string at load time
+  (`ConfigError` exit 3) -- an empty seed would silently weaken the hash
+  input to depend only on the original UUID.
+- UUID remap is deterministic by construction: `sha256(seed + original)`
+  truncated to 16 bytes and formatted as a UUID. RFC 4122 version/variant
+  bits are NOT forced -- downstream consumers parse these fields as
+  opaque strings, and forcing the bits would narrow the output range
+  without buying anything. Empty-string UUIDs and gitBranch values pass
+  through unchanged so they don't become phantom graph nodes / fake
+  branches.
+- `UUID_FIELDS` mirrors `pipeline._UUID_NAMES` and is pinned by a test --
+  the skip-list (what to *visit*) and the remap set (what to *remap*) are
+  two sides of the same contract; adding a field to one without the
+  other would silently leak or no-op.
+
+Tests (`test_identifiers.py`, 22 cases): exact email replaced across
+lines with consistent subtable entry; catch-all regex covers unknown
+addresses; exact-before-catch-all ordering produces specific replacement;
+gitBranch on/off; gitBranch empty-string passthrough (not-in-a-repo
+signal); gitBranch wins over identifier regex; UUID remap OFF leaves
+fields untouched (pipeline skip-list filters them); UUID remap ON
+preserves `parentUuid → uuid` graph link; `sessionId` shared key stays
+shared; `toolUseResult.agentId` (nested) remaps to the same value as
+top-level `agentId` (parent↔subagent link); injectivity (distinct UUIDs
+→ distinct remaps); empty-string UUID passes through; null parentUuid
+stays null (string-only walker invariant); two-runs-byte-identical
+determinism with table-snapshot equality; seed change yields different
+output; within-file consistency (same UUID twice → one entry, two
+occurrences); `UUID_FIELDS` matches pipeline skip-list; composition with
+Layer 1 paths through one shared SubstitutionTable; subtable conflict
+fail-closes through the pipeline.
+
+Tests (`test_config.py`, +4 cases): `uuid_seed` defaults when omitted;
+custom value loaded; empty-string and wrong-type rejected at load time.
+
+PRD-vs-implementation tension noted in test docstrings: PRD §8's example
+config uses `user@example.com` as the replacement for both the exact
+email rule AND the catch-all email regex. That config would be rejected
+by the I-3 replacement-leak guard (the catch-all regex self-matches its
+own replacement, and the exact rule's replacement matches the catch-all).
+The test uses bracketed placeholders (`[redacted-email]`, `[known-user]`)
+that don't match an email shape. Whether to relax I-3 for self-
+referential idempotent rules, or to update the PRD example, is tracked
+separately.
+
+No version bump: importable machinery only; the CLI (#26) does not yet
+feed it, so `ccs-sanitize` byte output is still identity-pass.
+
 ### Added (issue #21)
 - Layer 1 path scrubbing at `ccs_sanitize.rules.paths.build_path_transform`.
   Factory takes a `Sequence[Rule]` (typically `Config.paths`) plus a shared

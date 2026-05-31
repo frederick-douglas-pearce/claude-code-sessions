@@ -41,7 +41,7 @@ _ALLOWED_TOP_LEVEL_KEYS = frozenset(
     {"version", "paths", "identifiers", "options", "extra_secret_patterns"}
 )
 _ALLOWED_RULE_KEYS = frozenset({"match", "replace"})
-_ALLOWED_OPTION_KEYS = frozenset({"scrub_git_branch", "remap_uuids"})
+_ALLOWED_OPTION_KEYS = frozenset({"scrub_git_branch", "remap_uuids", "uuid_seed"})
 _ALLOWED_EXTRA_KEYS = frozenset({"pattern", "kind"})
 
 # Compile built-in secret patterns once at module import. This (a) catches a
@@ -133,6 +133,15 @@ class ExtraSecretPattern:
 class ConfigOptions:
     scrub_git_branch: bool = True
     remap_uuids: bool = False
+    # UUID-remap seed (PRD section 8 — "fixed seed"). Same seed across runs
+    # and files yields the same remapped UUIDs, which is what keeps the
+    # parent↔subagent graph coherent when sanitizing files independently.
+    # Surfacing the seed on the config (rather than burying it in a function
+    # default) makes the determinism contract auditable: the sidecar can
+    # report which seed produced its substitution table, and changing the
+    # seed in a config diff signals that the byte-output for every UUID in
+    # every fixture will change.
+    uuid_seed: str = "ccs-sanitize/v1"
 
 
 @dataclass(frozen=True)
@@ -370,6 +379,14 @@ def _build_options(raw: Any) -> ConfigOptions:
         kwargs["remap_uuids"] = _require_bool(
             raw["remap_uuids"], "options.remap_uuids"
         )
+    if "uuid_seed" in raw:
+        seed = raw["uuid_seed"]
+        if not isinstance(seed, str) or not seed:
+            raise ConfigError(
+                f"options.uuid_seed must be a non-empty string, got "
+                f"{type(seed).__name__}: {seed!r}"
+            )
+        kwargs["uuid_seed"] = seed
     return ConfigOptions(**kwargs)
 
 

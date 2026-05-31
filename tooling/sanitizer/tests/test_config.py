@@ -159,6 +159,36 @@ def test_option_wrong_type_raises(tmp_path: Path) -> None:
         load_config(_write(tmp_path, body))
 
 
+def test_uuid_seed_defaults_when_omitted(tmp_path: Path) -> None:
+    """The seed has a stable default so existing configs (no
+    ``uuid_seed:`` key) keep working under remap_uuids without forcing
+    the user to declare it. Defaults live on ``ConfigOptions`` so the
+    default change would surface as a single-source-of-truth diff."""
+    config = load_config(_write(tmp_path, "version: 1\n"))
+    assert config.options.uuid_seed == "ccs-sanitize/v1"
+
+
+def test_uuid_seed_custom_value_loaded(tmp_path: Path) -> None:
+    body = "version: 1\noptions:\n  uuid_seed: my-project-seed-2026\n"
+    config = load_config(_write(tmp_path, body))
+    assert config.options.uuid_seed == "my-project-seed-2026"
+
+
+def test_uuid_seed_empty_string_raises(tmp_path: Path) -> None:
+    """An empty seed would make the SHA-256 input depend only on the
+    original UUID, which is a real but silent change to the determinism
+    contract. Reject at load time so the user notices."""
+    body = 'version: 1\noptions:\n  uuid_seed: ""\n'
+    with pytest.raises(ConfigError, match="uuid_seed"):
+        load_config(_write(tmp_path, body))
+
+
+def test_uuid_seed_wrong_type_raises(tmp_path: Path) -> None:
+    body = "version: 1\noptions:\n  uuid_seed: 42\n"
+    with pytest.raises(ConfigError, match="uuid_seed"):
+        load_config(_write(tmp_path, body))
+
+
 def test_invalid_regex_in_match_raises(tmp_path: Path) -> None:
     body = 'version: 1\npaths:\n  - match: "re:[unterminated"\n    replace: "/x"\n'
     with pytest.raises(ConfigError, match="invalid regex"):
