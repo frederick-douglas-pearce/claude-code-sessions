@@ -38,6 +38,61 @@ Use semver: `MAJOR.MINOR.PATCH`.
 
 ## [Unreleased]
 
+### Fixed (review pass on issue #22)
+- `_remap_uuid` now uses a null-byte delimiter between the seed and the
+  original: `sha256(seed_bytes + b'\x00' + original_bytes)`. Without it,
+  `(seed='ab', original='cd')` and `(seed='abc', original='d')` hash
+  identically -- the function was pure over `seed+original`, not over
+  `(seed, original)`. With a single fixed seed in v0 the risk is benign,
+  but the determinism contract is documented as a function of two
+  inputs and now matches.
+- `build_identifier_transform` rejects empty `uuid_seed` at factory
+  entry, mirroring the loader's check at `_build_options`. A
+  programmatic caller (test, future CLI bypass) can no longer construct
+  a transform whose hash depends only on the original UUID.
+- UUID remap now short-circuits on the substitution table: a sessionId
+  shared across 10,000 lines hashes once instead of 10,000 times. The
+  occurrence counter still increments correctly via `record(leaf, cached)`,
+  so sidecar counts are unchanged.
+- `_remap_uuid` now raises `ValueError` on empty input (defense-in-depth;
+  the transform-level guard at the call site still handles the
+  happy-path passthrough).
+- The seed is pre-encoded once when the transform is built; per-leaf
+  `(seed + original).encode("utf-8")` is no longer reallocated.
+- I-3 replacement-leak guard extended: any user rule (path or
+  identifier) whose pattern matches the literal `GIT_BRANCH_PLACEHOLDER`
+  (`"feature/example"`) is rejected at load time. Without this check, a
+  config like `identifiers: [{match: 'feature/example', replace: 'X'}]`
+  would load successfully and at runtime produce an internally
+  inconsistent subtable (gitBranch field records
+  `real_branch -> 'feature/example'` while the user rule records
+  `'feature/example' -> 'X'` elsewhere).
+- Stale docstring in `_reject_zero_width_pattern` updated:
+  `rules/paths.py _apply_rule` → `rules/_engine.py apply_rule`.
+- `test_git_branch_left_alone_when_option_off` docstring corrected: the
+  earlier claim "identifier regex rules also do not fire on the value"
+  was wrong. With `scrub_git_branch: false`, gitBranch values fall
+  through to the identifier rule loop -- the option opts out of the
+  placeholder, not out of all scrubbing. The behavior is unchanged; the
+  test docstring was overclaiming.
+- `test_uuid_remap_null_parent_uuid_passes_through` had a dead
+  `assert None not in originals` -- the comprehension produces a set of
+  strings so the assertion was tautological. Replaced with a meaningful
+  table-shape assertion (`len(entries) == 1` plus the expected original).
+- New test `test_paths_and_identifiers_compose_under_remap_uuids` pins
+  end-to-end graph integrity when both layers compose and the
+  skip-list is lifted: a benign path rule does not interfere with UUID
+  remapping, and the `parentUuid → uuid` link survives the full
+  pipeline. The earlier composition test only exercised the default
+  (remap_uuids=False) skip predicate.
+- New config test `test_i3_rejects_user_rule_matching_git_branch_placeholder`
+  pins the extended I-3 check.
+- Shared test helpers (`_config`, `_table_snapshot`) moved to
+  `tests/_helpers.py` (`write_config`, `table_snapshot`); previously
+  duplicated byte-for-byte between `test_paths.py` and
+  `test_identifiers.py`. A future addition to the substitution-table
+  shape now updates one helper instead of two.
+
 ### Added (issue #22)
 - Layer 2 identifier scrubbing at
   `ccs_sanitize.rules.identifiers.build_identifier_transform`. Factory

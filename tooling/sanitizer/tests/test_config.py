@@ -189,6 +189,23 @@ def test_uuid_seed_wrong_type_raises(tmp_path: Path) -> None:
         load_config(_write(tmp_path, body))
 
 
+def test_i3_rejects_user_rule_matching_git_branch_placeholder(tmp_path: Path) -> None:
+    """A user identifier rule whose pattern catches the gitBranch
+    placeholder ("feature/example") would, at runtime, record
+    ('feature/example' -> user_replacement) on top of the gitBranch
+    field's (real_branch -> 'feature/example') -- producing an
+    internally inconsistent substitution table. The I-3 guard extension
+    rejects such a config at load time."""
+    body = """
+version: 1
+identifiers:
+  - match: "feature/example"
+    replace: "[branch-ref]"
+"""
+    with pytest.raises(ConfigError, match="gitBranch placeholder"):
+        load_config(_write(tmp_path, body))
+
+
 def test_invalid_regex_in_match_raises(tmp_path: Path) -> None:
     body = 'version: 1\npaths:\n  - match: "re:[unterminated"\n    replace: "/x"\n'
     with pytest.raises(ConfigError, match="invalid regex"):

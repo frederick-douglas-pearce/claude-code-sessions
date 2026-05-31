@@ -330,7 +330,7 @@ def _reject_zero_width_pattern(
 
     PRD section 11 fail-closed posture: a security tool surfaces
     misconfigured rules loudly, rather than silently no-op-ing them.
-    The rule layer's runtime guard (``rules/paths.py`` ``_apply_rule``)
+    The rule layer's runtime guard (``rules/_engine.py`` ``apply_rule``)
     remains for input-dependent zero-width matches the static check
     cannot see (lookaheads, ``\\b``).
     """
@@ -459,6 +459,11 @@ def _check_replacement_leak(config: Config) -> None:
         ("identifiers", r) for r in config.identifiers
     ]
 
+    # Function-local import: identifiers.py imports from this module
+    # (config.Rule), so a top-level import here would cycle. The leak
+    # check only runs at load_config time, so per-call cost is fine.
+    from .rules.identifiers import GIT_BRANCH_PLACEHOLDER
+
     for section, rule in all_rules:
         for other_section, other in all_rules:
             if other.compiled.search(rule.replace):
@@ -488,6 +493,21 @@ def _check_replacement_leak(config: Config) -> None:
                     f"{section} rule replacement {rule.replace!r} matches "
                     f"extra_secret_patterns rule {extra.kind!r}"
                 )
+        # I-3 extension: reject any user rule whose pattern matches the
+        # gitBranch placeholder. Otherwise the gitBranch substitution
+        # (which records real_branch -> "feature/example") and the user
+        # rule (which records "feature/example" -> replace) both fire on
+        # the same string, producing a sidecar that contradicts itself
+        # and an output file whose gitBranch field shows the placeholder
+        # while every other leaf shows the user's replacement.
+        if rule.compiled.search(GIT_BRANCH_PLACEHOLDER):
+            raise ConfigError(
+                f"{section} rule match {rule.pattern!r} matches the "
+                f"gitBranch placeholder {GIT_BRANCH_PLACEHOLDER!r} — "
+                f"a user rule that catches the placeholder would record "
+                f"a substitution conflicting with the gitBranch field "
+                f"substitution (PRD section 10, I-3)"
+            )
 
 
 __all__ = [

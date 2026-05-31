@@ -116,29 +116,42 @@ def build_identifier_transform(
         The callback closes over a tuple snapshot of ``rules`` (a mutable
         caller container cannot mutate the rule set mid-run) and the
         identifier-specific options.
+
+    Raises:
+        ValueError: ``uuid_seed`` is empty. Mirrors the loader's check at
+            ``config._build_options`` so a programmatic caller cannot
+            bypass the determinism guard the loader enforces.
     """
+    if not uuid_seed:
+        raise ValueError("uuid_seed must be a non-empty string")
     snapshot: tuple[Rule, ...] = tuple(rules)
+    # Pre-encode the seed once; per-leaf encoding is wasted work on the
+    # UUID-remap hot path.
+    seed_bytes = uuid_seed.encode("utf-8")
 
     def transform(leaf: str, path: JsonPath) -> str:
         if path:
             last = path[-1]
+            # Empty-string passthrough for field-anchored substitutions:
+            # gitBranch="" is the not-in-a-git-repo signal; uuid="" is
+            # malformed but harmless. Either way, don't fabricate a value
+            # and don't record a ('' -> placeholder) row the sidecar
+            # cannot interpret.
             if scrub_git_branch and last == "gitBranch":
-                # Empty-string gitBranch (used by Claude Code when ``cwd``
-                # is not a git repo, per the reference docs) is itself a
-                # signal -- don't replace it with a fake branch name and
-                # don't pollute the subtable with a ('' -> placeholder)
-                # row. Pass through unchanged.
                 if not leaf:
                     return leaf
                 return table.record(leaf, GIT_BRANCH_PLACEHOLDER)
             if remap_uuids and last in UUID_FIELDS:
-                # Empty-string UUID is malformed but harmless; silently
-                # hashing it would create a phantom node in the graph
-                # (every empty UUID across files mapping to the same real-
-                # looking placeholder). Pass through unchanged.
                 if not leaf:
                     return leaf
-                return table.record(leaf, _remap_uuid(uuid_seed, leaf))
+                # Skip the SHA-256 if the table already maps this UUID;
+                # for a 10k-line file sharing one sessionId that's a 10k×
+                # reduction in hash work. record() still increments the
+                # occurrence counter for the sidecar.
+                cached = table.get(leaf)
+                if cached is not None:
+                    return table.record(leaf, cached)
+                return table.record(leaf, _remap_uuid(seed_bytes, leaf))
         result = leaf
         for rule in snapshot:
             result = apply_rule(rule, result, table)
@@ -147,18 +160,29 @@ def build_identifier_transform(
     return transform
 
 
-def _remap_uuid(seed: str, original: str) -> str:
+def _remap_uuid(seed_bytes: bytes, original: str) -> str:
     """Deterministically remap a UUID-graph value via SHA-256.
 
     Produces a 36-char dash-formatted UUID string from the first 16 bytes
-    of ``sha256(seed + original)``. Bytes 6 and 8 are NOT masked to RFC
-    4122 version/variant -- downstream consumers parse these fields as
-    opaque strings, and forcing the bits would only narrow the output
-    range without buying anything for our use case. Same input always
-    produces the same output, which is the only property the graph-link
-    invariant depends on.
+    of ``sha256(seed_bytes + b'\\x00' + original_bytes)``. The null-byte
+    delimiter makes the function injective over ``(seed, original)`` pairs
+    rather than over their concatenation -- without it, ``("ab", "cd")``
+    and ``("abc", "d")`` would hash identically.
+
+    Bytes 6 and 8 are NOT masked to RFC 4122 version/variant -- downstream
+    consumers parse these fields as opaque strings, and forcing the bits
+    would only narrow the output range without buying anything.
+
+    Raises:
+        ValueError: ``original`` is empty. The caller already short-
+            circuits on empty leaves to avoid creating phantom graph
+            nodes; the function-level guard is defense-in-depth so any
+            future direct caller (sidecar tooling, refactors) cannot
+            silently re-introduce the bug.
     """
-    digest = hashlib.sha256((seed + original).encode("utf-8")).digest()
+    if not original:
+        raise ValueError("_remap_uuid: original must be a non-empty string")
+    digest = hashlib.sha256(seed_bytes + b"\x00" + original.encode("utf-8")).digest()
     return str(_uuid.UUID(bytes=digest[:16]))
 
 

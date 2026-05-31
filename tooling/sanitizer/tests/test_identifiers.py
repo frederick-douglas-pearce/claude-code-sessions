@@ -28,7 +28,7 @@ from typing import Iterable
 
 import pytest
 
-from ccs_sanitize.config import Rule, load_config
+from ccs_sanitize.config import Rule
 from ccs_sanitize.pipeline import (
     JsonPath,
     make_skip_predicate,
@@ -43,20 +43,11 @@ from ccs_sanitize.rules.identifiers import (
 from ccs_sanitize.rules.paths import build_path_transform
 from ccs_sanitize.subtable import SubstitutionTable
 
+from ._helpers import table_snapshot as _table_snapshot
+from ._helpers import write_config as _config
+
 
 # ----- helpers -----------------------------------------------------------
-
-
-def _config(tmp_path: Path, body: str):
-    """Write ``body`` to a temp config file and load it.
-
-    Uses ``load_config`` rather than direct ``Rule(...)`` construction so
-    the I-3 replacement-leak guard and the per-rule compile path are
-    exercised the same way the CLI will exercise them.
-    """
-    p = tmp_path / "config.yaml"
-    p.write_text(body, encoding="utf-8")
-    return load_config(p)
 
 
 def _run(
@@ -85,10 +76,6 @@ def _run(
     skip_predicate = make_skip_predicate(remap_uuids=remap_uuids)
     out, counts = run_pipeline(lines, transform=transform, skip_predicate=skip_predicate)
     return out, counts, table
-
-
-def _table_snapshot(table: SubstitutionTable) -> list[tuple[str, str, int]]:
-    return [(e.original, e.replacement, e.occurrences) for e in table]
 
 
 # ----- email replacement --------------------------------------------------
@@ -206,10 +193,14 @@ def test_git_branch_scrubbed_when_option_on(tmp_path: Path) -> None:
 
 
 def test_git_branch_left_alone_when_option_off(tmp_path: Path) -> None:
-    """When ``scrub_git_branch: false`` the field passes through untouched
-    and is NOT recorded in the subtable. Identifier regex rules also do
-    not fire on the value (because the bare-name routing is the only
-    thing that visits gitBranch with this transform's logic)."""
+    """When ``scrub_git_branch: false`` the field is not rewritten by the
+    field-anchored placeholder and (in the absence of identifier rules
+    that would otherwise match) is not recorded in the subtable. The
+    value falls through to the standard identifier rule loop, so a user
+    who configures both ``scrub_git_branch: false`` and an identifier
+    rule that matches branch-name substrings WILL get the rule applied
+    to the gitBranch leaf -- the option opts out of the placeholder, not
+    out of all scrubbing."""
     config = _config(tmp_path, "version: 1\n")
     line = serialize_line({"type": "user", "gitBranch": "feature/issue-22"})
     out, _, table = _run(config.identifiers, [line], scrub_git_branch=False)
@@ -420,10 +411,11 @@ def test_uuid_remap_null_parent_uuid_passes_through(tmp_path: Path) -> None:
     line = serialize_line({"type": "user", "uuid": "u-1", "parentUuid": None})
     out, _, table = _run(config.identifiers, [line], remap_uuids=True)
     assert '"parentUuid":null' in out[0]
-    # uuid was visited and remapped; parentUuid was not (it was null).
-    originals = {e.original for e in table}
-    assert "u-1" in originals
-    assert None not in originals  # type: ignore[comparison-overlap]
+    # The table has exactly one row (the uuid leaf); the null parentUuid
+    # was passed through by the walker without invoking the transform.
+    entries = list(table)
+    assert len(entries) == 1
+    assert entries[0].original == "u-1"
 
 
 def test_uuid_remap_deterministic_across_runs(tmp_path: Path) -> None:
@@ -539,6 +531,55 @@ identifiers:
     assert "/home/fdpearce" in originals
     assert "fpearce@gmail.com" in originals
     assert "feature/issue-22" in originals
+
+
+def test_paths_and_identifiers_compose_under_remap_uuids(tmp_path: Path) -> None:
+    """When ``remap_uuids=True`` the pipeline skip-list lifts and the
+    composed transform sees UUID-graph leaves. Layer 1 (paths) runs
+    first, so a path rule that happens to match a UUID substring would
+    mutate the leaf before Layer 2's whole-value remap fires --
+    silently breaking the parent↔subagent graph. This test pins that
+    a benign, well-scoped path rule does NOT interfere with the UUID
+    remap, and the graph link survives end-to-end."""
+    body = """
+version: 1
+paths:
+  - match: "/home/fdpearce"
+    replace: "/home/user"
+identifiers: []
+"""
+    config = _config(tmp_path, body)
+    table = SubstitutionTable()
+    path_transform = build_path_transform(config.paths, table)
+    id_transform = build_identifier_transform(
+        config.identifiers, table, remap_uuids=True
+    )
+
+    def composed(leaf: str, path: JsonPath) -> str:
+        return id_transform(path_transform(leaf, path), path)
+
+    parent_uuid = "11111111-1111-1111-1111-111111111001"
+    child_uuid = "11111111-1111-1111-1111-111111111002"
+    lines = [
+        serialize_line({"type": "user", "cwd": "/home/fdpearce/x", "uuid": parent_uuid}),
+        serialize_line(
+            {"type": "assistant", "uuid": child_uuid, "parentUuid": parent_uuid}
+        ),
+    ]
+    out, _ = run_pipeline(
+        lines,
+        transform=composed,
+        skip_predicate=make_skip_predicate(remap_uuids=True),
+    )
+    # Path scrubbing still works.
+    assert "/home/user/x" in out[0]
+    # UUID scrubbing still works.
+    assert parent_uuid not in "\n".join(out)
+    assert child_uuid not in "\n".join(out)
+    # Graph link survives: line 1's remapped uuid == line 2's remapped parentUuid.
+    remap_parent = table.get(parent_uuid)
+    assert remap_parent is not None
+    assert f'"parentUuid":"{remap_parent}"' in out[1]
 
 
 # ----- no-op edges --------------------------------------------------------
