@@ -60,16 +60,21 @@ replacement string is almost certainly a config mistake rather than a
 backref intent. An invalid backref (``\\3`` against a 2-group pattern) raises
 ``re.error`` from inside ``re.sub`` on the first match; v0 surfaces that at
 runtime rather than at transform-build time.
+
+**Per-rule application.** The actual ``re.sub`` + zero-width-handling logic
+lives in ``rules/_engine.py`` so Layer 2 (identifiers, #22) shares the exact
+same semantics; the two layers cannot drift on zero-width handling, which
+would otherwise produce divergent substitution tables for the same input.
 """
 
 from __future__ import annotations
 
-import re
 from typing import Sequence
 
 from ..config import Rule
 from ..pipeline import JsonPath, TransformCallback
 from ..subtable import SubstitutionTable
+from ._engine import apply_rule
 
 
 def build_path_transform(
@@ -101,42 +106,10 @@ def build_path_transform(
     def transform(leaf: str, path: JsonPath) -> str:
         result = leaf
         for rule in snapshot:
-            result = _apply_rule(rule, result, table)
+            result = apply_rule(rule, result, table)
         return result
 
     return transform
-
-
-def _apply_rule(rule: Rule, leaf: str, table: SubstitutionTable) -> str:
-    """Apply a single rule across ``leaf``, recording each match.
-
-    Uses ``re.sub`` with a callback so every non-overlapping match in the
-    leaf is replaced and recorded. A Bash command that mentions
-    ``/home/fdpearce`` twice records two occurrences against the same table
-    entry, which is what the sidecar's per-mapping occurrence count surfaces
-    (PRD section 10).
-    """
-    is_regex = rule.is_regex
-    replace_template = rule.replace
-
-    def repl(match: re.Match[str]) -> str:
-        original = match.group(0)
-        if not original:
-            # Zero-width match. The config loader rejects anchor-only and
-            # unbounded-optional patterns up front (``_reject_zero_width_pattern``
-            # in ``config.py``); this branch is the backstop for input-
-            # dependent zero-width matches the static check cannot see --
-            # primarily lookaheads (``(?=foo)``) and ``\b``, which match
-            # zero width only when the surrounding string supplies the
-            # context. Recording an empty original would pollute the
-            # sidecar with a meaningless ('' -> X) entry; return "" so
-            # ``re.sub`` inserts nothing at the zero-width position.
-            return ""
-        replacement = match.expand(replace_template) if is_regex else replace_template
-        table.record(original, replacement)
-        return replacement
-
-    return rule.compiled.sub(repl, leaf)
 
 
 __all__ = ["build_path_transform"]

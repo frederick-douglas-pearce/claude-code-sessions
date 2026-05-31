@@ -17,30 +17,18 @@ Covers PRD section 7:
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Iterable
 
-from ccs_sanitize.config import Rule, load_config
+from ccs_sanitize.config import Rule
 from ccs_sanitize.pipeline import run_pipeline, serialize_line
 from ccs_sanitize.rules.paths import build_path_transform
 from ccs_sanitize.subtable import SubstitutionTable
 
+from ._helpers import table_snapshot as _table_snapshot
+from ._helpers import write_config as _config
+
 
 # ----- helpers -----------------------------------------------------------
-
-
-def _config(tmp_path: Path, body: str):
-    """Write ``body`` to a temp config file and load it.
-
-    Using ``load_config`` rather than direct ``Rule(...)`` construction is
-    deliberate: it exercises the same compile path the CLI will use,
-    including the I-3 replacement-leak guard. A test config that
-    accidentally violated I-3 would fail to load -- which is the right
-    signal.
-    """
-    p = tmp_path / "config.yaml"
-    p.write_text(body, encoding="utf-8")
-    return load_config(p)
 
 
 def _run(rules: Iterable[Rule], lines: list[str]):
@@ -49,16 +37,6 @@ def _run(rules: Iterable[Rule], lines: list[str]):
     transform = build_path_transform(tuple(rules), table)
     out, counts = run_pipeline(lines, transform=transform)
     return out, counts, table
-
-
-def _table_snapshot(table: SubstitutionTable) -> list[tuple[str, str, int]]:
-    """Flatten a SubstitutionTable into a comparable list-of-tuples.
-
-    Used to compare two runs' tables in the determinism test: the public
-    ``__iter__`` yields ``Entry`` rows in insertion order, so equal
-    snapshots imply equal table contents and equal insertion order.
-    """
-    return [(e.original, e.replacement, e.occurrences) for e in table]
 
 
 # ----- home dir replacement across the issue-body surfaces ---------------
