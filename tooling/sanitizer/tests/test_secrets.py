@@ -41,6 +41,7 @@ from ccs_sanitize.rules.secrets import (
     SECRET_PLACEHOLDER_TEMPLATE,
     SecretCounts,
     build_secret_transform,
+    placeholder_for,
 )
 from ccs_sanitize.subtable import SubstitutionTable
 
@@ -396,6 +397,16 @@ def test_secret_counts_record_rejects_empty_kind() -> None:
     counts = SecretCounts()
     with pytest.raises(ValueError, match="non-empty"):
         counts.record("")
+
+
+def test_placeholder_for_rejects_empty_kind() -> None:
+    """Symmetric to ``SecretCounts.record``: ``placeholder_for`` is the
+    other public secret-module surface that takes a ``kind`` argument.
+    A programmatic caller bypassing the loader with an empty kind would
+    otherwise produce ``<REDACTED:>``, which the I-3 leak guard would
+    then feed into ``redaction_placeholders`` as a wildcard-like entry."""
+    with pytest.raises(ValueError, match="non-empty"):
+        placeholder_for("")
 
 
 # ----- determinism -------------------------------------------------------

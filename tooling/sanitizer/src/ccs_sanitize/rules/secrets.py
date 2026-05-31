@@ -120,7 +120,7 @@ def iter_all_secret_patterns(
         yield extra.compiled, extra.kind
 
 
-def _placeholder_for(kind: str) -> str:
+def placeholder_for(kind: str) -> str:
     """Build the ``<REDACTED:kind>`` placeholder for a given kind label.
 
     Uses string concatenation rather than ``str.format`` so a ``kind``
@@ -128,7 +128,23 @@ def _placeholder_for(kind: str) -> str:
     with the template language at all. The loader still validates
     ``ExtraSecretPattern.kind`` shape; this is a defense-in-depth that
     keeps the format step pure.
+
+    Public so the config loader's I-3 leak guard (#38) can enumerate the
+    placeholder strings every kind in the config can emit, and reject
+    any user rule or extra pattern that would match one. The secret
+    transform consumes the same helper, so detect-time placeholders and
+    leak-guard checks share one definition.
+
+    Raises:
+        ValueError: ``kind`` is empty. Mirrors ``SecretCounts.record``'s
+            runtime backstop -- a programmatic caller (test, internal
+            tooling) that bypasses the loader and passes an empty kind
+            would otherwise produce ``<REDACTED:>``, which feeds the I-3
+            leak-guard a wildcard-like entry matching aggressively
+            against rule patterns.
     """
+    if not kind:
+        raise ValueError("placeholder_for: kind must be a non-empty string")
     return "<REDACTED:" + kind + ">"
 
 
@@ -231,7 +247,7 @@ def build_secret_transform(
         would otherwise be rebuilt for every leaf the transform visits.
     """
     snapshot: tuple[tuple[re.Pattern[str], str, str], ...] = tuple(
-        (pattern, kind, _placeholder_for(kind))
+        (pattern, kind, placeholder_for(kind))
         for pattern, kind in iter_all_secret_patterns(extras)
     )
 
@@ -270,4 +286,5 @@ __all__ = [
     "VENDORED_PATTERNS",
     "build_secret_transform",
     "iter_all_secret_patterns",
+    "placeholder_for",
 ]

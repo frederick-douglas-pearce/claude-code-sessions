@@ -32,7 +32,11 @@ from typing import Any
 
 import yaml
 
-from .rules.secrets import COMPILED_SECRET_PATTERNS
+from .rules.secrets import (
+    COMPILED_SECRET_PATTERNS,
+    iter_all_secret_patterns,
+    placeholder_for,
+)
 
 _SUPPORTED_VERSION = 1
 _REGEX_PREFIX = "re:"
@@ -446,6 +450,20 @@ def _check_replacement_leak(config: Config) -> None:
     rule whose own ``replace`` contains its own ``match`` is a non-
     idempotent rule (a second pass would re-substitute) and a sidecar leak
     in its own right.
+
+    Extended (#38) to also reject patterns that would match a placeholder
+    the runtime emits on a clean output:
+
+      - Any user rule (path/identifier) or extra whose pattern matches
+        ``<REDACTED:kind>`` for any built-in or extra kind. Such a pattern
+        would either fail the residual scan on every successfully-redacted
+        output (extras) or re-substitute the placeholder on a second pass,
+        breaking idempotency (user rules).
+      - Any extra whose pattern matches ``GIT_BRANCH_PLACEHOLDER``.
+        Symmetric to the existing user-rule check below; an extra that
+        catches the placeholder would either re-redact the gitBranch
+        substitution or cause the residual scan to fire on every output
+        where gitBranch was scrubbed.
     """
     all_rules = [("paths", r) for r in config.paths] + [
         ("identifiers", r) for r in config.identifiers
@@ -455,6 +473,18 @@ def _check_replacement_leak(config: Config) -> None:
     # (config.Rule), so a top-level import here would cycle. The leak
     # check only runs at load_config time, so per-call cost is fine.
     from .rules.identifiers import GIT_BRANCH_PLACEHOLDER
+
+    # Placeholders the runtime can emit: one per built-in secret kind,
+    # plus one per configured extra kind. Built via ``iter_all_secret_patterns``
+    # so the "built-ins first, extras last" ordering invariant lives in
+    # ONE place (``rules/secrets.py``) and the leak guard cannot drift
+    # from the secret transform / residual scan if that ordering ever
+    # changes. The compiled pattern is discarded -- only the kind label
+    # drives placeholder construction.
+    redaction_placeholders: list[tuple[str, str]] = [
+        (placeholder_for(kind), kind)
+        for _, kind in iter_all_secret_patterns(config.extra_secret_patterns)
+    ]
 
     for section, rule in all_rules:
         for other_section, other in all_rules:
@@ -500,6 +530,48 @@ def _check_replacement_leak(config: Config) -> None:
                 f"a substitution conflicting with the gitBranch field "
                 f"substitution (PRD section 10, I-3)"
             )
+        # I-3 extension (#38): reject any user rule whose pattern matches
+        # any redaction placeholder. The secret layer runs LAST during a
+        # first pass, so the rule cannot fire then; but on a second pass
+        # (idempotency, fixture-validator re-run) paths/identifiers run
+        # over output containing ``<REDACTED:k>`` and would re-substitute,
+        # breaking the determinism contract.
+        for placeholder, kind in redaction_placeholders:
+            if rule.compiled.search(placeholder):
+                raise ConfigError(
+                    f"{section} rule match {rule.pattern!r} matches the "
+                    f"secret-redaction placeholder {placeholder!r} "
+                    f"(kind={kind!r}) — a second sanitizer pass would "
+                    f"re-substitute the placeholder, breaking idempotency "
+                    f"(PRD section 14; PRD section 10, I-3)"
+                )
+
+    # I-3 extension (#38): reject extras whose pattern matches the gitBranch
+    # placeholder or any redaction placeholder. An extra matching either
+    # would cause the residual scan to fire on every successfully-scrubbed
+    # output -- the orchestrator's "if sanitize_session returns, residual
+    # passed" invariant becomes unreachable. The existing GIT_BRANCH guard
+    # above covers user rules only; this is the symmetric check on extras.
+    for extra in config.extra_secret_patterns:
+        if extra.compiled.search(GIT_BRANCH_PLACEHOLDER):
+            raise ConfigError(
+                f"extra_secret_patterns rule {extra.pattern!r} "
+                f"(kind={extra.kind!r}) matches the gitBranch placeholder "
+                f"{GIT_BRANCH_PLACEHOLDER!r} — an extra that catches the "
+                f"placeholder would cause the residual scan to fire on "
+                f"every output where gitBranch was scrubbed "
+                f"(PRD section 10, I-3)"
+            )
+        for placeholder, kind in redaction_placeholders:
+            if extra.compiled.search(placeholder):
+                raise ConfigError(
+                    f"extra_secret_patterns rule {extra.pattern!r} "
+                    f"(kind={extra.kind!r}) matches the secret-redaction "
+                    f"placeholder {placeholder!r} (kind={kind!r}) — an "
+                    f"extra that catches a redacted placeholder would "
+                    f"cause the residual scan to fire on every output "
+                    f"containing a redacted secret (PRD section 10, I-3)"
+                )
 
 
 __all__ = [
