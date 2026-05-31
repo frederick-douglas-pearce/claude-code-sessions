@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Mapping, Sequence
 
 from ..pipeline import JsonPath, TransformCallback
@@ -91,9 +92,26 @@ SECRET_PATTERNS: list[tuple[str, str]] = VENDORED_PATTERNS + BATCH_PATTERNS
 # the residual scan in #24) import this instead of recompiling -- a single
 # compile site is the canonical truth for compilation flags. A typo in any
 # raw pattern surfaces here at import time rather than on first call.
-COMPILED_SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+#
+# Stored as a ``tuple`` (not ``list``) so the canonical-truth claim is
+# structural: ``COMPILED_SECRET_PATTERNS.append(...)`` raises AttributeError
+# at the mutation site rather than silently weakening the D-1 floor for
+# every subsequent ``build_secret_transform`` call.
+COMPILED_SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
     (re.compile(pattern), kind) for pattern, kind in SECRET_PATTERNS
-]
+)
+
+
+def _placeholder_for(kind: str) -> str:
+    """Build the ``<REDACTED:kind>`` placeholder for a given kind label.
+
+    Uses string concatenation rather than ``str.format`` so a ``kind``
+    containing curly braces (e.g. a misconfigured extra) cannot interact
+    with the template language at all. The loader still validates
+    ``ExtraSecretPattern.kind`` shape; this is a defense-in-depth that
+    keeps the format step pure.
+    """
+    return "<REDACTED:" + kind + ">"
 
 
 @dataclass
@@ -108,22 +126,40 @@ class SecretCounts:
     Insertion order is preserved (CPython dict semantics) so the sidecar
     can emit kinds in first-seen order, matching the substitution table's
     convention.
+
+    The class is intentionally non-frozen (``record`` mutates the count)
+    but the inner dict is hidden behind ``repr=False`` to keep the
+    leading-underscore field name out of any debug output a future caller
+    prints; the custom ``__repr__`` surfaces the public mapping shape
+    instead.
     """
 
-    _counts: dict[str, int] = field(default_factory=dict)
+    _counts: dict[str, int] = field(default_factory=dict, repr=False)
 
     def record(self, kind: str) -> None:
-        """Increment the match counter for ``kind`` by one."""
+        """Increment the match counter for ``kind`` by one.
+
+        Raises:
+            ValueError: ``kind`` is empty. The loader rejects empty kinds
+                at config-load time; this is the runtime backstop for any
+                future call site (programmatic API, test) that bypasses
+                the loader and would otherwise emit a ``<REDACTED:>``
+                placeholder into the output.
+        """
+        if not kind:
+            raise ValueError("SecretCounts.record: kind must be a non-empty string")
         self._counts[kind] = self._counts.get(kind, 0) + 1
 
     def as_mapping(self) -> Mapping[str, int]:
-        """Return a snapshot copy of the per-kind counts.
+        """Return an immutable snapshot of the per-kind counts.
 
-        A copy (rather than a live view) so the sidecar can serialize a
-        stable picture even if a future caller keeps recording after the
-        snapshot is taken.
+        ``MappingProxyType`` over a fresh ``dict`` copy gives both
+        immutability (a caller cannot mutate the returned view) AND
+        stability (post-snapshot ``record`` calls do not appear in views
+        already taken). Matches ``PipelineCounts.stripped_lines`` so the
+        sidecar consumer sees one consistent shape across counter types.
         """
-        return dict(self._counts)
+        return MappingProxyType(dict(self._counts))
 
     def total(self) -> int:
         """Return the total number of secret matches across all kinds.
@@ -134,8 +170,16 @@ class SecretCounts:
         return sum(self._counts.values())
 
     def __len__(self) -> int:
-        """Number of distinct kinds with at least one match."""
+        """Number of distinct kinds with at least one match.
+
+        Mirrors ``SubstitutionTable.__len__`` (distinct entries, not
+        total occurrences). For total matches across all kinds, use
+        ``total()``.
+        """
         return len(self._counts)
+
+    def __repr__(self) -> str:
+        return f"SecretCounts({dict(self._counts)!r})"
 
 
 def build_secret_transform(
@@ -161,33 +205,40 @@ def build_secret_transform(
 
     Returns:
         A ``TransformCallback`` suitable for ``run_pipeline(transform=...)``.
-        The callback closes over a tuple snapshot of the combined pattern
-        list (built-ins + extras at build time) so a caller-side mutation
-        of ``extras`` after build cannot smuggle a pattern in or out
-        mid-run.
+        The callback closes over a tuple snapshot of the combined
+        ``(pattern, kind, placeholder)`` triples (built-ins + extras at
+        build time) so a caller-side mutation of ``extras`` after build
+        cannot smuggle a pattern in or out mid-run. Placeholders are
+        precomputed at build time -- they depend only on ``kind`` and
+        would otherwise be rebuilt for every leaf the transform visits.
     """
-    snapshot: tuple[tuple[re.Pattern[str], str], ...] = (
-        tuple(COMPILED_SECRET_PATTERNS)
-        + tuple((extra.compiled, extra.kind) for extra in extras)
+    snapshot: tuple[tuple[re.Pattern[str], str, str], ...] = tuple(
+        (pattern, kind, _placeholder_for(kind))
+        for pattern, kind in (
+            *COMPILED_SECRET_PATTERNS,
+            *((extra.compiled, extra.kind) for extra in extras),
+        )
     )
 
     def transform(leaf: str, path: JsonPath) -> str:
         result = leaf
-        for pattern, kind in snapshot:
-            placeholder = SECRET_PLACEHOLDER_TEMPLATE.format(kind=kind)
+        for pattern, kind, placeholder in snapshot:
 
-            def repl(match: re.Match[str], _kind: str = kind, _ph: str = placeholder) -> str:
+            def repl(match: re.Match[str]) -> str:
                 # Zero-width matches would otherwise be recorded as "found a
                 # secret of length 0" -- meaningless for the sidecar count
                 # and indicative of a misconfigured extra pattern. The
                 # config loader's _reject_zero_width_pattern catches the
                 # static case; this is the runtime backstop for lookaheads
                 # and \b. Note: built-in patterns are all consuming, so this
-                # branch only ever fires for misbuilt extras.
+                # branch only ever fires for misbuilt extras. The closure
+                # closes over ``kind`` and ``placeholder`` from the enclosing
+                # iteration; no late-binding hazard because ``pattern.sub``
+                # consumes ``repl`` before the loop advances.
                 if not match.group(0):
                     return ""
-                counts.record(_kind)
-                return _ph
+                counts.record(kind)
+                return placeholder
 
             result = pattern.sub(repl, result)
         return result
