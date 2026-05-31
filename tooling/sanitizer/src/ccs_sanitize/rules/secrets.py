@@ -37,7 +37,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Mapping, Sequence
+from typing import TYPE_CHECKING, Iterator, Mapping, Sequence
 
 from ..pipeline import JsonPath, TransformCallback
 
@@ -100,6 +100,24 @@ SECRET_PATTERNS: list[tuple[str, str]] = VENDORED_PATTERNS + BATCH_PATTERNS
 COMPILED_SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
     (re.compile(pattern), kind) for pattern, kind in SECRET_PATTERNS
 )
+
+
+def iter_all_secret_patterns(
+    extras: Sequence[ExtraSecretPattern],
+) -> Iterator[tuple[re.Pattern[str], str]]:
+    """Yield ``(compiled, kind)`` for every secret pattern that should fire,
+    built-ins first then extras.
+
+    Single source of truth for "the list of patterns the sanitizer treats
+    as secrets, in order." Both ``build_secret_transform`` (detect-during-
+    scrub) and ``residual.scan_residual`` (verify-after-scrub) iterate this
+    helper, so reordering or extending the floor in one site cannot drift
+    from the other -- the agreement is structural, not disciplinary.
+    """
+    for pattern, kind in COMPILED_SECRET_PATTERNS:
+        yield pattern, kind
+    for extra in extras:
+        yield extra.compiled, extra.kind
 
 
 def _placeholder_for(kind: str) -> str:
@@ -214,10 +232,7 @@ def build_secret_transform(
     """
     snapshot: tuple[tuple[re.Pattern[str], str, str], ...] = tuple(
         (pattern, kind, _placeholder_for(kind))
-        for pattern, kind in (
-            *COMPILED_SECRET_PATTERNS,
-            *((extra.compiled, extra.kind) for extra in extras),
-        )
+        for pattern, kind in iter_all_secret_patterns(extras)
     )
 
     def transform(leaf: str, path: JsonPath) -> str:
@@ -254,4 +269,5 @@ __all__ = [
     "SecretCounts",
     "VENDORED_PATTERNS",
     "build_secret_transform",
+    "iter_all_secret_patterns",
 ]

@@ -38,6 +38,64 @@ Use semver: `MAJOR.MINOR.PATCH`.
 
 ## [Unreleased]
 
+### Changed (review pass on issue #24)
+- `scan_residual` now scans per-line instead of over a joined buffer.
+  Eliminates two latent gate-weakening footguns at once: anchored extras
+  (`re:^...$`) would have matched only buffer boundaries in the joined
+  form, and patterns using `\s+` (bearer-token, conn-string-pw) could
+  in principle have matched across the line-join separator. Per-line is
+  also the semantic that ``build_secret_transform`` applies per leaf, so
+  detect-during-scrub and verify-after-scrub now share the same matching
+  semantics structurally.
+- `rules/secrets.py` exposes ``iter_all_secret_patterns(extras)`` --
+  ``build_secret_transform`` and ``scan_residual`` both consume it, so
+  the "built-ins first, extras last" ordering and any future addition
+  to the pattern floor lives in one place rather than two.
+- Tests: `_BASE_CONFIG` no longer commits a real email; uses the RFC-2606
+  reserved ``user-old@example.test`` instead. PEM-armor test fixture
+  constructed via string concatenation so the test source itself does
+  not match the repo's own pem-private-key hook regex on grep/cat.
+  Determinism test uses heterogeneous records (was ``[x] * 5`` aliases).
+  Idempotency parametrized over every built-in kind so a future pattern
+  that accidentally matches its own ``<REDACTED:kind>`` placeholder is
+  caught. `_line` helper lifted to ``tests/_helpers.py`` as
+  ``serialize_test_line``. `test_strip_types_passthrough_drops_lines`
+  now actually passes ``strip_types=`` (was relying on the default).
+  `test_no_partial_scrub_on_missing_type_field` pins ``"line 2"``
+  symmetrically with the malformed-JSON sibling. New per-line anchored
+  extra test pins the new scan semantics.
+
+### Added (issue #24 — residual scan + fail-closed orchestration)
+- `residual.py`: `scan_residual(text, extras)` re-runs the secret-pattern
+  detector over the serialized output as the final safety gate. A match
+  raises `ResidualSecretError(kind)` carrying only the pattern's `kind`
+  label -- never the matched bytes -- so the D-2 invariant survives
+  propagation through tracebacks and logs. Re-imports
+  `COMPILED_SECRET_PATTERNS` directly (rather than accepting a pattern
+  list from the caller) so the D-1 floor is structural: there is no API
+  to pass a pruned subset of built-ins.
+- `orchestrator.py`: `sanitize_session(lines, config, *, strip_types)`
+  builds the three transform layers (paths -> identifiers -> secrets),
+  composes them in PRD-mandated order, plugs the composed transform into
+  `run_pipeline`, and runs the residual gate over the joined output.
+  Returns `(serialized_lines, PipelineCounts, SubstitutionTable,
+  SecretCounts)` so the sidecar (#25) and CLI (#26) can compose without
+  re-running the pipeline. If the function returns, the residual scan
+  passed -- the sidecar can unconditionally record `residual_scan: clean`.
+- `pipeline.py` docstring updated: the "does NOT ship" carve-out now
+  points at `residual.py` and `orchestrator.py`; the atomic write that
+  follows them still lives in the CLI layer (#26).
+- Tests: `tests/test_residual.py` (10 cases) pins clean/empty/redacted-
+  placeholder happy paths, Tier-1 and Tier-2 kinds, extras with the
+  built-in-wins-on-overlap ordering, and the "exception message names
+  the kind but not the bytes" D-2 surface. `tests/test_orchestrator.py`
+  (8 cases) covers three-layer happy path, `strip_types` passthrough,
+  determinism (PRD §14, I-1), idempotency (PRD §14), the realistic
+  fail-closed survival path (Tier-1 secret planted in skip-listed
+  `thinking.signature`), a pure unit-test fail-closed (monkeypatch
+  `build_secret_transform` to identity), and no-partial-scrub on both
+  malformed-JSON and missing-`type` errors.
+
 ### Fixed (review pass on issue #22)
 - `_remap_uuid` now uses a null-byte delimiter between the seed and the
   original: `sha256(seed_bytes + b'\x00' + original_bytes)`. Without it,

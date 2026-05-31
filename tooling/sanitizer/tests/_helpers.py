@@ -12,6 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ccs_sanitize.config import Config, load_config
+from ccs_sanitize.pipeline import serialize_line
 from ccs_sanitize.subtable import SubstitutionTable
 
 
@@ -32,4 +33,16 @@ def table_snapshot(table: SubstitutionTable) -> list[tuple[str, str, int]]:
     return [(e.original, e.replacement, e.occurrences) for e in table]
 
 
-__all__ = ["write_config", "table_snapshot"]
+def serialize_test_line(obj: dict) -> str:
+    """Serialize a synthetic line via the same code path the pipeline uses.
+
+    Routing through ``serialize_line`` (rather than json.dumps with hand-
+    chosen flags) means a future change to the PRD-pinned serialization
+    parameters (separators, ensure_ascii, key-order) can't silently
+    diverge the test fixtures from real pipeline output. Shared across
+    test files so the helper exists in one place, not several.
+    """
+    return serialize_line(obj)
+
+
+__all__ = ["serialize_test_line", "table_snapshot", "write_config"]
