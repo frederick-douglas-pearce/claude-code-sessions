@@ -57,9 +57,26 @@ Use semver: `MAJOR.MINOR.PATCH`.
     built-in secret.
 - `rules/secrets.py` promotes `_placeholder_for` to public
   `placeholder_for`. The loader's I-3 guard and the secret transform
-  now share one definition of the redaction-placeholder format. A
-  private alias `_placeholder_for` is kept for the existing internal
-  call site.
+  share one definition of the redaction-placeholder format. The single
+  internal call site is migrated in the same diff; no alias retained.
+- `placeholder_for("")` raises `ValueError`, mirroring
+  `SecretCounts.record` — a programmatic caller bypassing the loader
+  with an empty kind can no longer produce a wildcard-like
+  `<REDACTED:>` that the I-3 leak guard would feed into its
+  placeholder enumeration.
+- `_check_replacement_leak` now builds its placeholder set via
+  `iter_all_secret_patterns(extras)` rather than re-iterating
+  `COMPILED_SECRET_PATTERNS` then extras inline. The "built-ins first,
+  extras last" ordering invariant now lives in one place, structurally,
+  shared by `build_secret_transform`, `scan_residual`, and the leak
+  guard.
+- User-rule placeholder-match error message includes
+  `(kind={kind!r})`, symmetric with the extras-side error.
+- New tests: explicit own-kind self-match case (the prior test that
+  claimed to cover it was actually a cross-extras case; both axes are
+  now pinned distinctly), cross-extras placeholder cycle (pins the
+  iterative-resolution semantics against future lazy-build refactors),
+  and `placeholder_for("")` rejection.
 
 ### Changed (review pass on issue #24)
 - `scan_residual` now scans per-line instead of over a joined buffer.

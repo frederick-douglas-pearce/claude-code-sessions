@@ -32,7 +32,11 @@ from typing import Any
 
 import yaml
 
-from .rules.secrets import COMPILED_SECRET_PATTERNS, placeholder_for
+from .rules.secrets import (
+    COMPILED_SECRET_PATTERNS,
+    iter_all_secret_patterns,
+    placeholder_for,
+)
 
 _SUPPORTED_VERSION = 1
 _REGEX_PREFIX = "re:"
@@ -471,16 +475,16 @@ def _check_replacement_leak(config: Config) -> None:
     from .rules.identifiers import GIT_BRANCH_PLACEHOLDER
 
     # Placeholders the runtime can emit: one per built-in secret kind,
-    # plus one per configured extra kind. Built by the same helper the
-    # secret transform uses at runtime, so the leak check and the runtime
-    # share a single definition of "what string does a redaction produce."
+    # plus one per configured extra kind. Built via ``iter_all_secret_patterns``
+    # so the "built-ins first, extras last" ordering invariant lives in
+    # ONE place (``rules/secrets.py``) and the leak guard cannot drift
+    # from the secret transform / residual scan if that ordering ever
+    # changes. The compiled pattern is discarded -- only the kind label
+    # drives placeholder construction.
     redaction_placeholders: list[tuple[str, str]] = [
-        (placeholder_for(kind), kind) for _, kind in COMPILED_SECRET_PATTERNS
+        (placeholder_for(kind), kind)
+        for _, kind in iter_all_secret_patterns(config.extra_secret_patterns)
     ]
-    redaction_placeholders.extend(
-        (placeholder_for(extra.kind), extra.kind)
-        for extra in config.extra_secret_patterns
-    )
 
     for section, rule in all_rules:
         for other_section, other in all_rules:
@@ -536,10 +540,10 @@ def _check_replacement_leak(config: Config) -> None:
             if rule.compiled.search(placeholder):
                 raise ConfigError(
                     f"{section} rule match {rule.pattern!r} matches the "
-                    f"secret-redaction placeholder {placeholder!r} — a "
-                    f"second sanitizer pass would re-substitute the "
-                    f"placeholder, breaking idempotency (PRD section 14; "
-                    f"PRD section 10, I-3)"
+                    f"secret-redaction placeholder {placeholder!r} "
+                    f"(kind={kind!r}) — a second sanitizer pass would "
+                    f"re-substitute the placeholder, breaking idempotency "
+                    f"(PRD section 14; PRD section 10, I-3)"
                 )
 
     # I-3 extension (#38): reject extras whose pattern matches the gitBranch

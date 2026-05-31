@@ -398,19 +398,57 @@ extra_secret_patterns:
         load_config(_write(tmp_path, body))
 
 
-def test_i3_rejects_extra_matching_its_own_redaction_placeholder(
+def test_i3_rejects_extra_matching_a_sibling_extras_placeholder(
     tmp_path: Path,
 ) -> None:
-    """An extra whose pattern matches the placeholder for ITS OWN kind:
-    ``re:REDACTED:foo`` against kind ``foo``. The runtime would redact a
-    real match to ``<REDACTED:foo>``, then residual would re-match the
-    same extra against its own placeholder and fire. The placeholder for
-    the extra's own kind is built into the leak-guard set so this is
-    caught."""
+    """An extra whose pattern matches the placeholder for ANOTHER extra's
+    kind: ``re:<REDACTED:foo>`` declared with kind ``bar``. The pre-built
+    redaction_placeholders list includes every extra's kind, so the
+    cross-extra collision is caught even though no built-in kind matches."""
     body = """
 version: 1
 extra_secret_patterns:
   - pattern: "re:foo-self-[A-Z]{4}"
+    kind: "foo"
+  - pattern: "re:<REDACTED:foo>"
+    kind: "bar"
+"""
+    with pytest.raises(ConfigError, match="secret-redaction placeholder"):
+        load_config(_write(tmp_path, body))
+
+
+def test_i3_rejects_extra_matching_its_own_redaction_placeholder(
+    tmp_path: Path,
+) -> None:
+    """An extra whose pattern matches the placeholder for ITS OWN kind:
+    ``re:<REDACTED:foo>`` against kind ``foo``. The runtime would redact
+    a real match to ``<REDACTED:foo>``, then residual would re-match the
+    same extra against its own placeholder and fire. The placeholder for
+    the extra's own kind is built into the leak-guard set so this is
+    caught at load time. Pins the own-kind path distinct from
+    test_i3_rejects_extra_matching_a_sibling_extras_placeholder above."""
+    body = """
+version: 1
+extra_secret_patterns:
+  - pattern: "re:<REDACTED:foo>"
+    kind: "foo"
+"""
+    with pytest.raises(ConfigError, match="secret-redaction placeholder"):
+        load_config(_write(tmp_path, body))
+
+
+def test_i3_rejects_cross_extras_placeholder_cycle(tmp_path: Path) -> None:
+    """Two extras whose patterns each match the OTHER's placeholder.
+    ``redaction_placeholders`` is built ONCE before iterating extras, so
+    both kinds are in the set when each extra is checked. Resolution is
+    iterative: the first rejected extra surfaces, the user fixes it, and
+    the second is rejected on the next load. Pins iterative resolution as
+    a regression guard against any future refactor that builds the
+    placeholder set lazily (which would silently change behavior)."""
+    body = """
+version: 1
+extra_secret_patterns:
+  - pattern: "re:<REDACTED:bar>"
     kind: "foo"
   - pattern: "re:<REDACTED:foo>"
     kind: "bar"

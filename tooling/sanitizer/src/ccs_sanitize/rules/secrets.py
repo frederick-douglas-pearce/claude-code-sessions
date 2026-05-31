@@ -134,14 +134,18 @@ def placeholder_for(kind: str) -> str:
     any user rule or extra pattern that would match one. The secret
     transform consumes the same helper, so detect-time placeholders and
     leak-guard checks share one definition.
+
+    Raises:
+        ValueError: ``kind`` is empty. Mirrors ``SecretCounts.record``'s
+            runtime backstop -- a programmatic caller (test, internal
+            tooling) that bypasses the loader and passes an empty kind
+            would otherwise produce ``<REDACTED:>``, which feeds the I-3
+            leak-guard a wildcard-like entry matching aggressively
+            against rule patterns.
     """
+    if not kind:
+        raise ValueError("placeholder_for: kind must be a non-empty string")
     return "<REDACTED:" + kind + ">"
-
-
-# Backward-compatible private alias. The leading-underscore form was the
-# original spelling; ``placeholder_for`` is the public name. Keep the
-# alias so no in-repo call site has to change in one PR.
-_placeholder_for = placeholder_for
 
 
 @dataclass
@@ -243,7 +247,7 @@ def build_secret_transform(
         would otherwise be rebuilt for every leaf the transform visits.
     """
     snapshot: tuple[tuple[re.Pattern[str], str, str], ...] = tuple(
-        (pattern, kind, _placeholder_for(kind))
+        (pattern, kind, placeholder_for(kind))
         for pattern, kind in iter_all_secret_patterns(extras)
     )
 
