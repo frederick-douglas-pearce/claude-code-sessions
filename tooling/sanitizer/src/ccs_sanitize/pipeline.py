@@ -35,9 +35,14 @@ What this module ships (issue #20):
 What this module does NOT ship:
 
   - Any rule logic (paths in #21, identifiers in #22, secrets in #23).
-  - The residual secret scan / fail-closed orchestration around the
-    pipeline (#24). The pipeline raises ``PipelineError`` on malformed
-    JSONL; the residual scan and atomic write live in the CLI layer.
+  - The residual secret scan (#24): ``residual.py`` re-runs the secret-
+    pattern detector over the serialized output as the final fail-closed
+    gate. The pipeline raises ``PipelineError`` on malformed JSONL; the
+    residual scan raises ``ResidualSecretError`` on a survivor.
+  - Layer composition + the orchestration around them (#24):
+    ``orchestrator.py`` chains the three rule layers into one
+    transform, plugs it into ``run_pipeline``, and runs the residual
+    gate. The atomic write that follows lives in the CLI layer (#26).
   - Sidecar emission (#25); the pipeline returns counts that the sidecar
     will consume.
   - The fixed-placeholder substitution for ``thinking.signature`` (PRD §2).

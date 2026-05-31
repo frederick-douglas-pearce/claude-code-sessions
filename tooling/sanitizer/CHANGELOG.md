@@ -38,6 +38,37 @@ Use semver: `MAJOR.MINOR.PATCH`.
 
 ## [Unreleased]
 
+### Added (issue #24 — residual scan + fail-closed orchestration)
+- `residual.py`: `scan_residual(text, extras)` re-runs the secret-pattern
+  detector over the serialized output as the final safety gate. A match
+  raises `ResidualSecretError(kind)` carrying only the pattern's `kind`
+  label -- never the matched bytes -- so the D-2 invariant survives
+  propagation through tracebacks and logs. Re-imports
+  `COMPILED_SECRET_PATTERNS` directly (rather than accepting a pattern
+  list from the caller) so the D-1 floor is structural: there is no API
+  to pass a pruned subset of built-ins.
+- `orchestrator.py`: `sanitize_session(lines, config, *, strip_types)`
+  builds the three transform layers (paths -> identifiers -> secrets),
+  composes them in PRD-mandated order, plugs the composed transform into
+  `run_pipeline`, and runs the residual gate over the joined output.
+  Returns `(serialized_lines, PipelineCounts, SubstitutionTable,
+  SecretCounts)` so the sidecar (#25) and CLI (#26) can compose without
+  re-running the pipeline. If the function returns, the residual scan
+  passed -- the sidecar can unconditionally record `residual_scan: clean`.
+- `pipeline.py` docstring updated: the "does NOT ship" carve-out now
+  points at `residual.py` and `orchestrator.py`; the atomic write that
+  follows them still lives in the CLI layer (#26).
+- Tests: `tests/test_residual.py` (10 cases) pins clean/empty/redacted-
+  placeholder happy paths, Tier-1 and Tier-2 kinds, extras with the
+  built-in-wins-on-overlap ordering, and the "exception message names
+  the kind but not the bytes" D-2 surface. `tests/test_orchestrator.py`
+  (8 cases) covers three-layer happy path, `strip_types` passthrough,
+  determinism (PRD §14, I-1), idempotency (PRD §14), the realistic
+  fail-closed survival path (Tier-1 secret planted in skip-listed
+  `thinking.signature`), a pure unit-test fail-closed (monkeypatch
+  `build_secret_transform` to identity), and no-partial-scrub on both
+  malformed-JSON and missing-`type` errors.
+
 ### Fixed (review pass on issue #22)
 - `_remap_uuid` now uses a null-byte delimiter between the seed and the
   original: `sha256(seed_bytes + b'\x00' + original_bytes)`. Without it,
