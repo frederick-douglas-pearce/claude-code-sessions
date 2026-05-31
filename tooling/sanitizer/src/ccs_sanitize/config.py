@@ -32,7 +32,7 @@ from typing import Any
 
 import yaml
 
-from .rules.secrets import SECRET_PATTERNS
+from .rules.secrets import COMPILED_SECRET_PATTERNS
 
 _SUPPORTED_VERSION = 1
 _REGEX_PREFIX = "re:"
@@ -43,14 +43,6 @@ _ALLOWED_TOP_LEVEL_KEYS = frozenset(
 _ALLOWED_RULE_KEYS = frozenset({"match", "replace"})
 _ALLOWED_OPTION_KEYS = frozenset({"scrub_git_branch", "remap_uuids", "uuid_seed"})
 _ALLOWED_EXTRA_KEYS = frozenset({"pattern", "kind"})
-
-# Compile built-in secret patterns once at module import. This (a) catches a
-# typo in a vendored or batch pattern at import time rather than on first
-# config load, and (b) amortizes the per-load compile cost into a single
-# upfront step.
-_BUILTIN_COMPILED: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(pat), label) for pat, label in SECRET_PATTERNS
-]
 
 
 class ConfigError(ValueError):
@@ -480,7 +472,7 @@ def _check_replacement_leak(config: Config) -> None:
                     f"replacements must not themselves match any other rule "
                     f"(PRD section 10, I-3)"
                 )
-        for pattern, label in _BUILTIN_COMPILED:
+        for pattern, label in COMPILED_SECRET_PATTERNS:
             if pattern.search(rule.replace):
                 raise ConfigError(
                     f"{section} rule replacement {rule.replace!r} matches "
