@@ -127,12 +127,12 @@ def sanitize_session(
         transform=composed,
         skip_predicate=skip_predicate,
     )
-    # PRD section 5: the residual scan re-runs the secret-pattern detector
-    # over the *full serialized output*, not per-line. Joining with "\n"
-    # matches what the CLI will write to disk; the invariant that "\n"
-    # cannot mask a credential pattern is documented at the scan_residual
-    # call site in residual.py.
-    scan_residual("\n".join(out), config.extra_secret_patterns)
+    # PRD section 5: re-run the secret-pattern detector over the output.
+    # scan_residual takes the line list directly -- per-line scanning keeps
+    # the same semantics ``build_secret_transform`` applies per leaf and
+    # avoids any cross-line spillover from join-separator interaction with
+    # patterns that match across whitespace.
+    scan_residual(out, config.extra_secret_patterns)
     return out, counts, subtable, secret_counts
 
 

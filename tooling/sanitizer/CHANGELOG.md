@@ -38,6 +38,33 @@ Use semver: `MAJOR.MINOR.PATCH`.
 
 ## [Unreleased]
 
+### Changed (review pass on issue #24)
+- `scan_residual` now scans per-line instead of over a joined buffer.
+  Eliminates two latent gate-weakening footguns at once: anchored extras
+  (`re:^...$`) would have matched only buffer boundaries in the joined
+  form, and patterns using `\s+` (bearer-token, conn-string-pw) could
+  in principle have matched across the line-join separator. Per-line is
+  also the semantic that ``build_secret_transform`` applies per leaf, so
+  detect-during-scrub and verify-after-scrub now share the same matching
+  semantics structurally.
+- `rules/secrets.py` exposes ``iter_all_secret_patterns(extras)`` --
+  ``build_secret_transform`` and ``scan_residual`` both consume it, so
+  the "built-ins first, extras last" ordering and any future addition
+  to the pattern floor lives in one place rather than two.
+- Tests: `_BASE_CONFIG` no longer commits a real email; uses the RFC-2606
+  reserved ``user-old@example.test`` instead. PEM-armor test fixture
+  constructed via string concatenation so the test source itself does
+  not match the repo's own pem-private-key hook regex on grep/cat.
+  Determinism test uses heterogeneous records (was ``[x] * 5`` aliases).
+  Idempotency parametrized over every built-in kind so a future pattern
+  that accidentally matches its own ``<REDACTED:kind>`` placeholder is
+  caught. `_line` helper lifted to ``tests/_helpers.py`` as
+  ``serialize_test_line``. `test_strip_types_passthrough_drops_lines`
+  now actually passes ``strip_types=`` (was relying on the default).
+  `test_no_partial_scrub_on_missing_type_field` pins ``"line 2"``
+  symmetrically with the malformed-JSON sibling. New per-line anchored
+  extra test pins the new scan semantics.
+
 ### Added (issue #24 — residual scan + fail-closed orchestration)
 - `residual.py`: `scan_residual(text, extras)` re-runs the secret-pattern
   detector over the serialized output as the final safety gate. A match

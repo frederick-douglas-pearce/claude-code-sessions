@@ -33,10 +33,10 @@ diagnostic distinguishing "input was malformed" (``PipelineError``) from
 
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Iterable, Sequence
 
 from .config import ExtraSecretPattern
-from .rules.secrets import COMPILED_SECRET_PATTERNS
+from .rules.secrets import iter_all_secret_patterns
 
 
 class ResidualSecretError(Exception):
@@ -56,41 +56,51 @@ class ResidualSecretError(Exception):
         self.kind = kind
 
 
-def scan_residual(text: str, extras: Sequence[ExtraSecretPattern]) -> None:
-    """Scan the serialized sanitizer output for surviving secret patterns.
+def scan_residual(
+    lines: Iterable[str], extras: Sequence[ExtraSecretPattern]
+) -> None:
+    """Scan the serialized sanitizer output lines for surviving secret patterns.
 
     Returns ``None`` on a clean scan; raises ``ResidualSecretError`` on the
     first match. The orchestrator's contract piggybacks on this: if
     ``sanitize_session`` returns at all, the residual scan passed, and the
     sidecar can record ``residual_scan: clean`` (PRD section 10).
 
+    Scans **per line** rather than over a joined buffer. JSONL guarantees
+    one record per line, ``serialize_line`` escapes embedded newlines, and
+    every built-in credential pattern matches within a single line --
+    including the PEM-armor header, which is one-line by construction. A
+    per-line scan keeps the *semantics* of ``re.search`` aligned with what
+    ``build_secret_transform`` applies per leaf (so anchored extras like
+    ``re:^CORP-...$`` behave consistently between detect-during-scrub and
+    verify-after-scrub), and avoids any cross-line spillover from patterns
+    using ``\\s+`` (bearer-token, conn-string-pw).
+
+    Pattern ordering reuses ``iter_all_secret_patterns(extras)`` so the
+    "built-ins first, extras last" invariant is shared structurally with
+    ``build_secret_transform`` -- a single definition of the iteration
+    order across detect and verify sites.
+
     Args:
-        text: the full serialized output buffer. The orchestrator joins
-            output lines with ``"\\n"`` before calling. **Invariant:** the
-            join separator must not be a byte that can appear inside a
-            credential pattern -- a separator that splits a match would
-            silently weaken the gate. ``\\n`` is safe for the current
-            ``COMPILED_SECRET_PATTERNS`` (all credential patterns match
-            within contiguous non-whitespace runs); the PEM-armor pattern
-            matches only the single-line ``-----BEGIN ... PRIVATE KEY-----``
-            header, not the multi-line body. Any future pattern that could
-            legitimately span a newline must revisit this choice.
+        lines: serialized output records (one per element). Iterated once.
         extras: ``Config.extra_secret_patterns``. Scanned after built-ins
-            so the failure label prefers the more general (built-in) kind
-            when a string matches both, matching the redaction order in
-            ``build_secret_transform``.
+            (see ``iter_all_secret_patterns``) so the failure label prefers
+            the more general built-in kind on overlap. Intra-built-in
+            tiebreak follows VENDORED_PATTERNS + BATCH_PATTERNS declaration
+            order; reordering those lists silently changes the reported
+            ``kind`` on overlapping matches, so the lists themselves are
+            the contract.
 
     Raises:
-        ResidualSecretError: a pattern (built-in or extra) matched ``text``.
-            The exception carries only the pattern's ``kind`` label; the
-            matched bytes are never recorded (D-2).
+        ResidualSecretError: a pattern (built-in or extra) matched some
+            line. The exception carries only the pattern's ``kind`` label;
+            the matched bytes are never recorded (D-2).
     """
-    for pattern, kind in COMPILED_SECRET_PATTERNS:
-        if pattern.search(text):
-            raise ResidualSecretError(kind)
-    for extra in extras:
-        if extra.compiled.search(text):
-            raise ResidualSecretError(extra.kind)
+    patterns = tuple(iter_all_secret_patterns(extras))
+    for line in lines:
+        for pattern, kind in patterns:
+            if pattern.search(line):
+                raise ResidualSecretError(kind)
 
 
 __all__ = [
