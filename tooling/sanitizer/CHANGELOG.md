@@ -38,6 +38,141 @@ Use semver: `MAJOR.MINOR.PATCH`.
 
 ## [Unreleased]
 
+### Added (issue #26 — CLI implementation, atomic write, end-to-end wiring)
+- `ccs-sanitize` now scrubs end-to-end. `cli.py` wires config discovery
+  (explicit `--config` > `./.ccs-sanitize.yaml` > `<input_dir>/.ccs-sanitize.yaml`),
+  `sanitize_session`, `build_sidecar`, and the atomic write into one
+  fail-closed pipeline. Per PRD section 11 / I-5, the sidecar temp file
+  is renamed into place FIRST and the output temp file SECOND, so a
+  crash in the gap leaves only an orphan sidecar (harmless, overwritten
+  on re-run) and never a scrubbed output without a sidecar.
+  `_atomic_write_pair` keeps that ordering plus the cleanup-on-failure
+  logic in one auditable function.
+- New CLI flags per PRD §11: positional `<input.jsonl>`,
+  `-o/--output`, `-c/--config`, `--dry-run`, `--force`,
+  `--strip-types`, `-v/--verbose`. `--strip-types ""` is the explicit
+  opt-out of stripping (frozenset()); omitting the flag falls back to
+  the default set (`file-history-snapshot,attachment`).
+- Exit-code map honored: 0 success, 1 usage (bad args, missing input
+  file, output exists without `--force`, explicit or discovered config
+  not found), 2 safety (`PipelineError`, `ResidualSecretError`,
+  `SidecarLeakError`, malformed UTF-8 input), 3 config (`ConfigError`).
+  `FileNotFoundError` from `load_config` maps to exit 1 -- "file does
+  not exist at that path" is a usage problem; "file exists but is
+  broken" is exit 3. `config.py` re-raises the two separately so the
+  CLI keeps the distinction.
+- D-2 invariant preserved at the CLI surface: `ResidualSecretError`
+  and `SidecarLeakError` already carry only category labels (not the
+  matched bytes), so `print(str(exc))` in the exit handler is safe.
+- Input must be a regular file. Directories, dangling symlinks, and
+  device nodes exit 1 early. Symlink TOCTOU, FIFO input, and umask
+  concerns are explicitly deferred for v0.
+- `--verbose` writes pipeline milestones to stderr (loaded config,
+  read N lines, pipeline ran, sidecar built, renamed sidecar, renamed
+  output). No `logging` module dependency; a future migration is one
+  line per call site.
+- Tests (`tests/test_cli.py`, 23 cases): `--version` exit 0, unknown
+  flag exit 1, missing/nonexistent/directory input exit 1, existing
+  output without `--force` exit 1 (and pre-existing bytes preserved),
+  `--force` overwrites, explicit-missing-config exit 1 vs malformed
+  config exit 3, no-discoverable-config exit 1, discovery finds config
+  in CWD and alongside input, malformed JSONL exit 2 with no files
+  written, planted-secret residual failure exit 2 with no files
+  written (and the same input under `--dry-run` also exit 2 -- the
+  dry-run path runs the residual gate), dry-run prints valid sidecar
+  YAML and writes nothing, `--strip-types` override changes which line
+  types drop (and the sidecar's `stripped_lines` reflects the override),
+  empty `--strip-types` means strip nothing, atomic-write orphan-sidecar
+  invariant under second-rename failure (monkeypatched `os.replace`),
+  full cleanup when the first rename fails (no leftover temp files
+  either side), end-to-end synthetic session with paths + identifiers +
+  fake AWS key + drop-by-default file-history-snapshot, `--verbose`
+  surfaces stderr output.
+
+### Fixed (review pass on issue #26)
+- `_run` now splits input via `text.split("\n")` instead of
+  `text.splitlines()`. The latter also splits on `\v`, `\f`,
+  `\x1c`-`\x1e`, `\x85`, and crucially U+2028 / U+2029, which a JSON
+  string value can legally carry raw under `ensure_ascii=False`. The
+  prior code would fragment one valid JSONL record into two
+  unparseable halves and exit 2 on well-formed input.
+- Input symlinks are now rejected explicitly. The previous code used
+  `Path.is_file()` (which follows symlinks), so a symlink whose target
+  was a regular file slipped past the guard. `_validate_input` now
+  checks `is_symlink()` first, then `exists()`, then `is_file()`,
+  matching the CHANGELOG/docstring promise and removing the TOCTOU
+  surface CLAUDE.md's "Security posture" section warns about.
+- `--force` guard is now symmetric on the audit record: a pre-existing
+  `<output>.scrubbed` requires `--force` to overwrite, mirroring the
+  output check. Dangling symlinks at either path are detected via
+  `is_symlink()` (which `exists()` would miss), so a stale link at the
+  destination cannot bypass the overwrite guard.
+- `--dry-run` no longer requires `-o/--output`. Dry-run writes nothing,
+  so the output path is genuinely optional; the required-arg check is
+  deferred under `--dry-run`. The CHANGELOG/help text framed dry-run
+  as a preview, but the prior code still demanded an output path.
+- `output_path.with_name(...)` now sits behind `_derive_sidecar_path`,
+  which raises `_UsageError` if the output path has no filename
+  component (`-o /`, `-o .`). Previously a `ValueError` from
+  `with_name("")` propagated as an unhandled traceback.
+- Top-level exit-code mapping in `main()` tightened: the broad
+  `except FileNotFoundError` that misrouted any post-config FNFE
+  (missing output directory, race-deleted input) to "config file not
+  found" is gone. `load_config`'s FNFE is wrapped to `_UsageError`
+  inside `_run` so only the load-config call site can produce that
+  diagnostic. A defense-in-depth `except Exception -> exit 2` was
+  added at the bottom of `main()`'s except chain so an unexpected
+  exception from the scrub pipeline (the CLI docstring's promise) no
+  longer escapes as a traceback that could leak local-variable bytes.
+- `OSError` from `_atomic_write_pair` (ENOSPC, EROFS, PermissionError,
+  NotADirectoryError, missing output directory) is now caught inside
+  `_run` and re-raised as `_UsageError` -> exit 1 with a tailored
+  "cannot write output" message that names the real destination,
+  rather than a random tempfile path.
+- Cleanup loop in `_atomic_write_pair` now swallows every `OSError`
+  on `unlink()`, not just `FileNotFoundError`. The previous narrow
+  catch could let a `PermissionError` mask the original exception
+  AND leak the temp file -- losing both the diagnostic and the
+  no-leftover invariant the test claims to enforce.
+- `test_cli.py` now imports `serialize_test_line` from
+  `tests/_helpers.py` instead of re-implementing `_line`; sibling
+  test files use the shared helper, so test_cli no longer drifts
+  from a future centralization of the serialization contract.
+- `test_force_overwrites_existing_output` now asserts the output is
+  actually scrubbed (paths/identifiers gone, placeholders present,
+  sidecar valid), not just that the bytes differ from the
+  pre-existing placeholder string. A regression that wrote garbage
+  on the `--force` path would have passed the weaker assertion.
+- New tests: `--dry-run` without `-o/--output`; input symlink
+  rejection; existing sidecar without `--force` exits 1 and leaves
+  the sidecar untouched; dangling symlink at output requires
+  `--force`; `-o .` rejected as usage error; raw U+2028 inside a
+  JSON string value round-trips as one record; `OSError` from
+  `os.replace` at the CLI level maps to exit 1 via `main()` (the
+  prior tests only exercised the helper); missing output directory
+  yields exit 1 with a message that is NOT "config file not found".
+- README sample sidecar bumped from `sanitizer_version: 0.1.0` to
+  `0.2.0` to match the live tool. (PRD section 10 example left at
+  0.1.0; it is a spec snapshot, not the user-facing surface.)
+- **Known limitation** (not fixed in this pass): under `--force` and
+  a pre-existing output, an I/O failure on the SECOND
+  `os.replace` (output rename) can leave the disk in an
+  inconsistent state -- the new sidecar has already been renamed
+  into place, but the output file is still the prior run's bytes.
+  Rolling back the sidecar rename requires pre-stashing the old
+  sidecar bytes and is deferred. The orphan-sidecar invariant
+  documented in PRD section 11 holds only when the output did not
+  pre-exist; `--force` callers should be aware that crash recovery
+  may require deleting both files and re-running.
+
+### Changed
+- `__version__` bumped from 0.1.0 to 0.2.0. This is the cutover where
+  `ccs-sanitize` first produces non-identity output bytes; per the
+  CHANGELOG bump policy and the carve-outs in prior PRs (#21, #22,
+  #24), this is the byte-affecting story that carries the bump. MINOR
+  rather than MAJOR because the sidecar schema, config schema, and
+  built-in pattern floor are all unchanged.
+
 ### Fixed (issue #38 — I-3 leak guard extension)
 - `_check_replacement_leak` now rejects:
   - any user rule (path or identifier) whose `match:` matches a

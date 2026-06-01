@@ -8,6 +8,6 @@ because the value is recorded in every `.scrubbed` sidecar (PRD section 10) and
 downstream consumers gate on it. See CHANGELOG.md for the bump policy.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = ["__version__"]
