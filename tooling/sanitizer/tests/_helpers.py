@@ -23,14 +23,16 @@ def write_config(tmp_path: Path, body: str) -> Config:
     return load_config(p)
 
 
-def table_snapshot(table: SubstitutionTable) -> list[tuple[str, str, int]]:
+def table_snapshot(table: SubstitutionTable) -> list[tuple[str, str, int, str]]:
     """Flatten a ``SubstitutionTable`` into a comparable list of tuples.
 
     Used by determinism tests: equal snapshots imply equal table contents
     AND equal insertion order, both of which the sidecar contract
-    (PRD section 10) depends on.
+    (PRD section 10) depends on. The ``label`` is part of the snapshot
+    so a determinism test catches a future regression where two layers
+    tag the same original differently across runs.
     """
-    return [(e.original, e.replacement, e.occurrences) for e in table]
+    return [(e.original, e.replacement, e.occurrences, e.label) for e in table]
 
 
 def serialize_test_line(obj: dict) -> str:

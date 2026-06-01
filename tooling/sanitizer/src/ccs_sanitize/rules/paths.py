@@ -106,7 +106,7 @@ def build_path_transform(
     def transform(leaf: str, path: JsonPath) -> str:
         result = leaf
         for rule in snapshot:
-            result = apply_rule(rule, result, table)
+            result = apply_rule(rule, result, table, label="paths")
         return result
 
     return transform

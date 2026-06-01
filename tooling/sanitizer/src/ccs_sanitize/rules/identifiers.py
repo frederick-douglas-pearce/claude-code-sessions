@@ -140,7 +140,9 @@ def build_identifier_transform(
             if scrub_git_branch and last == "gitBranch":
                 if not leaf:
                     return leaf
-                return table.record(leaf, GIT_BRANCH_PLACEHOLDER)
+                return table.record(
+                    leaf, GIT_BRANCH_PLACEHOLDER, label="identifiers:gitBranch"
+                )
             if remap_uuids and last in UUID_FIELDS:
                 if not leaf:
                     return leaf
@@ -150,11 +152,13 @@ def build_identifier_transform(
                 # occurrence counter for the sidecar.
                 cached = table.get(leaf)
                 if cached is not None:
-                    return table.record(leaf, cached)
-                return table.record(leaf, _remap_uuid(seed_bytes, leaf))
+                    return table.record(leaf, cached, label="identifiers:uuid")
+                return table.record(
+                    leaf, _remap_uuid(seed_bytes, leaf), label="identifiers:uuid"
+                )
         result = leaf
         for rule in snapshot:
-            result = apply_rule(rule, result, table)
+            result = apply_rule(rule, result, table, label="identifiers")
         return result
 
     return transform
