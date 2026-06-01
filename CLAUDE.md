@@ -20,6 +20,7 @@ Claude Code session JSONL files contain prompts, file paths, code snippets, comm
 - Files in `fixtures/sanitized/` must have a `.scrubbed` sidecar produced by `tooling/sanitizer/`.
 - Files in `fixtures/synthetic/` are generated, not derived from real sessions, and ship with a `.generator.md` sidecar.
 - Posts that show sample data reference fixtures from `fixtures/`, never inlined raw output.
+- **The sanitizer config is also sensitive.** `.ccs-sanitize.yaml` holds literal PII strings (real home dir, email, name, etc.) — it is gitignored. Copy `.ccs-sanitize.example.yaml` to `.ccs-sanitize.yaml` locally and fill in your own values. The sidecar's `config_source` field records only the basename, so sidecars stay safe to commit.
 
 If you (Claude Code) are asked to "show what's in a session," read from `fixtures/`, not from `~/.claude/projects/`.
 
