@@ -44,6 +44,18 @@ local/
 fixtures/raw/
 fixtures/_quarantine/
 
+# Sanitizer config (PRD section 12 -- the `.ccs-sanitize.yaml` rule file).
+# A per-project sanitizer config holds the LITERAL strings to scrub:
+# real home dir, real email, real name, real GitHub handle, real branch
+# names, etc. Committing the live config to a public repo would leak the
+# very PII the sanitizer is meant to remove. The sidecar's `config_source`
+# field intentionally records only the basename, so sidecars stay safe to
+# commit -- only the config file itself is sensitive.
+#
+# `.ccs-sanitize.example.yaml` (committed) is the schema-only reference;
+# copy it to `.ccs-sanitize.yaml` locally and fill in your own match values.
+.ccs-sanitize.yaml
+
 # Claude Code settings (local-only)
 .claude/settings.local.json
 

@@ -1,0 +1,58 @@
+# Example sanitizer config -- COPY THIS to `.ccs-sanitize.yaml` and edit
+# in your own PII values. The live `.ccs-sanitize.yaml` is gitignored
+# because its match values are, by definition, the literal strings you do
+# not want committed to a public repo (real home dir, real email, real
+# name, etc.). See .gitignore for the convention rationale.
+#
+# The sidecar records only the BASENAME of the config under
+# `config_source:` (PRD section 10), so committed `.scrubbed` sidecars
+# stay safe regardless of what is in your local config. The leak surface
+# is the config file itself; gitignoring it closes the surface.
+#
+# Built-in secret patterns (PRD section 9, Tier 1 + Tier 2) are
+# non-weakenable and always apply on top of these rules.
+# Adding rules: the I-3 replacement-leak guard runs at load time, so a
+# misconfigured replacement (one matching another rule or a built-in
+# secret pattern) fails load with exit 3.
+version: 1
+
+paths:
+  # Home directory. /home/user is the canonical placeholder shipped by the
+  # CLI example so downstream consumers (sibling projects, fixture readers)
+  # treat it as the universal "developer's home directory."
+  - match: "/home/REAL_USERNAME"
+    replace: "/home/user"
+
+identifiers:
+  # Author email. Use the RFC-2606 reserved example.com TLD so a fixture
+  # cannot collide with a real address.
+  - match: "real.author@example.com"
+    replace: "user@example.com"
+
+  # Bare Unix username. Catches the project-dir encoding Claude Code uses
+  # (`-home-USERNAME-Documents-...` where slashes become dashes) plus
+  # `ls -l` owner/group columns and any chat content naming the user.
+  - match: "REAL_USERNAME"
+    replace: "user"
+
+  # GitHub handle. Catches github.com URLs in commit messages, tool
+  # output, and chat. Order this rule BEFORE the personal-name rule:
+  # a hyphenated handle like `first-mi-last` may overlap the surname.
+  - match: "real-github-handle"
+    replace: "real-user"
+
+  # Author personal name. Appears in git commit `Author:` lines, PRD
+  # `**Owner:**` fields, pyproject.toml `authors`, and agent prompts.
+  - match: "Real Name"
+    replace: "Real Name"
+
+# options defaults are usually correct:
+#   scrub_git_branch: true   -- replace `gitBranch` field values with
+#                               `feature/example` placeholder
+#   remap_uuids: false       -- leave session/agent/parent UUIDs as-is so
+#                               the parent-subagent graph stays readable
+#                               in committed fixtures
+#
+# extra_secret_patterns: []  -- adds project-specific secret detectors on
+#                               top of the built-in Tier 1 + Tier 2
+#                               patterns; never removes them.
