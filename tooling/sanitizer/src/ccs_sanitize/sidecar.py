@@ -54,20 +54,38 @@ from .pipeline import PipelineCounts
 from .rules.secrets import SecretCounts, iter_all_secret_patterns
 from .subtable import SubstitutionTable
 
-_FIXED_PLACEHOLDERS: dict[str, str] = {
-    "identifiers:gitBranch": "<git-branch>",
-    "identifiers:uuid": "<uuid>",
+# One registry per label co-locates (rule_layer, placeholder_template). A
+# template containing ``{idx}`` is indexed (counter restarts per rule_layer);
+# any other template is emitted verbatim. Adding a new label is a single-line
+# edit instead of synchronizing three sharded dicts -- the previous shape
+# made it possible to register a label in one map but forget the others,
+# producing sidecars where _build_substitutions emitted a row that
+# _rule_layer_totals refused to count.
+_LABEL_REGISTRY: dict[str, tuple[str, str]] = {
+    "paths": ("paths", "<path-{idx}>"),
+    "identifiers": ("identifiers", "<identifier-{idx}>"),
+    "identifiers:gitBranch": ("identifiers", "<git-branch>"),
+    "identifiers:uuid": ("identifiers", "<uuid>"),
 }
-_INDEXED_PLACEHOLDER_PREFIXES: dict[str, str] = {
-    "paths": "<path-",
-    "identifiers": "<identifier-",
-}
-_RULE_LAYER_OF_LABEL: dict[str, str] = {
-    "paths": "paths",
-    "identifiers": "identifiers",
-    "identifiers:gitBranch": "identifiers",
-    "identifiers:uuid": "identifiers",
-}
+
+
+def _resolve_label(label: str) -> tuple[str, str]:
+    """Map a substitution-table label to ``(rule_layer, placeholder_template)``.
+
+    Known labels are looked up in ``_LABEL_REGISTRY``. Unknown labels derive
+    ``rule_layer`` from the colon-prefix (so a future ``"paths:cwd"`` rolls
+    up under ``"paths"`` in ``rules_applied`` automatically, matching the
+    existing ``"identifiers:gitBranch"`` / ``"identifiers:uuid"`` convention)
+    and fall back to an ``<unknown-{idx}>`` placeholder so the sidecar stays
+    well-formed. This keeps ``_build_substitutions`` and the rule-layer
+    totals helper consistent for unregistered labels -- the previous shape
+    let ``_build_substitutions`` emit a row that the totals helper silently
+    excluded from ``rules_applied.{paths,identifiers}.substitutions``.
+    """
+    if label in _LABEL_REGISTRY:
+        return _LABEL_REGISTRY[label]
+    rule_layer = label.split(":", 1)[0] if ":" in label else label
+    return (rule_layer, "<unknown-{idx}>")
 
 
 class SidecarLeakError(Exception):
@@ -173,17 +191,17 @@ def build_sidecar(
         ``<output>.scrubbed`` by the CLI.
 
     Raises:
-        SidecarLeakError: the rendered YAML contains a configured
-            original token or matches a built-in/extra secret pattern
-            (I-3). The exception's ``category`` field names what fired;
-            the matched bytes are intentionally not stored.
+        SidecarLeakError: a user-derived value in the sidecar payload
+            (a replacement, metadata string, or strip-type key) contains
+            a configured original token or matches a built-in/extra secret
+            pattern (I-3). The exception's ``category`` field names what
+            fired; the matched bytes are intentionally not stored.
     """
-    paths_subs, paths_distinct = _rule_layer_totals(subtable, "paths")
-    identifiers_subs, identifiers_distinct = _identifiers_totals(subtable)
+    totals = _rules_applied_totals(subtable)
+    paths_subs, paths_distinct = totals.get("paths", (0, 0))
+    identifiers_subs, identifiers_distinct = totals.get("identifiers", (0, 0))
 
-    stripped_lines: dict[str, int] = {
-        kind: count for kind, count in counts.stripped_lines.items()
-    }
+    stripped_lines = dict(counts.stripped_lines)
     lines_processed = len(serialized_lines) + sum(stripped_lines.values())
 
     substitutions = _build_substitutions(subtable)
@@ -212,9 +230,15 @@ def build_sidecar(
         "residual_scan": "clean",
     }
 
-    rendered = yaml.safe_dump(payload, sort_keys=False, default_flow_style=False)
-    _check_emit_time_leak(rendered, subtable, config)
-    return rendered
+    # Leak guard runs on the payload BEFORE rendering so the YAML
+    # scaffolding (keys, fixed placeholders, ``jitter: disabled``,
+    # ``residual_scan: clean``) is not part of the scan surface -- those
+    # bytes are sanitizer-controlled, never user-derived, so scanning them
+    # only produces false positives. Pre-render scanning also avoids the
+    # yaml.safe_dump escaping bypass (a multi-line original would not
+    # appear literally in the rendered string).
+    _check_emit_time_leak(payload, subtable, config)
+    return yaml.safe_dump(payload, sort_keys=False, default_flow_style=False)
 
 
 def _build_substitutions(subtable: SubstitutionTable) -> list[dict[str, Any]]:
@@ -222,35 +246,24 @@ def _build_substitutions(subtable: SubstitutionTable) -> list[dict[str, Any]]:
     synthesized ``rule`` and ``placeholder`` columns the sidecar contract
     requires (PRD section 10).
 
-    Per-layer indices restart at 1 for ``paths`` and for the catch-all
-    ``identifiers`` label so the placeholder strings are stable across runs
-    over the same input: ``<path-1>`` is always the first paths entry
-    inserted, regardless of how many identifier rules ran first.
+    Per-rule-layer indices restart at 1 so the placeholder strings are
+    stable across runs over the same input: ``<path-1>`` is always the
+    first paths entry inserted, regardless of how many identifier rules
+    ran first. Indexed counters are kept per ``rule_layer`` (not per raw
+    label), so a future ``"paths:cwd"`` sub-label sharing the indexed
+    template would advance the same counter as ``"paths"`` and an
+    ``<unknown-1>`` produced by an unregistered label does not shift
+    when an unrelated registered layer adds entries.
     """
-    paths_index = 0
-    identifiers_index = 0
+    indices: dict[str, int] = {}
     out: list[dict[str, Any]] = []
     for entry in subtable:
-        label = entry.label
-        rule_layer = _RULE_LAYER_OF_LABEL.get(label, label)
-        if label in _FIXED_PLACEHOLDERS:
-            placeholder = _FIXED_PLACEHOLDERS[label]
-        elif label == "paths":
-            paths_index += 1
-            placeholder = f"{_INDEXED_PLACEHOLDER_PREFIXES[label]}{paths_index}>"
-        elif label == "identifiers":
-            identifiers_index += 1
-            placeholder = (
-                f"{_INDEXED_PLACEHOLDER_PREFIXES[label]}{identifiers_index}>"
-            )
+        rule_layer, template = _resolve_label(entry.label)
+        if "{idx}" in template:
+            indices[rule_layer] = indices.get(rule_layer, 0) + 1
+            placeholder = template.format(idx=indices[rule_layer])
         else:
-            # Unknown label: emit a generic placeholder rather than leaking
-            # the label itself, and tag the rule column with the raw label
-            # so a reviewer can locate the producing layer. A future layer
-            # that forgets to register here surfaces as a literal
-            # ``<unknown-N>`` in the sidecar rather than crashing the run
-            # (preserves the determinism contract under refactor).
-            placeholder = f"<unknown-{len(out) + 1}>"
+            placeholder = template
         out.append(
             {
                 "rule": rule_layer,
@@ -262,57 +275,95 @@ def _build_substitutions(subtable: SubstitutionTable) -> list[dict[str, Any]]:
     return out
 
 
-def _rule_layer_totals(
-    subtable: SubstitutionTable, label: str
-) -> tuple[int, int]:
-    """Return ``(total_occurrences, distinct_entries)`` for a single label."""
-    distinct = 0
-    total = 0
-    for entry in subtable:
-        if entry.label == label:
-            distinct += 1
-            total += entry.occurrences
-    return total, distinct
+def _rules_applied_totals(
+    subtable: SubstitutionTable,
+) -> dict[str, tuple[int, int]]:
+    """Bucket subtable entries by rule_layer in a single pass.
 
-
-def _identifiers_totals(subtable: SubstitutionTable) -> tuple[int, int]:
-    """Sum across all ``identifiers`` label variants (the catch-all rule
-    layer plus the field-anchored ``gitBranch`` and ``uuid`` transforms).
-
-    PRD section 10's ``rules_applied.identifiers`` reports the identifiers
-    *layer* as a whole, not each sub-transform separately; per-entry
-    differentiation lives in the ``substitutions`` list's placeholder
-    column.
+    Returns ``{rule_layer: (total_occurrences, distinct_entries)}``. The
+    rule_layer key matches what ``_build_substitutions`` emits in each
+    row's ``rule:`` column, so the two views of the data agree by
+    construction -- a row whose ``rule:`` is ``"identifiers"`` is counted
+    in ``rules_applied.identifiers``, including the ``identifiers:gitBranch``
+    and ``identifiers:uuid`` variants that ``_resolve_label`` collapses
+    onto the same rule_layer.
     """
-    distinct = 0
-    total = 0
+    buckets: dict[str, tuple[int, int]] = {}
     for entry in subtable:
-        if _RULE_LAYER_OF_LABEL.get(entry.label) == "identifiers":
-            distinct += 1
-            total += entry.occurrences
-    return total, distinct
+        rule_layer, _ = _resolve_label(entry.label)
+        subs, distinct = buckets.get(rule_layer, (0, 0))
+        buckets[rule_layer] = (subs + entry.occurrences, distinct + 1)
+    return buckets
 
 
 def _check_emit_time_leak(
-    rendered: str, subtable: SubstitutionTable, config: Config
+    payload: dict[str, Any], subtable: SubstitutionTable, config: Config
 ) -> None:
     """I-3 defense-in-depth at sidecar emit time.
 
+    Scans only the *leak-prone, user-derived* strings in the payload:
+
+      - ``input_filename`` and ``config_source`` -- CLI-provided basenames
+        that could carry sensitive substrings if a user named their file
+        ``realuser-session.jsonl`` (etc.).
+      - each ``stripped_lines`` key -- comes from the JSONL ``type`` field
+        and (under ``--strip-types``) from the CLI.
+      - each substitution row's ``replacement`` -- the rule's ``replace:``
+        value verbatim; the most likely vector for a misconfiguration to
+        smuggle an original through.
+
+    Deliberately NOT scanned:
+
+      - ``input_sha256`` -- one-way digest of opaque bytes; cannot
+        legitimately carry an original (false positives on short
+        originals coincidentally appearing in the hex are realistic;
+        true positives are statistically vanishing).
+      - ``scrubbed_at`` -- sanitizer-generated UTC timestamp; same logic.
+      - YAML scaffolding (top-level keys, the rule_layer names in
+        ``rules_applied``, the synthesized ``<path-N>``/``<git-branch>``/
+        ``<uuid>``/``<identifier-N>`` placeholders, the literal
+        ``disabled`` and ``clean`` values, numeric counts) -- sanitizer-
+        controlled at runtime; cannot contain user data; scanning it
+        would only produce false positives, e.g. a short original like
+        ``"user"`` matching ``"/home/user"`` in another entry's
+        replacement, or an ``extra_secret_patterns`` regex matching the
+        sidecar's own placeholder syntax.
+
+    Pre-render scanning (over the payload dict, not the rendered YAML
+    string) also avoids the ``yaml.safe_dump`` escaping bypass: a
+    multi-line original would not literally appear in the rendered
+    output (newlines become ``\\n`` escapes), but the raw Python string
+    in the payload does.
+
     The config loader (``_check_replacement_leak``) already rejects
     configurations where a replacement matches another rule or any
-    secret pattern, so in normal operation neither check below should
-    fire. We re-run them over the rendered YAML to pin the invariant
-    structurally: a future change that puts an original into the sidecar
-    by mistake (e.g., a refactor of ``_build_substitutions`` that
+    secret pattern, so in normal operation neither check below fires.
+    This is the structural backstop: a future refactor that puts an
+    original into the sidecar by mistake (e.g., ``_build_substitutions``
     accidentally emits ``entry.original``) raises here rather than
     landing as a quietly broken sidecar.
     """
-    for entry in subtable:
-        if entry.original and entry.original in rendered:
-            raise SidecarLeakError("original")
-    for pattern, kind in iter_all_secret_patterns(config.extra_secret_patterns):
-        if pattern.search(rendered):
-            raise SidecarLeakError(kind)
+    scannable: list[str] = [
+        payload["input_filename"],
+        payload["config_source"],
+    ]
+    scannable.extend(payload["stripped_lines"].keys())
+    scannable.extend(row["replacement"] for row in payload["substitutions"])
+
+    # Filter empty originals defensively: ``"" in value`` is always True
+    # and would make the guard fire on every clean run. The rule layers
+    # already short-circuit empty leaves before calling ``record()``, so
+    # this branch only protects against a future direct caller that
+    # bypasses those guards.
+    originals = [entry.original for entry in subtable if entry.original]
+    patterns = list(iter_all_secret_patterns(config.extra_secret_patterns))
+    for value in scannable:
+        for original in originals:
+            if original in value:
+                raise SidecarLeakError("original")
+        for pattern, kind in patterns:
+            if pattern.search(value):
+                raise SidecarLeakError(kind)
 
 
 __all__ = [

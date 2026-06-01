@@ -317,6 +317,84 @@ def test_sidecar_emit_guard_raises_on_constructed_leak(tmp_path: Path) -> None:
     assert exc.value.category == "original"
 
 
+def test_sidecar_emit_guard_does_not_false_positive_on_sha_substring(
+    tmp_path: Path,
+) -> None:
+    """Regression for /simplify finding C1: the I-3 emit-time guard must
+    not scan ``input_sha256`` (a one-way digest) for originals. A short
+    original like ``"abc"`` that incidentally appears in the hex string
+    of a real SHA-256 is not a leak -- false positives on every run
+    would make the sanitizer unusable for any config with short
+    identifier rules."""
+    config = _config(
+        tmp_path,
+        """
+version: 1
+identifiers:
+  - match: "re:^abc$"
+    replace: "xyz"
+""",
+    )
+    lines = [_line({"type": "user", "toolUseResult": {"stdout": "abc"}})]
+    out, counts, subtable, secret_counts = sanitize_session(lines, config)
+    # Construct a SHA-256 hex that contains the original "abc" as a
+    # substring -- exactly what a real input file's hash could produce.
+    sha_containing_abc = "abc" + "0" * 61
+    md = SidecarMetadata(
+        input_filename="session.jsonl",
+        input_sha256=sha_containing_abc,
+        config_source="config.yaml",
+        scrubbed_at=_FIXED_TS,
+    )
+    # Must NOT raise -- this is a clean run, not a leak.
+    build_sidecar(
+        metadata=md,
+        config=config,
+        serialized_lines=out,
+        counts=counts,
+        subtable=subtable,
+        secret_counts=secret_counts,
+    )
+
+
+def test_sidecar_emit_guard_does_not_false_positive_on_extras_matching_scaffolding(
+    tmp_path: Path,
+) -> None:
+    """Regression for /simplify finding C2: a user-supplied extra_secret
+    pattern that happens to match a sidecar structural literal (e.g.
+    ``"disabled"`` from ``jitter: disabled``, or the synthesized
+    ``<path-1>`` placeholders) must NOT fire SidecarLeakError on a
+    clean run. The previous shape scanned the entire rendered YAML and
+    would break the orchestrator's documented invariant that 'if
+    sanitize_session returns, the sidecar can be built'."""
+    config = _config(
+        tmp_path,
+        """
+version: 1
+extra_secret_patterns:
+  - pattern: disabled
+    kind: my-flag
+  - pattern: "re:<path-\\\\d+>"
+    kind: placeholder-shape
+""",
+    )
+    lines = [
+        _line({"type": "user", "cwd": _REAL_USER_HOME + "/x"}),
+    ]
+    out, counts, subtable, secret_counts = sanitize_session(lines, config)
+    # Must NOT raise even though the rendered YAML contains literal
+    # "disabled" (in jitter: disabled) and "<path-1>" (the synthesized
+    # placeholder for the paths entry).
+    build_sidecar(
+        metadata=_metadata(),
+        config=config,
+        serialized_lines=out,
+        counts=counts,
+        subtable=subtable,
+        secret_counts=secret_counts,
+    )
+
+
 def test_sidecar_emit_guard_fires_on_secret_pattern_in_payload(
     tmp_path: Path,
 ) -> None:
