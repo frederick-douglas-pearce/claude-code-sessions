@@ -23,14 +23,14 @@ entry-point wiring.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import pytest
 import yaml
 
 from ccs_sanitize import __version__
 from ccs_sanitize.cli import _atomic_write_pair, main
-from ccs_sanitize.pipeline import serialize_line
+
+from ._helpers import serialize_test_line as _line
 
 
 # Synthetic identifiers only -- per CLAUDE.md "Security posture" the
@@ -54,10 +54,6 @@ identifiers:
 def _write_config(path: Path, body: str = _CONFIG_BODY) -> Path:
     path.write_text(body, encoding="utf-8")
     return path
-
-
-def _line(obj: dict[str, Any]) -> str:
-    return serialize_line(obj)
 
 
 def _write_input(path: Path, lines: list[str]) -> Path:
@@ -166,9 +162,19 @@ def test_force_overwrites_existing_output(tmp_path: Path) -> None:
     code = main([str(inp), "-o", str(out), "-c", str(cfg), "--force"])
     assert code == 0
     assert out.exists()
-    # Output is no longer the placeholder text.
-    assert out.read_text(encoding="utf-8") != "preexisting"
-    assert (tmp_path / "out.jsonl.scrubbed").exists()
+    body = out.read_text(encoding="utf-8")
+    # Pin scrub actually happened on the --force path, not just "bytes differ
+    # from preexisting" -- a regression that wrote garbage would pass that
+    # weaker assertion.
+    assert _REAL_HOME not in body
+    assert _REAL_EMAIL not in body
+    assert "/home/user" in body
+    assert "user@example.com" in body
+    sidecar = yaml.safe_load(
+        (tmp_path / "out.jsonl.scrubbed").read_text(encoding="utf-8")
+    )
+    assert sidecar["residual_scan"] == "clean"
+    assert sidecar["sanitizer_version"] == __version__
 
 
 # ----- config discovery and config errors --------------------------------
@@ -560,3 +566,150 @@ def test_verbose_writes_to_stderr(
     # Some milestone surfaces on stderr; stdout stays empty for non-dry-run.
     assert captured.err != ""
     assert captured.out == ""
+
+
+# ----- /simplify review follow-ups ---------------------------------------
+
+
+def test_dry_run_does_not_require_output(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--dry-run writes nothing, so -o/--output is not required."""
+    inp = _write_input(tmp_path / "in.jsonl", _default_session_lines())
+    cfg = _write_config(tmp_path / ".ccs-sanitize.yaml")
+    code = main([str(inp), "-c", str(cfg), "--dry-run"])
+    assert code == 0
+    parsed = yaml.safe_load(capsys.readouterr().out)
+    assert parsed["residual_scan"] == "clean"
+
+
+def test_input_symlink_rejected(tmp_path: Path) -> None:
+    """A symlink whose target is a regular file is rejected, not followed.
+
+    Closes the gap the CHANGELOG/docstring promised but the original
+    is_file() check (which follows symlinks) did not enforce. Per
+    CLAUDE.md security posture, raw session JSONL must come from
+    fixtures/, and a symlink at the input path is a TOCTOU-exposed
+    indirection that we refuse outright.
+    """
+    target = _write_input(tmp_path / "real.jsonl", _default_session_lines())
+    link = tmp_path / "link.jsonl"
+    link.symlink_to(target)
+    cfg = _write_config(tmp_path / ".ccs-sanitize.yaml")
+    code = main([str(link), "-o", str(tmp_path / "out.jsonl"), "-c", str(cfg)])
+    assert code == 1
+    assert not (tmp_path / "out.jsonl").exists()
+
+
+def test_existing_sidecar_without_force_exits_one(tmp_path: Path) -> None:
+    """--force is symmetric: it must be required to overwrite the sidecar
+    audit record too, not just the scrubbed output. Pre-existing
+    <output>.scrubbed without --force exits 1; the sidecar is preserved.
+    """
+    inp = _write_input(tmp_path / "in.jsonl", _default_session_lines())
+    cfg = _write_config(tmp_path / ".ccs-sanitize.yaml")
+    sidecar = tmp_path / "out.jsonl.scrubbed"
+    sidecar.write_text("preexisting sidecar", encoding="utf-8")
+    code = main([str(inp), "-o", str(tmp_path / "out.jsonl"), "-c", str(cfg)])
+    assert code == 1
+    assert sidecar.read_text(encoding="utf-8") == "preexisting sidecar"
+    assert not (tmp_path / "out.jsonl").exists()
+
+
+def test_output_dangling_symlink_requires_force(tmp_path: Path) -> None:
+    """Dangling symlink at the output path satisfies Path.is_symlink() but
+    NOT Path.exists(); the --force guard must use the is_symlink fallback
+    so a stale dangling link cannot bypass the overwrite check.
+    """
+    inp = _write_input(tmp_path / "in.jsonl", _default_session_lines())
+    cfg = _write_config(tmp_path / ".ccs-sanitize.yaml")
+    output = tmp_path / "out.jsonl"
+    output.symlink_to(tmp_path / "nonexistent-target.jsonl")
+    assert not output.exists() and output.is_symlink()
+    code = main([str(inp), "-o", str(output), "-c", str(cfg)])
+    assert code == 1
+
+
+def test_empty_output_name_exits_one(tmp_path: Path) -> None:
+    """`-o .` (or any path with empty .name) produced an uncaught ValueError
+    from `with_name('.scrubbed')`. Reject it as a usage error instead.
+    """
+    inp = _write_input(tmp_path / "in.jsonl", _default_session_lines())
+    cfg = _write_config(tmp_path / ".ccs-sanitize.yaml")
+    code = main([str(inp), "-o", ".", "-c", str(cfg)])
+    assert code == 1
+
+
+def test_unicode_line_separator_in_input_not_fragmented(tmp_path: Path) -> None:
+    """A literal U+2028 inside a JSON string value is legal JSONL under
+    ensure_ascii=False. The previous splitlines() implementation would
+    fragment the record across U+2028 and fail JSON parsing; split('\\n')
+    preserves it. U+2028 is built via chr() so the source stays ASCII.
+    """
+    u2028 = chr(0x2028)
+    line = _line(
+        {
+            "type": "user",
+            "message": {
+                "content": [
+                    {"type": "text", "text": f"line1{u2028}line2"}
+                ]
+            },
+        }
+    )
+    inp = tmp_path / "in.jsonl"
+    inp.write_text(line + "\n", encoding="utf-8")
+    cfg = _write_config(tmp_path / ".ccs-sanitize.yaml")
+    out = tmp_path / "out.jsonl"
+    code = main([str(inp), "-o", str(out), "-c", str(cfg)])
+    assert code == 0
+    body = out.read_text(encoding="utf-8")
+    # Count records via split('\\n') because splitlines() ALSO over-splits on
+    # U+2028 -- the bug under test. The whole record must round-trip as one
+    # JSONL line.
+    records = [ln for ln in body.split("\n") if ln]
+    assert len(records) == 1
+    assert u2028 in body
+
+
+def test_atomic_write_oserror_maps_to_exit_one_via_main(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """OSError from os.replace at the CLI level (not just the helper) maps
+    to a clean exit 1 with a tailored 'cannot write output' message --
+    never an unhandled traceback or a misleading 'config file not found'.
+    Pairs with the helper-level orphan-sidecar test by exercising the
+    end-to-end exit-code mapping main() promises.
+    """
+    inp = _write_input(tmp_path / "in.jsonl", _default_session_lines())
+    cfg = _write_config(tmp_path / ".ccs-sanitize.yaml")
+    out = tmp_path / "out.jsonl"
+
+    import ccs_sanitize.cli as cli_module
+
+    def fake_replace(src: str, dst: str) -> None:
+        raise PermissionError("simulated rename failure")
+
+    monkeypatch.setattr(cli_module.os, "replace", fake_replace)
+
+    code = main([str(inp), "-o", str(out), "-c", str(cfg)])
+    assert code == 1
+    # No partial scrub on disk (cleanup ran).
+    assert not out.exists()
+    assert not (tmp_path / "out.jsonl.scrubbed").exists()
+
+
+def test_missing_output_directory_exits_one_not_config_not_found(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A missing output directory used to be reported as 'config file not
+    found' because the top-level FileNotFoundError catch was unscoped.
+    Verify the scoped handling reports the actual problem.
+    """
+    inp = _write_input(tmp_path / "in.jsonl", _default_session_lines())
+    cfg = _write_config(tmp_path / ".ccs-sanitize.yaml")
+    out = tmp_path / "nonexistent-subdir" / "out.jsonl"
+    code = main([str(inp), "-o", str(out), "-c", str(cfg)])
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "config file not found" not in err

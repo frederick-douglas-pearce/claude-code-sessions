@@ -51,7 +51,7 @@ Likely published as `claude-code-sessions-sanitizer` (or short alias like `ccs-s
 Every scrubbed output file gets a `<filename>.scrubbed` sidecar:
 
 ```yaml
-sanitizer_version: 0.1.0
+sanitizer_version: 0.2.0
 input_hash: sha256:...     # hash of the unscrubbed input (for traceability, not stored)
 scrubbed_at: 2026-MM-DD
 rules_applied:

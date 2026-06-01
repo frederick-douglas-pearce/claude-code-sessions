@@ -240,12 +240,16 @@ def _atomic_write_pair(
         os.replace(output_temp, output_path)
         output_temp = None  # consumed by rename
     finally:
+        # Best-effort cleanup. Suppress every OSError (PermissionError, EBUSY,
+        # FileNotFoundError on a race) so the original exception that
+        # triggered the finally block — which is the diagnostic the user
+        # actually needs — is the one that propagates.
         for leftover in (sidecar_temp, output_temp):
             if leftover is None:
                 continue
             try:
                 leftover.unlink()
-            except FileNotFoundError:
+            except OSError:
                 pass
 
 
@@ -262,37 +266,96 @@ def _serialize_output(lines: Sequence[str]) -> bytes:
     return ("\n".join(lines) + "\n").encode("utf-8")
 
 
+def _validate_input(input_path: Path) -> None:
+    """Reject inputs the sanitizer should not read.
+
+    Uses ``lstat``-equivalent predicates (``is_symlink``, ``exists``) so a
+    symlink whose target is a regular file is rejected explicitly: per
+    CLAUDE.md security posture, the sanitizer is the sanctioned path from
+    raw session JSONL to a committable fixture and that path is meant to
+    be invoked against the underlying file directly, not via a symlink
+    that could be redirected (TOCTOU is explicitly deferred but blanket
+    symlink rejection costs nothing and removes the surface).
+    """
+    if not input_path.exists() and not input_path.is_symlink():
+        raise _UsageError(f"input file not found: {input_path}")
+    if input_path.is_symlink():
+        raise _UsageError(
+            f"input is a symlink (refusing to follow): {input_path}"
+        )
+    if not input_path.is_file():
+        raise _UsageError(
+            f"input is not a regular file (got directory/device): {input_path}"
+        )
+
+
+def _derive_sidecar_path(output_path: Path) -> Path:
+    """Build ``<output>.scrubbed`` with an explicit empty-name guard.
+
+    ``Path.with_name`` raises ``ValueError`` on an empty name; surface that
+    as a usage error rather than letting it propagate as an unhandled
+    traceback.
+    """
+    if not output_path.name:
+        raise _UsageError(
+            f"output has no filename component: {output_path}"
+        )
+    return output_path.with_name(output_path.name + ".scrubbed")
+
+
+def _output_already_exists(path: Path) -> bool:
+    """True if ``path`` resolves to anything on disk, including a dangling
+    symlink. ``Path.exists`` returns False for dangling symlinks; the
+    ``or is_symlink`` clause covers them so the --force guard cannot be
+    bypassed by leaving a stale link at the destination.
+    """
+    return path.exists() or path.is_symlink()
+
+
 def _run(args: argparse.Namespace) -> int:
     """Inner CLI flow. Exceptions propagate to ``main`` for exit-code mapping."""
     if args.input is None:
         raise _UsageError("missing required argument: input")
-    if args.output is None:
+    # --output is required for normal runs; under --dry-run we write nothing
+    # so the user does not need to commit to an output path just to preview
+    # the sidecar.
+    if args.output is None and not args.dry_run:
         raise _UsageError("missing required argument: -o/--output")
 
     input_path: Path = args.input
-    output_path: Path = args.output
-    sidecar_path = output_path.with_name(output_path.name + ".scrubbed")
+    _validate_input(input_path)
 
-    if not input_path.exists():
-        raise _UsageError(f"input file not found: {input_path}")
-    if not input_path.is_file():
-        raise _UsageError(
-            f"input is not a regular file (got directory/symlink/device): {input_path}"
-        )
+    output_path: Path | None = args.output
+    sidecar_path: Path | None = (
+        _derive_sidecar_path(output_path) if output_path is not None else None
+    )
 
     # Resolve --force / existing-output BEFORE running the pipeline so the
     # user finds out about an unintended overwrite without paying the scrub
-    # cost. The same check would also fail just before _atomic_write_pair,
-    # but failing early is a better UX. Dry-run skips this check — it writes
-    # nothing.
-    if not args.dry_run and output_path.exists() and not args.force:
-        raise _UsageError(
-            f"output already exists (use --force to overwrite): {output_path}"
-        )
+    # cost. Symmetric on sidecar_path: the sidecar is the audit record and
+    # should not be silently clobbered either. Dry-run skips both checks --
+    # it writes nothing.
+    if not args.dry_run and not args.force:
+        assert output_path is not None and sidecar_path is not None
+        if _output_already_exists(output_path):
+            raise _UsageError(
+                f"output already exists (use --force to overwrite): {output_path}"
+            )
+        if _output_already_exists(sidecar_path):
+            raise _UsageError(
+                f"sidecar already exists (use --force to overwrite): {sidecar_path}"
+            )
 
     config_path = _discover_config(args.config, input_path)
     _log(args.verbose, f"loading config: {config_path}")
-    config: Config = load_config(config_path)
+    # Scope the FileNotFoundError catch tightly to load_config: re-raise as
+    # _UsageError so the top-level handler maps it to exit 1 with a config-
+    # specific diagnostic and is not confused with a FileNotFoundError from
+    # the write path.
+    try:
+        config: Config = load_config(config_path)
+    except FileNotFoundError as exc:
+        raise _UsageError(f"config file not found: {exc}") from exc
 
     _log(args.verbose, f"reading input: {input_path}")
     try:
@@ -308,7 +371,14 @@ def _run(args: argparse.Namespace) -> int:
             f"input is not valid UTF-8: {input_path} ({exc})"
         ) from exc
 
-    lines = input_text.splitlines()
+    # split('\n') instead of splitlines(): splitlines() also splits on
+    # U+2028 / U+2029 / \v / \f / \x1c-\x1e / \x85, which a JSON string
+    # value can legally contain raw under ensure_ascii=False. Treating
+    # any of those as a record boundary would fragment one valid JSONL
+    # record into two non-parseable halves. JSONL records are separated
+    # by LF/CRLF only; the pipeline already tolerates blank lines, so a
+    # trailing empty element from a newline-terminated file is fine.
+    lines = input_text.split("\n")
     _log(args.verbose, f"input lines: {len(lines)}")
 
     _log(args.verbose, "running pipeline")
@@ -340,14 +410,25 @@ def _run(args: argparse.Namespace) -> int:
         _log(args.verbose, "dry-run: nothing written to disk")
         return 0
 
+    assert output_path is not None and sidecar_path is not None
     output_bytes = _serialize_output(serialized)
     _log(args.verbose, f"writing temp files in {output_path.parent}")
-    _atomic_write_pair(
-        output_path=output_path,
-        output_bytes=output_bytes,
-        sidecar_path=sidecar_path,
-        sidecar_text=sidecar_text,
-    )
+    try:
+        _atomic_write_pair(
+            output_path=output_path,
+            output_bytes=output_bytes,
+            sidecar_path=sidecar_path,
+            sidecar_text=sidecar_text,
+        )
+    except OSError as exc:
+        # ENOSPC, EROFS, PermissionError, NotADirectoryError, missing
+        # output dir all land here. These are environment failures, not
+        # safety failures -- map to exit 1 at main(). Re-raise as
+        # _UsageError so the message names the actual destination
+        # instead of a random tempfile path.
+        raise _UsageError(
+            f"cannot write output ({type(exc).__name__}): {output_path} ({exc})"
+        ) from exc
     _log(args.verbose, f"renamed sidecar -> {sidecar_path}")
     _log(args.verbose, f"renamed output  -> {output_path}")
     return 0
@@ -359,13 +440,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return _run(args)
     except _UsageError as exc:
+        # All usage-level conditions (bad args, missing input/config file,
+        # output exists without --force, environment write failures) land
+        # here. ``load_config``'s ``FileNotFoundError`` is rewrapped to
+        # _UsageError inside _run so a stray FileNotFoundError from elsewhere
+        # in the pipeline does not get reported as "config file not found".
         print(f"{parser.prog}: error: {exc}", file=sys.stderr)
-        return 1
-    except FileNotFoundError as exc:
-        # load_config re-raises FileNotFoundError separately from ConfigError
-        # exactly so the CLI can split "path doesn't exist" (usage, exit 1)
-        # from "file exists but is broken" (config, exit 3).
-        print(f"{parser.prog}: error: config file not found: {exc}", file=sys.stderr)
         return 1
     except ConfigError as exc:
         print(f"{parser.prog}: config error: {exc}", file=sys.stderr)
@@ -374,6 +454,19 @@ def main(argv: list[str] | None = None) -> int:
         # D-2 invariant: ResidualSecretError and SidecarLeakError carry only
         # category labels, never the matched bytes. Printing str(exc) is safe.
         print(f"{parser.prog}: safety failure: {exc}", file=sys.stderr)
+        return 2
+    except Exception as exc:  # pragma: no cover - defensive catch-all
+        # Defense-in-depth: any unexpected exception falls through to exit 2
+        # (safety failure) rather than printing a traceback that may carry
+        # local-variable bytes from a real session. The exception class name
+        # is included so a debugger has something to start from; the message
+        # itself comes from str(exc) and is printed only because every typed
+        # exception we raise structurally guards against putting originals
+        # in str().
+        print(
+            f"{parser.prog}: safety failure ({type(exc).__name__}): {exc}",
+            file=sys.stderr,
+        )
         return 2
 
 
