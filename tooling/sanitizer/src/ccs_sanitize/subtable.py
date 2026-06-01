@@ -41,11 +41,21 @@ class Entry:
     Frozen so callers can't mutate the table's view of an entry — updates
     go through ``SubstitutionTable.record``, which preserves the conflict
     check.
+
+    ``label`` identifies which layer produced the entry (``"paths"``,
+    ``"identifiers"``, ``"identifiers:gitBranch"``, ``"identifiers:uuid"``)
+    so the sidecar emitter (#25) can partition entries and synthesize
+    per-layer placeholder names without re-matching every original against
+    every rule. Carrying the label structurally on the entry, rather than
+    inferring it from insertion order, means a future layer (e.g. the v1
+    jitter pass) that interleaves entries cannot break the sidecar's
+    ``rule:`` / ``placeholder:`` columns.
     """
 
     original: str
     replacement: str
     occurrences: int
+    label: str
 
 
 @dataclass
@@ -60,6 +70,7 @@ class _Row:
 
     replacement: str
     occurrences: int
+    label: str
 
 
 class SubstitutionTable:
@@ -77,22 +88,38 @@ class SubstitutionTable:
         # dict preserves insertion order (CPython 3.7+ / PEP 468).
         self._entries: dict[str, _Row] = {}
 
-    def record(self, original: str, replacement: str) -> str:
+    def record(self, original: str, replacement: str, *, label: str) -> str:
         """Record one occurrence of ``original → replacement`` and return
         the canonical replacement.
 
+        ``label`` is required and identifies the producing layer. Repeat
+        ``record`` calls for the same ``original`` must agree on both
+        ``replacement`` AND ``label``; a label conflict means two layers
+        independently scrubbed the same value, which the sidecar cannot
+        coherently attribute to a single rule category.
+
         Raises:
             SubstitutionConflictError: ``original`` is already mapped to a
-                different ``replacement``.
+                different ``replacement``, or recorded under a different
+                ``label``.
         """
+        if not label:
+            raise ValueError("SubstitutionTable.record: label must be a non-empty string")
         existing = self._entries.get(original)
         if existing is None:
-            self._entries[original] = _Row(replacement=replacement, occurrences=1)
+            self._entries[original] = _Row(
+                replacement=replacement, occurrences=1, label=label
+            )
             return replacement
         if existing.replacement != replacement:
             raise SubstitutionConflictError(
                 f"substitution conflict for {original!r}: "
                 f"already mapped to {existing.replacement!r}, refused to remap to {replacement!r}"
+            )
+        if existing.label != label:
+            raise SubstitutionConflictError(
+                f"label conflict for {original!r}: "
+                f"already recorded under {existing.label!r}, refused to relabel as {label!r}"
             )
         existing.occurrences += 1
         return replacement
@@ -120,6 +147,7 @@ class SubstitutionTable:
                 original=original,
                 replacement=row.replacement,
                 occurrences=row.occurrences,
+                label=row.label,
             )
 
     def __len__(self) -> int:

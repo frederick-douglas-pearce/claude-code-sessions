@@ -648,7 +648,7 @@ identifiers:
 """,
     )
     table = SubstitutionTable()
-    table.record("fpearce@gmail.com", "DIFFERENT@example.com")
+    table.record("fpearce@gmail.com", "DIFFERENT@example.com", label="identifiers")
     transform = build_identifier_transform(config.identifiers, table)
     line = serialize_line({"type": "user", "message": {"content": "fpearce@gmail.com"}})
     with pytest.raises(SubstitutionConflictError):

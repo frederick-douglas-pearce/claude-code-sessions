@@ -452,7 +452,7 @@ def test_transform_with_subtable_keeps_within_file_consistency() -> None:
     def transform(leaf: str, path: tuple[str, ...]) -> str:
         if "/home/fdpearce" in leaf:
             replaced = leaf.replace("/home/fdpearce", "/home/user")
-            table.record("/home/fdpearce", "/home/user")
+            table.record("/home/fdpearce", "/home/user", label="paths")
             return replaced
         return leaf
 

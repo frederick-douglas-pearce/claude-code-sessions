@@ -21,7 +21,9 @@ from ..config import Rule
 from ..subtable import SubstitutionTable
 
 
-def apply_rule(rule: Rule, leaf: str, table: SubstitutionTable) -> str:
+def apply_rule(
+    rule: Rule, leaf: str, table: SubstitutionTable, *, label: str
+) -> str:
     """Apply a single rule across ``leaf``, recording each match.
 
     Uses ``re.sub`` with a callback so every non-overlapping match in the
@@ -29,6 +31,13 @@ def apply_rule(rule: Rule, leaf: str, table: SubstitutionTable) -> str:
     substring twice records two occurrences against the same table entry,
     which is what the sidecar's per-mapping occurrence count surfaces
     (PRD section 10).
+
+    ``label`` is forwarded to ``SubstitutionTable.record`` so the sidecar
+    emitter can attribute each entry to its producing layer. Callers pass
+    ``"paths"`` from the paths transform and ``"identifiers"`` from the
+    identifiers transform's catch-all rule loop; the field-anchored
+    identifier transforms (gitBranch, UUID remap) record with their own
+    more specific labels and never reach this helper.
 
     Zero-width matches return ``""`` rather than recording an empty
     original. The config loader rejects anchor-only and unbounded-optional
@@ -47,7 +56,7 @@ def apply_rule(rule: Rule, leaf: str, table: SubstitutionTable) -> str:
         if not original:
             return ""
         replacement = match.expand(replace_template) if is_regex else replace_template
-        table.record(original, replacement)
+        table.record(original, replacement, label=label)
         return replacement
 
     return rule.compiled.sub(repl, leaf)
