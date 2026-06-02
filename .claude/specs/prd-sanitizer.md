@@ -541,11 +541,13 @@ leak surface and is treated as sensitive across the rest of the threat model bel
 
 **Defense layers — additional.**
 
-- **Hook-level read-block ([#47](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/47)).** A `.claude/hooks/` guard blocks `Read`/`Edit`/`Grep`
-  on `.ccs-sanitize.yaml` so the config cannot be surfaced into the session transcript
-  even by Claude Code itself. Asymmetric — `Write` is allowed so the user can still
-  let Claude Code construct the file — mirrors the existing
-  `block_secret_reads.py` pattern for raw session JSONL. This layer is additional:
+- **Hook-level read-block ([#47](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/47)).** `.claude/hooks/block_secret_reads.py` denies
+  `Read`/`Edit`/`NotebookEdit`/`Grep`/`Glob`/`Bash` targeting `.ccs-sanitize.yaml` so the
+  config cannot be surfaced into the session transcript even by Claude Code itself.
+  Asymmetric — `Write` is allowed so the user can still let Claude Code construct the
+  file via `--init` or rewrite-from-scratch — mirrors the existing raw-session JSONL
+  pattern. The pattern is anchored to the live basename, so the committed
+  `.ccs-sanitize.example.yaml` schema reference stays readable. This layer is additional:
   the convention + `--check` already close the primary threat; the hook backs up
   the secondary threat without being the only defense.
 

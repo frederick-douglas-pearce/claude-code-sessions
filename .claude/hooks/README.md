@@ -15,7 +15,7 @@ Ported from AgentFluent's `.claude/hooks/`, adapted for this repo (see issue
 ### `block_secret_reads.py` — PreToolUse (primary defense)
 
 Denies a tool call *before* it executes when the target would leak data into
-the session transcript. Two classes of target:
+the session transcript. Three classes of target:
 
 1. **Credential files** — `.env*`, shell rc files (`.bashrc`, `.zshrc`, …),
    SSH private keys (`id_rsa`, `id_ed25519`, …), `.pem`, and named secrets
@@ -25,6 +25,14 @@ the session transcript. Two classes of target:
 2. **Raw session transcripts** — anything ending in `.jsonl` under
    `~/.claude/projects/`. Checked for `Read`/`Edit`/`NotebookEdit`/`Grep`/`Glob`
    **only — not `Bash`**.
+3. **Live sanitizer config** — `.ccs-sanitize.yaml` (the file that holds the
+   literal PII strings to scrub). Checked for `Read`/`Edit`/`NotebookEdit`/
+   `Grep`/`Glob`/`Bash`. **`Write` is allowed** so `ccs-sanitize --init` and
+   rewrite-from-scratch iteration still work — mirrors the raw-session
+   asymmetry. The committed `.ccs-sanitize.example.yaml` schema reference is
+   PII-free and stays freely readable; the pattern is anchored to the live
+   basename. Full threat model + defense layers in
+   [PRD §12b](../specs/prd-sanitizer.md#12b-config-storage-and-safety).
 
 #### Why raw sessions are blocked for file tools but not Bash
 

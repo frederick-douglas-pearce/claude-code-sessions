@@ -1,0 +1,8 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "/home/dev/claude-code-sessions/.ccs-sanitize.yaml",
+    "content": "# regenerated from scratch\nversion: 1\npaths: []\nidentifiers: []\n"
+  }
+}
