@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 
+from ccs_sanitize.config import ConfigOptions
 from ccs_sanitize.orchestrator import sanitize_session
 from ccs_sanitize.pipeline import PipelineError
 from ccs_sanitize.residual import ResidualSecretError
@@ -310,7 +311,13 @@ def test_no_partial_scrub_on_missing_type_field(tmp_path: Path) -> None:
 # fails loudly here.
 
 
-_REMAP_UUID_SEED = "ccs-sanitize/v1"
+# Source the seed from ``ConfigOptions`` rather than a test-local literal so
+# a future bump to the default (e.g. ``ccs-sanitize/v2`` on a hash-algo cut)
+# updates both sides of the equality at once -- otherwise the orchestrator
+# runs with the new default while ``_remap()`` keeps hashing under the old
+# seed, and every equality assertion fails with no diagnostic pointing at
+# the drift.
+_REMAP_UUID_SEED = ConfigOptions().uuid_seed
 
 
 def _remap(original: str) -> str:
@@ -411,5 +418,8 @@ def test_remap_uuids_false_default_leaves_uuid_fields_unchanged(
     # Inputs survive verbatim.
     assert f'"sessionId":"{session_id}"' in blob
     assert f'"uuid":"{line_uuid}"' in blob
-    # And nothing UUID-labelled landed in the subtable.
-    assert not any(entry.label == "identifiers:uuid" for entry in subtable)
+    # The subtable is empty -- this fixture has no path/identifier rules
+    # and no UUID visits, so any entry at all (whatever its label) is a
+    # regression. Stronger than label-anchored ``not any(...)`` and
+    # matches the file's idiom at the idempotency / round-trip tests.
+    assert list(subtable) == []
