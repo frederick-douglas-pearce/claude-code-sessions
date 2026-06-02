@@ -90,6 +90,65 @@ class HookBlockingTests(unittest.TestCase):
         # documented `tail -f ~/.claude/projects/...` workflow still works.
         self.assertEqual(self._decision("allow_bash_tail_session.json"), {})
 
+    def _assert_sanitizer_config_deny(self, fixture: str) -> None:
+        d = self._decision(fixture)
+        self.assertEqual(
+            d.get("hookSpecificOutput", {}).get("permissionDecision"), "deny"
+        )
+        self.assertIn(
+            "live sanitizer config",
+            d["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    def test_sanitizer_config_read_denied(self):
+        self._assert_sanitizer_config_deny("block_sanitizer_config_read.json")
+
+    def test_sanitizer_config_edit_denied(self):
+        # Edit is the highest-priority leak vector — it surfaces old_string
+        # into the transcript while searching for the replacement target.
+        self._assert_sanitizer_config_deny("block_sanitizer_config_edit.json")
+
+    def test_sanitizer_config_multiedit_denied(self):
+        # MultiEdit is Edit × N — every old_string in the edits[] array
+        # gets surfaced. Same leak vector, larger blast radius.
+        self._assert_sanitizer_config_deny("block_sanitizer_config_multiedit.json")
+
+    def test_sanitizer_config_read_uppercase_denied(self):
+        # On case-insensitive filesystems (macOS APFS, Windows NTFS) a
+        # capitalized path resolves to the same on-disk live config —
+        # the basename check must match case-insensitively so the file-tool
+        # path cannot diverge from the (already IGNORECASE) bash regex.
+        self._assert_sanitizer_config_deny("block_sanitizer_config_read_uppercase.json")
+
+    def test_sanitizer_config_grep_path_denied(self):
+        self._assert_sanitizer_config_deny("block_sanitizer_config_grep_path.json")
+
+    def test_sanitizer_config_grep_pattern_denied(self):
+        self._assert_sanitizer_config_deny("block_sanitizer_config_grep_pattern.json")
+
+    def test_sanitizer_config_bash_denied(self):
+        self._assert_sanitizer_config_deny("block_sanitizer_config_bash.json")
+
+    def test_sanitizer_config_write_allowed(self):
+        # Write is the regenerate-from-scratch / `ccs-sanitize --init` path —
+        # it overwrites rather than surfacing existing content, so it stays
+        # allowed (mirrors the raw-session asymmetry).
+        self.assertEqual(self._decision("allow_sanitizer_config_write.json"), {})
+
+    def test_sanitizer_example_read_allowed(self):
+        # The committed .example.yaml is the schema reference and contains
+        # no PII; the regex is anchored to .ccs-sanitize.yaml so it stays
+        # freely readable.
+        self.assertEqual(self._decision("allow_sanitizer_example_read.json"), {})
+
+    def test_ccs_sanitize_cli_invocation_allowed(self):
+        # The CLI default reads .ccs-sanitize.yaml from cwd without naming
+        # it on the command line, so the bash token pattern does not match
+        # a vanilla invocation — and the CLI reads the file from Python,
+        # outside the Claude Code tool layer, so the hook is not in the
+        # path even if it did fire.
+        self.assertEqual(self._decision("allow_ccs_sanitize_cli.json"), {})
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

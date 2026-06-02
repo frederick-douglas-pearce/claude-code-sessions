@@ -1,0 +1,11 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "MultiEdit",
+  "tool_input": {
+    "file_path": "/home/dev/claude-code-sessions/.ccs-sanitize.yaml",
+    "edits": [
+      {"old_string": "Real Name", "new_string": "Example Author"},
+      {"old_string": "real.email@example.com", "new_string": "user@example.com"}
+    ]
+  }
+}

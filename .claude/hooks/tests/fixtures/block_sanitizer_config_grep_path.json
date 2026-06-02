@@ -1,0 +1,8 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Grep",
+  "tool_input": {
+    "pattern": "name",
+    "path": "/home/dev/claude-code-sessions/.ccs-sanitize.yaml"
+  }
+}

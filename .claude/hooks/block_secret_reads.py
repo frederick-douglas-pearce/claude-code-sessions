@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""PreToolUse hook: block reads of files likely to contain credentials, and of
-raw Claude Code session transcripts.
+"""PreToolUse hook: block reads of files likely to contain credentials, of
+raw Claude Code session transcripts, and of the live sanitizer config.
 
 Receives the PreToolUse event JSON on stdin. Denies the tool call when the
 target file path (or Bash command argument) matches:
@@ -11,6 +11,11 @@ target file path (or Bash command argument) matches:
    NotebookEdit/Grep/Glob only — NOT Bash, so `tail -f`/`ls` demos and the
    sanitizer CLI still work.) This enforces this repo's posture: read sample
    data from fixtures/, never an unsanitized session transcript.
+3. The live sanitizer config (.ccs-sanitize.yaml), which holds the literal
+   PII strings to scrub. Checked for Read/Edit/NotebookEdit/Grep/Glob/Bash;
+   Write is allowed so `ccs-sanitize --init` and rewrite-from-scratch
+   iteration flows keep working. The .ccs-sanitize.example.yaml schema
+   reference stays freely readable.
 
 Emits a JSON decision on stdout and exits 0 (the modern pattern); exit 2
 + stderr is the legacy fallback but not used here.
@@ -73,17 +78,31 @@ CREDENTIAL_TOKEN_PATTERNS: list[str] = [
 ]
 CREDENTIAL_TOKEN_REGEX = re.compile("|".join(CREDENTIAL_TOKEN_PATTERNS), re.IGNORECASE)
 
-FILE_PATH_TOOLS = {"Read", "Edit", "Write", "NotebookEdit"}
+FILE_PATH_TOOLS = {"Read", "Edit", "MultiEdit", "Write", "NotebookEdit"}
 PATH_SEARCH_TOOLS = {"Grep", "Glob"}
 
-# Raw-session block applies to the tools that pull file *contents* into context.
-# Write is excluded (it overwrites, it doesn't surface existing content) and
-# Bash is excluded by design (keeps `tail -f`/`ls` and the sanitizer CLI usable).
-RAW_SESSION_FILE_TOOLS = {"Read", "Edit", "NotebookEdit"}
+# Content-surfacing block applies to the tools that pull file *contents* into
+# context. Write is excluded (it overwrites, it doesn't surface existing content)
+# and Bash is excluded by design (keeps `tail -f`/`ls` and the sanitizer CLI
+# usable). MultiEdit is in scope because it surfaces every `old_string` it
+# searches for — same leak vector as Edit, multiplied.
+CONTENT_SURFACING_FILE_TOOLS = {"Read", "Edit", "MultiEdit", "NotebookEdit"}
+# Backwards-compat alias for the original raw-session-focused name. Both names
+# share the same set today; if the two policies ever need to diverge, split
+# them here rather than letting a rename of one silently change the other.
+RAW_SESSION_FILE_TOOLS = CONTENT_SURFACING_FILE_TOOLS
+SANITIZER_CONFIG_FILE_TOOLS = CONTENT_SURFACING_FILE_TOOLS
 
 # ~/.claude/projects/ is where Claude Code writes raw, unsanitized session
 # transcripts. Anything ending in .jsonl under that root is a raw session.
 RAW_SESSION_ROOT = PurePath(os.path.expanduser("~")) / ".claude" / "projects"
+
+# The live sanitizer config holds the literal PII strings to scrub (real home
+# dir, email, name, GitHub handle). Reading it surfaces the very data the
+# sanitizer is meant to remove. Pattern is anchored to .ccs-sanitize.yaml so
+# the committed .ccs-sanitize.example.yaml schema reference stays readable.
+SANITIZER_CONFIG_BASENAME = ".ccs-sanitize.yaml"
+SANITIZER_CONFIG_TOKEN_REGEX = re.compile(r"\.ccs-sanitize\.yaml\b", re.IGNORECASE)
 
 DENY_REASON = (
     "Blocked by claude-code-sessions secrets-protection hook (.claude/hooks/block_secret_reads.py). "
@@ -99,6 +118,18 @@ RAW_SESSION_DENY_REASON = (
     "risks surfacing prompts, file contents, command output, or secrets from an unsanitized session. "
     "Per this repo's security posture (CLAUDE.md), read sample data from fixtures/ instead, or run the "
     "sanitizer to produce a scrubbed copy. See .claude/hooks/README.md for the policy."
+)
+
+SANITIZER_CONFIG_DENY_REASON = (
+    "Blocked by claude-code-sessions secrets-protection hook (.claude/hooks/block_secret_reads.py). "
+    "This is the live sanitizer config (.ccs-sanitize.yaml); it holds the literal PII strings to scrub "
+    "(real home dir, email, name, GitHub handle). Reading or Edit-ing it would persist that PII in the "
+    "session JSONL — Edit specifically surfaces matched old_string values, which is the exact leak path. "
+    "Write is allowed: regenerate from scratch (e.g. `ccs-sanitize --init`) or overwrite the file as a "
+    "whole. For the schema, read .ccs-sanitize.example.yaml — that's the committed, PII-free reference. "
+    "If your Bash invocation was the sanitizer CLI itself (e.g. `ccs-sanitize -c .ccs-sanitize.yaml …`), "
+    "drop the `-c` flag — the CLI discovers .ccs-sanitize.yaml from cwd by default and reads it inside "
+    "Python (no tool-layer leak). See PRD §12b and .claude/hooks/README.md for the full policy."
 )
 
 
@@ -125,10 +156,25 @@ def path_is_raw_session(path_str: str) -> bool:
     return RAW_SESSION_ROOT in p.parents
 
 
+def path_is_sanitizer_config(path_str: str) -> bool:
+    if not path_str:
+        return False
+    # Case-insensitive to stay consistent with SANITIZER_CONFIG_TOKEN_REGEX
+    # and to cover macOS APFS / Windows NTFS where `.CCS-Sanitize.YAML`
+    # resolves to the same on-disk file.
+    return PurePath(path_str).name.lower() == SANITIZER_CONFIG_BASENAME
+
+
 def bash_command_is_blocked(command: str) -> bool:
     if not command:
         return False
     return CREDENTIAL_TOKEN_REGEX.search(command) is not None
+
+
+def bash_command_targets_sanitizer_config(command: str) -> bool:
+    if not command:
+        return False
+    return SANITIZER_CONFIG_TOKEN_REGEX.search(command) is not None
 
 
 def check(event: dict) -> tuple[bool, str]:
@@ -141,6 +187,8 @@ def check(event: dict) -> tuple[bool, str]:
             return True, f"{DENY_REASON} (path: {path})"
         if tool_name in RAW_SESSION_FILE_TOOLS and path_is_raw_session(path):
             return True, f"{RAW_SESSION_DENY_REASON} (path: {path})"
+        if tool_name in SANITIZER_CONFIG_FILE_TOOLS and path_is_sanitizer_config(path):
+            return True, f"{SANITIZER_CONFIG_DENY_REASON} (path: {path})"
 
     if tool_name in PATH_SEARCH_TOOLS:
         path = tool_input.get("path") or ""
@@ -149,13 +197,19 @@ def check(event: dict) -> tuple[bool, str]:
             return True, f"{DENY_REASON} (search path: {path})"
         if path and path_is_raw_session(path):
             return True, f"{RAW_SESSION_DENY_REASON} (search path: {path})"
+        if path and path_is_sanitizer_config(path):
+            return True, f"{SANITIZER_CONFIG_DENY_REASON} (search path: {path})"
         if pattern and CREDENTIAL_TOKEN_REGEX.search(pattern):
             return True, f"{DENY_REASON} (search pattern targets credential file: {pattern})"
+        if pattern and SANITIZER_CONFIG_TOKEN_REGEX.search(pattern):
+            return True, f"{SANITIZER_CONFIG_DENY_REASON} (search pattern: {pattern})"
 
     if tool_name == "Bash":
         command = tool_input.get("command") or ""
         if bash_command_is_blocked(command):
             return True, f"{DENY_REASON} (command: {command[:200]})"
+        if bash_command_targets_sanitizer_config(command):
+            return True, f"{SANITIZER_CONFIG_DENY_REASON} (command: {command[:200]})"
 
     return False, ""
 
