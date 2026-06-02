@@ -442,17 +442,18 @@ def test_blank_lines_are_tolerated() -> None:
     assert len(out) == 2
 
 
-def test_blank_lines_are_counted_for_audit_field(tmp_path) -> None:
+def test_blank_lines_are_counted_for_audit_field() -> None:
     """``PipelineCounts.blank_lines`` reports the number of whitespace-only
-    input lines silently skipped, so the sidecar's ``lines_processed`` can
-    reach ``wc -l`` parity (#43). Earlier ``_iter_records`` dropped blanks
-    with no surface counter; an editor-saved file with a trailing newline
-    would undercount by 1.
+    input lines skipped by ``run_pipeline``, so the sidecar's
+    ``lines_processed`` equals the number of items the input iterable
+    produced (#43). Earlier ``_iter_records`` dropped blanks with no
+    surface counter; a file with interior blank lines undercounted by
+    the number of blanks.
 
     Mixes leading, interior, and trailing blanks with a strip-type
     survivor and a normal survivor so every category contributes
     independently: survivors=1, stripped=1, blanks=4 -> 6 total, which
-    is exactly what ``wc -l`` would report on the same input."""
+    equals ``len(input_iterable)`` (the audit identity)."""
     lines = [
         "",                                                # leading blank
         _line({"type": "user"}),                           # survivor

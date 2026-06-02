@@ -115,12 +115,17 @@ class PipelineCounts:
     lines dropped for it. Only types actually encountered appear; a zero
     count is never written.
 
-    ``blank_lines`` is the number of whitespace-only input lines silently
-    skipped by ``_iter_records`` -- editor-saved files almost always have a
-    trailing newline, so without this tally the sidecar's ``lines_processed``
-    would undercount by 1 against ``wc -l`` for the modal case. PRD section
-    10's audit-field semantic is "what a reviewer can verify with ``wc``",
-    so the sidecar adds this back in.
+    ``blank_lines`` is the number of whitespace-only input lines the loop
+    in ``run_pipeline`` skipped over. Surfacing the tally is what lets the
+    sidecar's ``lines_processed`` equal the number of items the input
+    iterable produced (``len(input_text.split("\n"))`` for the CLI):
+    survivors + stripped + blanks. Without it, a file with interior blanks
+    silently undercounts by the number of blanks. (Note: this is NOT
+    literal ``wc -l`` parity -- ``split("\n")`` on a file ending in a
+    trailing newline yields one extra empty element vs the newline count,
+    which we count as a blank; the audit identity is "input items
+    iterated", which equals ``wc -l`` only for files without a trailing
+    newline.)
 
     The mapping is wrapped in a ``MappingProxyType`` after construction so
     callers cannot mutate the dict in place — the dataclass is frozen at the
@@ -329,9 +334,10 @@ def _iter_records(lines: Iterable[str]) -> Iterator[tuple[int, str]]:
     Whitespace-only lines are yielded with their stripped form (the empty
     string); the caller decides whether to treat them as blanks (counting
     for ``PipelineCounts.blank_lines``) or as records (parsing as JSON).
-    Pushing the blank/record decision up to ``run_pipeline`` is what makes
-    ``lines_processed`` reach ``wc -l`` parity (#43) -- earlier the helper
-    silently dropped blanks here and the count was unrecoverable.
+    Pushing the blank/record decision up to ``run_pipeline`` is what lets
+    ``lines_processed`` cover interior blank lines (#43) -- earlier the
+    helper silently dropped blanks here and the count was unrecoverable,
+    so a file with interior whitespace lines undercounted.
 
     The line number is 1-indexed and tracks the original input position so
     ``PipelineError`` messages can name the file line a user can locate.

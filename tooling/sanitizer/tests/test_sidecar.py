@@ -457,14 +457,15 @@ def test_stripped_lines_counts_match_dropped_lines(tmp_path: Path) -> None:
     assert payload["lines_processed"] == 5
 
 
-def test_lines_processed_matches_wc_l_with_blanks_and_stripped(
+def test_lines_processed_matches_input_iterable_length_with_blanks(
     tmp_path: Path,
 ) -> None:
-    """PRD §10 audit semantic (#43): ``lines_processed`` is what a
-    reviewer would get from ``wc -l input.jsonl``. Survivors + stripped
-    + blank/whitespace input lines. Modal case is a JSONL file with a
-    trailing newline (editor-saved): one blank line iterated at EOF.
-    Without the ``blank_lines`` tally the field undercounts by 1."""
+    """PRD §10 audit semantic (#43): ``lines_processed`` equals the
+    number of items the input iterable produced -- survivors + stripped
+    + blank/whitespace input lines. A fixture-validator that diffs
+    against ``len(input_text.split('\\n'))`` sees parity. Without the
+    ``blank_lines`` tally, a file with interior whitespace lines
+    undercounts by the number of blanks."""
     config = _config(tmp_path, _BASE_CONFIG)
     raw_lines = [
         _line({"type": "user"}),                              # survivor

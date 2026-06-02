@@ -385,7 +385,7 @@ input_filename: real-subagent-trace.jsonl       # basename only, never the full 
 input_sha256: 9f2c...                            # one-way hash of the raw input (traceability)
 config_version: 1
 config_source: .ccs-sanitize.yaml
-lines_processed: 512                              # matches `wc -l`: survivors + stripped + blank/whitespace lines (#43)
+lines_processed: 512                              # input items iterated: survivors + stripped + blank/whitespace lines (#43)
 stripped_lines:                                   # whole lines dropped (§6b, D-7)
   file-history-snapshot: 8
   attachment: 1
