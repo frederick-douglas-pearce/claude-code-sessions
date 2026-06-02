@@ -37,8 +37,11 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
+from importlib import resources
 from pathlib import Path
 from typing import Sequence
 
@@ -56,6 +59,13 @@ from .sidecar import (
 )
 
 _CONFIG_FILENAME = ".ccs-sanitize.yaml"
+_EXAMPLE_CONFIG_FILENAME = ".ccs-sanitize.example.yaml"
+# Package-data resource shipped with the wheel. The committed
+# `.ccs-sanitize.example.yaml` at the repo root must stay byte-identical
+# to this file; ``test_template_resource_matches_repo_root_example`` in
+# ``tests/test_init_and_check.py`` pins the equality so the two cannot
+# silently drift.
+_CONFIG_TEMPLATE_RESOURCE = "ccs-sanitize.example.yaml"
 
 
 class _UsageError(Exception):
@@ -95,12 +105,18 @@ def _parse_strip_types(value: str) -> frozenset[str]:
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    # ``allow_abbrev=False``: with multiple ``--no-*`` flags (currently
+    # ``--no-check``), argparse's prefix-abbreviation would let ``--no``
+    # silently resolve to whichever future flag happens to be
+    # unambiguous, and a script using ``--no`` shorthand would shift
+    # meaning across releases. Long-form only.
     parser = _SafeArgumentParser(
         prog="ccs-sanitize",
         description=(
             "Scrub a Claude Code session JSONL file for safe publication. "
             "See PRD: .claude/specs/prd-sanitizer.md"
         ),
+        allow_abbrev=False,
     )
     parser.add_argument(
         "--version",
@@ -127,6 +143,28 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Rules YAML. Discovery: explicit > ./.ccs-sanitize.yaml "
             "> <input_dir>/.ccs-sanitize.yaml."
+        ),
+    )
+    parser.add_argument(
+        "--init",
+        action="store_true",
+        help=(
+            f"Bootstrap a new project: write {_EXAMPLE_CONFIG_FILENAME} and "
+            f"{_CONFIG_FILENAME} into the current working directory (if "
+            "missing) and exit. Does NOT modify .gitignore -- gitignoring "
+            f"{_CONFIG_FILENAME} is the user's job; the pre-run gitignore "
+            "guard (default-on; opt out with --no-check) enforces it on "
+            "every subsequent run."
+        ),
+    )
+    parser.add_argument(
+        "--no-check",
+        action="store_true",
+        help=(
+            "Skip the pre-run check that the resolved config path is "
+            "gitignored. Default is fail-closed (exit 3) when the config "
+            "is not gitignored. Use only for CI environments without a "
+            ".git directory or for the test suite. PRD section 12b."
         ),
     )
     parser.add_argument(
@@ -159,6 +197,249 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Print per-stage progress milestones to stderr.",
     )
     return parser
+
+
+def _read_config_template() -> str:
+    """Return the bundled `.ccs-sanitize.example.yaml` template text.
+
+    Source of truth for ``--init``. The committed
+    ``.ccs-sanitize.example.yaml`` at the repo root is byte-equal to this
+    resource; ``test_template_resource_matches_repo_root_example`` in
+    ``tests/test_init_and_check.py`` pins the equality so the two cannot
+    silently drift across a release.
+    """
+    return (
+        resources.files("ccs_sanitize._templates")
+        .joinpath(_CONFIG_TEMPLATE_RESOURCE)
+        .read_text(encoding="utf-8")
+    )
+
+
+def _run_init(verbose: bool) -> int:
+    """Bootstrap a new project's sanitizer config in the current directory.
+
+    Writes ``.ccs-sanitize.example.yaml`` and ``.ccs-sanitize.yaml`` (both
+    from the bundled template) if they do not already exist. Existing
+    files are NOT overwritten — re-running ``--init`` on a populated
+    directory is intentionally a no-op so it is safe to invoke from a
+    setup script. Does NOT touch ``.gitignore``: silently mutating a
+    tracked file on first run is surprising and risks merge conflicts
+    (issue #45 architect review). Prints a one-line reminder to stderr
+    pointing the user at the gitignore convention; the pre-run check
+    enforces it mechanically on the next scrub.
+
+    ``FileNotFoundError`` from the package-data template lookup and
+    ``OSError`` / ``PermissionError`` from the file writes are caught
+    and re-raised as ``_UsageError`` -> exit 1. Without this, both
+    cases would fall through to ``main()``'s defensive
+    ``except Exception`` and be reported as ``safety failure`` /
+    exit 2 -- exit 2 is reserved for residual-secret leaks (PRD §11),
+    so a packaging error or a read-only cwd must NOT borrow that exit
+    code. Mirrors the ``_atomic_write_pair`` OSError handling.
+    """
+    try:
+        template = _read_config_template()
+    except (FileNotFoundError, ModuleNotFoundError) as exc:
+        raise _UsageError(
+            f"--init: bundled config template is missing from the install "
+            f"({type(exc).__name__}: {exc}). This indicates a packaging "
+            "regression -- reinstall ccs-sanitize."
+        ) from exc
+    cwd = Path.cwd()
+    example_path = cwd / _EXAMPLE_CONFIG_FILENAME
+    live_path = cwd / _CONFIG_FILENAME
+
+    try:
+        wrote_example = _write_if_missing(example_path, template, verbose=verbose)
+        wrote_live = _write_if_missing(live_path, template, verbose=verbose)
+    except OSError as exc:
+        raise _UsageError(
+            f"--init: cannot write into {cwd} ({type(exc).__name__}: "
+            f"{exc}). Check directory permissions or run --init in a "
+            "writable cwd."
+        ) from exc
+
+    if not wrote_example and not wrote_live:
+        print(
+            f"ccs-sanitize: --init: both {_EXAMPLE_CONFIG_FILENAME} and "
+            f"{_CONFIG_FILENAME} already exist; nothing to do.",
+            file=sys.stderr,
+        )
+
+    # Reminder is printed unconditionally — even on a no-op run — because the
+    # check it points at is the one users forget. Cheap to repeat; costly to
+    # omit on the run that would have caught a missing gitignore entry.
+    print(
+        f"ccs-sanitize: reminder: add `{_CONFIG_FILENAME}` to your "
+        f".gitignore before committing. See "
+        f"`{_EXAMPLE_CONFIG_FILENAME}` for the recommended pattern; the "
+        "pre-run gitignore guard will refuse to run otherwise.",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def _write_if_missing(path: Path, content: str, *, verbose: bool) -> bool:
+    """Write ``content`` to ``path`` only if ``path`` does not yet exist.
+
+    Returns True if the file was written, False if it already existed.
+    Uses ``x`` mode so a race with another process picks one writer and
+    leaves the other's contents intact — relevant because ``--init`` is
+    the kind of command users sometimes run twice in a script.
+
+    A dangling symlink (``is_symlink()`` True, ``exists()`` False) is
+    surfaced as a hard error rather than silently skipped: a stale
+    symlink at the config path would cause the next ``ccs-sanitize``
+    invocation to fail in ``load_config`` with a confusing
+    target-path error, and ``--init`` cannot just overwrite the link
+    without erasing whatever the user intended to point at.
+    """
+    if path.is_symlink() and not path.exists():
+        raise OSError(
+            f"{path.name} is a dangling symlink (target does not exist); "
+            "refusing to silently overwrite. Remove or repoint the link, "
+            "then re-run --init."
+        )
+    if path.exists() or path.is_symlink():
+        _log(verbose, f"--init: {path.name} already exists; leaving as-is")
+        return False
+    try:
+        with path.open("x", encoding="utf-8") as handle:
+            handle.write(content)
+    except FileExistsError:
+        _log(verbose, f"--init: {path.name} appeared concurrently; leaving as-is")
+        return False
+    _log(verbose, f"--init: wrote {path}")
+    return True
+
+
+def _git_check_ignore_env() -> dict[str, str]:
+    """Return an environment for ``git check-ignore`` scrubbed of ambient
+    ``GIT_*`` redirects.
+
+    Without this scrub, ``GIT_DIR`` / ``GIT_WORK_TREE`` (set by wrapper
+    scripts or some IDE integrations) silently redirect the subprocess at
+    a different repository than the one the user's config lives in, and
+    the gitignore check evaluates the wrong ignore rules. The strict
+    fail-closed claim in PRD §12b requires the check to consult the same
+    working tree the user is in, not whichever repo ``GIT_DIR`` happens
+    to point at. ``HOME`` and ``XDG_CONFIG_HOME`` are preserved so global
+    config (``~/.gitconfig``) still applies — the user's intentional
+    ``core.excludesfile`` is part of the legitimate gitignore picture; it
+    is the *process-level* redirects we drop.
+    """
+    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+
+
+def _check_config_gitignored(config_path: Path, verbose: bool) -> None:
+    """Refuse to operate if the resolved config path is not gitignored.
+
+    Implements the PRD section 12b pre-run guard. Behavior table:
+
+      - Config file does not exist: skip the check and return silently.
+        The caller's ``load_config`` will raise a clean
+        ``FileNotFoundError`` -> exit 1 ("config file not found") with a
+        diagnostic that names the right problem; a "not gitignored"
+        message for a non-existent file would misdirect the user.
+      - ``git`` binary missing or cwd not a git repository: warn to
+        stderr and proceed. Defense-in-depth, not the only defense —
+        the convention + hook layer ([#47]) catch the threat from other
+        angles, and the test suite + CI environments without ``.git``
+        legitimately have nothing to check against.
+      - ``git check-ignore`` exit 0: path is gitignored, proceed silently.
+      - ``git check-ignore`` exit 1: path is NOT gitignored, raise
+        ``ConfigError`` (CLI maps to exit 3) with a message naming the
+        file and pointing at ``.ccs-sanitize.example.yaml``.
+      - Any other ``git`` exit (128 = not a repo, broken index, etc.):
+        warn and proceed for the same reason as the binary-missing path.
+
+    Implementation notes:
+
+      - The path passed to ``git check-ignore`` is the bare basename and
+        the subprocess ``cwd`` is the config's parent directory (NOT
+        ``.resolve().parent`` — resolving symlinks would consult the
+        target's repo, silently weakening the guard for a user who
+        symlinks the config in from a dotfiles tree).
+      - ``encoding='utf-8', errors='replace'`` is passed explicitly so a
+        non-ASCII byte in git's stderr under a POSIX/C locale cannot
+        raise ``UnicodeDecodeError`` past the ``(OSError,
+        SubprocessError)`` catch and turn a warn-and-proceed into an
+        exit-2 safety failure.
+      - Ambient ``GIT_*`` env vars are scrubbed (see
+        ``_git_check_ignore_env``) so a wrapper script's ``GIT_DIR``
+        cannot redirect the check away from the config's actual repo.
+
+    Raises:
+        ConfigError: the config path exists on disk but is not gitignored.
+    """
+    # If the file does not exist, skip — load_config will raise a clean
+    # FileNotFoundError -> exit 1 in the caller, which is a more
+    # accurate diagnostic than "not gitignored: <missing path>".
+    if not config_path.is_file():
+        _log(verbose, f"gitignore-check: skipped (file missing): {config_path}")
+        return
+
+    git_bin = shutil.which("git")
+    if git_bin is None:
+        print(
+            "ccs-sanitize: warning: git not found on PATH; cannot verify "
+            f"that {config_path} is gitignored (PRD §12b). Proceeding; "
+            "the gitignore convention is defense-in-depth, not the only "
+            "defense. Pass --no-check to skip this guard.",
+            file=sys.stderr,
+        )
+        return
+    # cwd = the directory that physically contains the path entry as the
+    # user wrote it (no .resolve()), so check-ignore consults the repo
+    # the user actually staged the file in -- not the symlink target's
+    # repo. The arg is the bare basename so the relative-vs-absolute
+    # form of `config_path` cannot re-resolve into a doubled-up subpath.
+    parent_dir = config_path.parent if str(config_path.parent) else Path(".")
+    try:
+        result = subprocess.run(
+            [git_bin, "check-ignore", "-v", "--", config_path.name],
+            cwd=str(parent_dir),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=5,
+            env=_git_check_ignore_env(),
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        print(
+            f"ccs-sanitize: warning: could not invoke `git check-ignore` "
+            f"on {config_path}: {exc}. Proceeding; pass --no-check to "
+            "skip this guard.",
+            file=sys.stderr,
+        )
+        return
+
+    if result.returncode == 0:
+        _log(verbose, f"gitignore-check: {config_path} is gitignored")
+        return
+    if result.returncode == 1:
+        raise ConfigError(
+            f"config file is not gitignored: {config_path}\n"
+            f"  The sanitizer config holds literal PII match values and "
+            f"would leak through `git add .`. Add `{_CONFIG_FILENAME}` "
+            f"to your .gitignore and re-run. See "
+            f"`{_EXAMPLE_CONFIG_FILENAME}` for the recommended convention, "
+            "or pass --no-check to bypass (CI environments without a "
+            ".git directory only)."
+        )
+    # Anything else: not a git repo (128), broken index, etc. Treat as
+    # "cannot check" rather than failing closed — the test suite and CI
+    # legitimately run outside a git repo, and the convention layer +
+    # hook layer cover this threat from other angles.
+    stderr_excerpt = (result.stderr or "").strip().splitlines()
+    detail = stderr_excerpt[0] if stderr_excerpt else f"exit {result.returncode}"
+    print(
+        f"ccs-sanitize: warning: `git check-ignore` could not evaluate "
+        f"{config_path} ({detail}). Proceeding; pass --no-check to "
+        "skip this guard.",
+        file=sys.stderr,
+    )
 
 
 def _discover_config(explicit: Path | None, input_path: Path) -> Path:
@@ -312,8 +593,48 @@ def _output_already_exists(path: Path) -> bool:
     return path.exists() or path.is_symlink()
 
 
+def _reject_init_with_scrub_args(args: argparse.Namespace) -> None:
+    """Raise ``_UsageError`` if ``--init`` is mixed with a scrub-only arg.
+
+    Argparse cannot easily express "if --init then nothing else" at parse
+    time, so the check lands here. The motivating case: a user runs
+    ``ccs-sanitize --init session.jsonl -o out.jsonl`` expecting both
+    init AND a scrub; before this guard, --init would silently win and
+    the user would believe ``out.jsonl`` had been produced. ``--verbose``
+    is allowed because it just gates extra stderr in ``_run_init``.
+    """
+    offending: list[str] = []
+    if args.input is not None:
+        offending.append("<input>")
+    if args.output is not None:
+        offending.append("-o/--output")
+    if args.config is not None:
+        offending.append("-c/--config")
+    if args.dry_run:
+        offending.append("--dry-run")
+    if args.force:
+        offending.append("--force")
+    if args.no_check:
+        offending.append("--no-check")
+    if offending:
+        raise _UsageError(
+            f"--init cannot be combined with scrub arguments "
+            f"({', '.join(offending)}). Run --init first to bootstrap "
+            "the config, then invoke ccs-sanitize again to scrub."
+        )
+
+
 def _run(args: argparse.Namespace) -> int:
     """Inner CLI flow. Exceptions propagate to ``main`` for exit-code mapping."""
+    # --init runs before the scrub-argument validation so a user can
+    # bootstrap a fresh repo with just `ccs-sanitize --init`. To avoid the
+    # "I thought I scrubbed but only init'd" trap, --init refuses to
+    # accept any scrub-only argument: a user who passes both is almost
+    # certainly expecting both to run, not one to be silently ignored.
+    if args.init:
+        _reject_init_with_scrub_args(args)
+        return _run_init(args.verbose)
+
     if args.input is None:
         raise _UsageError("missing required argument: input")
     # --output is required for normal runs; under --dry-run we write nothing
@@ -324,6 +645,16 @@ def _run(args: argparse.Namespace) -> int:
 
     input_path: Path = args.input
     _validate_input(input_path)
+
+    config_path = _discover_config(args.config, input_path)
+    # PRD section 12b: refuse to scrub if the resolved config is not
+    # gitignored. Runs BEFORE the output-existence check so a user
+    # repeatedly hitting "output already exists" cannot keep using the
+    # tool without ever being told their config would leak. The
+    # gitignore check is cheap (one subprocess); the security message
+    # must take precedence over the convenience message.
+    if not args.no_check:
+        _check_config_gitignored(config_path, args.verbose)
 
     output_path: Path | None = args.output
     sidecar_path: Path | None = (
@@ -346,7 +677,6 @@ def _run(args: argparse.Namespace) -> int:
                 f"sidecar already exists (use --force to overwrite): {sidecar_path}"
             )
 
-    config_path = _discover_config(args.config, input_path)
     _log(args.verbose, f"loading config: {config_path}")
     # Scope the FileNotFoundError catch tightly to load_config: re-raise as
     # _UsageError so the top-level handler maps it to exit 1 with a config-

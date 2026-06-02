@@ -10,6 +10,8 @@ Sample session JSONL files for use in posts, reference docs, and tests.
 
 Files derived from real session JSONL, scrubbed by `tooling/sanitizer/`. Every file in this directory **must** have a sidecar `<filename>.scrubbed` proving it passed validation at a known sanitizer version. The fixture-validator CI gate rejects PRs that add files here without a sidecar.
 
+Before scrubbing, the sanitizer needs a `.ccs-sanitize.yaml` config holding the literal PII strings to replace — that file is **sensitive** and gitignored. Bootstrap with `ccs-sanitize --init`, then fill in your match values; the built-in pre-run guard refuses to scrub unless the config is gitignored. See [PRD §12b](../.claude/specs/prd-sanitizer.md#12b-config-storage-and-safety) for the threat model and defense layers.
+
 The sanitizer scrubs:
 
 - File paths (replaced with placeholders like `/home/user/project/`)

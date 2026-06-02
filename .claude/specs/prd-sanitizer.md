@@ -504,6 +504,67 @@ extra_secret_patterns:                                   # ADDITIVE only
   - {pattern: "re:CORP-[A-Z0-9]{32}", kind: "corp-token"}
 ```
 
+### 12b. Config storage and safety {#12b-config-storage-and-safety}
+
+The config file holds the literal strings the sanitizer is meant to scrub (real home dir,
+real email, real name, etc.). The sidecar records only the **basename** of the config
+under `config_source:` ([§10](#10-the-scrubbed-sidecar)) so committed sidecars do not
+depend on the config file being safe to commit — but the config file itself is the
+leak surface and is treated as sensitive across the rest of the threat model below.
+
+**Threat model.** Two distinct leak paths:
+
+1. **Primary — `git add .` commits the live config.** A naïve user follows the README,
+   creates `.ccs-sanitize.yaml` at the repo root next to the input, and runs `git add .`.
+   The config now lives in git history with every `match:` value verbatim. This is the
+   dominant failure mode and the one a CLI tool can address mechanically.
+2. **Secondary — Read of the config surfaces PII into the Claude Code session transcript.**
+   Any tool that returns file contents (`Read`, `Edit` on the config) brings literal
+   match values into the conversation, which can land in transcripts and JSONL session
+   files. This is addressed by a hook in `.claude/hooks/` (see [#47](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/47)).
+
+**Defense layers — required.**
+
+- **Convention: gitignore the live config; commit a schema-only template.**
+  `.ccs-sanitize.yaml` is gitignored; `.ccs-sanitize.example.yaml` is committed and
+  contains placeholders only. Mirrors the `.env` / `.env.example` pattern. New users
+  bootstrap with `ccs-sanitize --init`, which copies the template into place.
+- **Built-in pre-run gitignore guard (default-on; opt out with `--no-check`).**
+  Before `load_config` runs, the sanitizer asks `git check-ignore -v <config>`
+  whether the resolved config path is gitignored. If not: refuse to operate, exit
+  code 3, actionable error naming the file and pointing at `.ccs-sanitize.example.yaml`.
+  The check runs on every invocation so a user who ignored the `--init` reminder
+  still hits a clear error before the scrub starts. `--no-check` opts out for CI
+  environments without a `.git` directory and for the test suite. If `git` is
+  unavailable or the cwd is not a git repository, the check warns to stderr and
+  proceeds — defense-in-depth, not the only defense.
+
+**Defense layers — additional.**
+
+- **Hook-level read-block ([#47](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/47)).** A `.claude/hooks/` guard blocks `Read`/`Edit`/`Grep`
+  on `.ccs-sanitize.yaml` so the config cannot be surfaced into the session transcript
+  even by Claude Code itself. Asymmetric — `Write` is allowed so the user can still
+  let Claude Code construct the file — mirrors the existing
+  `block_secret_reads.py` pattern for raw session JSONL. This layer is additional:
+  the convention + `--check` already close the primary threat; the hook backs up
+  the secondary threat without being the only defense.
+
+**`--init` behavior.** `ccs-sanitize --init` writes `.ccs-sanitize.example.yaml` (if
+missing) and `.ccs-sanitize.yaml` (if missing, populated from the template) in the
+current working directory. It does **not** mutate `.gitignore` — modifying a tracked
+file on first run is surprising behavior and risks merge conflicts. It prints a
+one-line reminder that `.ccs-sanitize.yaml` should be gitignored before committing.
+The pre-run gitignore guard above enforces it mechanically on every subsequent
+scrub, so a user who skips the reminder is caught. `--init` refuses to combine with
+any scrub-only argument (`<input>`, `-o`, `-c`, `--dry-run`, `--force`, `--no-check`)
+so a user who runs `ccs-sanitize --init input.jsonl -o out.jsonl` expecting both
+init AND a scrub gets a clear usage error rather than a silent partial run.
+
+**Sidecar safety claim.** `config_source` is basename-only by design ([§10](#10-the-scrubbed-sidecar)). A committed `.scrubbed` sidecar carries no path
+information that could leak the config's location or contents, regardless of whether
+the local config is gitignored. The basename-only choice means the safety of the
+**committed sidecar** does not depend on the safety of the **uncommitted config**.
+
 ---
 
 ## 13. Fixture-validator integration
