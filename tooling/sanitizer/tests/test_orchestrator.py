@@ -22,6 +22,7 @@ import pytest
 from ccs_sanitize.orchestrator import sanitize_session
 from ccs_sanitize.pipeline import PipelineError
 from ccs_sanitize.residual import ResidualSecretError
+from ccs_sanitize.rules.identifiers import _remap_uuid
 from ccs_sanitize.rules.secrets import COMPILED_SECRET_PATTERNS
 
 from ._helpers import (
@@ -291,3 +292,124 @@ def test_no_partial_scrub_on_missing_type_field(tmp_path: Path) -> None:
         sanitize_session([good, bad, good], config)
     # bad record is at input index 1 (1-indexed line 2).
     assert "line 2" in str(exc.value)
+
+
+# ----- remap_uuids coupling through the orchestrator (issue #39) ---------
+#
+# ``sanitize_session`` threads ``config.options.remap_uuids`` into two
+# call sites that must agree -- ``make_skip_predicate`` (which decides
+# whether UUID fields are visited at all) and ``build_identifier_transform``
+# (which decides whether visited UUID leaves are remapped). If they ever
+# disagree, the identifier layer silently no-ops on UUID fields and the
+# residual scan does NOT fire (UUIDs aren't credential-shaped), so real
+# ``uuid`` / ``parentUuid`` / ``sessionId`` / ``agentId`` values would
+# ship to disk unchanged. Lower-level tests (test_identifiers.py,
+# test_pipeline.py) cover each call site in isolation; these orchestrator-
+# level tests pin the coupling end-to-end so a refactor that splits the
+# orchestrator and accidentally passes False to one of the two sites
+# fails loudly here.
+
+
+_REMAP_UUID_SEED = "ccs-sanitize/v1"
+
+
+def _remap(original: str) -> str:
+    """Compute the orchestrator's expected remap for ``original`` under
+    the default ``uuid_seed``. Comparing against this explicit value
+    (rather than just asserting "the input is gone") is what catches the
+    silent-no-op regression: a transform that passes the original through
+    unchanged would defeat the absence check but not this equality check."""
+    return _remap_uuid(_REMAP_UUID_SEED.encode("utf-8"), original)
+
+
+def test_remap_uuids_true_remaps_uuid_graph_fields(tmp_path: Path) -> None:
+    """``options.remap_uuids: true`` must reach BOTH the skip predicate
+    (so UUID fields are visited) AND the identifier transform (so the
+    visited leaves are actually remapped). This is the orchestrator's
+    coupling contract per PRD §8 and the issue #39 failure scenario."""
+    config = _config(
+        tmp_path,
+        "version: 1\noptions:\n  remap_uuids: true\n",
+    )
+    session_id = "00000000-0000-0000-0000-000000000001"
+    line1_uuid = "11111111-1111-1111-1111-111111111001"
+    line2_uuid = "11111111-1111-1111-1111-111111111002"
+    agent_id = "22222222-2222-2222-2222-222222222001"
+    lines = [
+        _line(
+            {
+                "type": "user",
+                "sessionId": session_id,
+                "uuid": line1_uuid,
+                "parentUuid": None,
+            }
+        ),
+        _line(
+            {
+                "type": "assistant",
+                "sessionId": session_id,
+                "uuid": line2_uuid,
+                "parentUuid": line1_uuid,
+                "agentId": agent_id,
+            }
+        ),
+    ]
+    out, _, subtable, _ = sanitize_session(lines, config)
+    serialized = "\n".join(out)
+
+    # No raw UUID survives.
+    for original in (session_id, line1_uuid, line2_uuid, agent_id):
+        assert original not in serialized
+
+    # Each output UUID equals the deterministic ``_remap_uuid`` value.
+    # Pinning the exact expected bytes is what distinguishes "the
+    # transform fired" from "the transform silently no-op'd and the
+    # field was scrubbed elsewhere".
+    assert f'"sessionId":"{_remap(session_id)}"' in out[0]
+    assert f'"uuid":"{_remap(line1_uuid)}"' in out[0]
+    assert f'"sessionId":"{_remap(session_id)}"' in out[1]
+    assert f'"uuid":"{_remap(line2_uuid)}"' in out[1]
+    assert f'"parentUuid":"{_remap(line1_uuid)}"' in out[1]
+    assert f'"agentId":"{_remap(agent_id)}"' in out[1]
+
+    # The subtable records every UUID remap under the ``identifiers:uuid``
+    # label so the sidecar (#25) can surface them in the right section.
+    by_original = {entry.original: entry for entry in subtable}
+    for original in (session_id, line1_uuid, line2_uuid, agent_id):
+        assert original in by_original, f"missing subtable entry for {original}"
+        entry = by_original[original]
+        assert entry.replacement == _remap(original)
+        assert entry.label == "identifiers:uuid"
+    # ``sessionId`` appears on both lines -- one entry, two occurrences --
+    # which proves cross-line consistency went through the table.
+    assert by_original[session_id].occurrences == 2
+
+
+def test_remap_uuids_false_default_leaves_uuid_fields_unchanged(
+    tmp_path: Path,
+) -> None:
+    """Complementary negative case: the PRD default is
+    ``remap_uuids: false``. UUID-graph fields are skip-listed and never
+    visited, so they must appear unchanged in the output and never
+    surface in the subtable. Pins that the orchestrator does not
+    over-remap when the config does not opt in."""
+    config = _config(tmp_path, "version: 1\n")
+    session_id = "00000000-0000-0000-0000-000000000001"
+    line_uuid = "11111111-1111-1111-1111-111111111001"
+    lines = [
+        _line(
+            {
+                "type": "user",
+                "sessionId": session_id,
+                "uuid": line_uuid,
+                "parentUuid": None,
+            }
+        )
+    ]
+    out, _, subtable, _ = sanitize_session(lines, config)
+    blob = out[0]
+    # Inputs survive verbatim.
+    assert f'"sessionId":"{session_id}"' in blob
+    assert f'"uuid":"{line_uuid}"' in blob
+    # And nothing UUID-labelled landed in the subtable.
+    assert not any(entry.label == "identifiers:uuid" for entry in subtable)
