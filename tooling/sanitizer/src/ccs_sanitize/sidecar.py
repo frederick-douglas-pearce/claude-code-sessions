@@ -181,7 +181,11 @@ def build_sidecar(
             ``config_version``, and ``config.extra_secret_patterns`` is
             scanned by the I-3 emit-time leak guard.
         serialized_lines: post-scrub output lines, used only to compute
-            ``lines_processed = len(out) + sum(stripped)``.
+            ``lines_processed = len(out) + sum(stripped) + blank_lines``.
+            The blank count comes from ``counts.blank_lines`` so the
+            sidecar's audit field reaches ``wc -l`` parity (#43);
+            without it, editor-saved files with a trailing newline
+            undercount by 1.
         counts: ``PipelineCounts`` from ``run_pipeline``.
         subtable: the substitution table populated by paths/identifiers.
         secret_counts: ``SecretCounts`` populated by the secrets layer.
@@ -202,7 +206,14 @@ def build_sidecar(
     identifiers_subs, identifiers_distinct = totals.get("identifiers", (0, 0))
 
     stripped_lines = dict(counts.stripped_lines)
-    lines_processed = len(serialized_lines) + sum(stripped_lines.values())
+    # PRD §10: ``lines_processed`` is the audit field a reviewer can verify
+    # with ``wc -l``. Survivors + stripped-by-type + blank/whitespace-only
+    # input lines (#43): editor-saved JSONL almost always ends in a
+    # newline, which iterates as one trailing blank line; omitting it
+    # would undercount by 1 in the modal case.
+    lines_processed = (
+        len(serialized_lines) + sum(stripped_lines.values()) + counts.blank_lines
+    )
 
     substitutions = _build_substitutions(subtable)
 

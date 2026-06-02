@@ -442,6 +442,45 @@ def test_blank_lines_are_tolerated() -> None:
     assert len(out) == 2
 
 
+def test_blank_lines_are_counted_for_audit_field(tmp_path) -> None:
+    """``PipelineCounts.blank_lines`` reports the number of whitespace-only
+    input lines silently skipped, so the sidecar's ``lines_processed`` can
+    reach ``wc -l`` parity (#43). Earlier ``_iter_records`` dropped blanks
+    with no surface counter; an editor-saved file with a trailing newline
+    would undercount by 1.
+
+    Mixes leading, interior, and trailing blanks with a strip-type
+    survivor and a normal survivor so every category contributes
+    independently: survivors=1, stripped=1, blanks=4 -> 6 total, which
+    is exactly what ``wc -l`` would report on the same input."""
+    lines = [
+        "",                                                # leading blank
+        _line({"type": "user"}),                           # survivor
+        "   \n",                                           # whitespace-only
+        _line({"type": "attachment", "blob": "AAA"}),      # stripped
+        "\t",                                              # tabs only
+        "\n",                                              # trailing newline
+    ]
+    out, counts = run_pipeline(lines)
+    assert len(out) == 1
+    assert counts.blank_lines == 4
+    assert dict(counts.stripped_lines) == {"attachment": 1}
+    # The audit identity from PRD §10 / sidecar.build_sidecar.
+    total = len(out) + sum(counts.stripped_lines.values()) + counts.blank_lines
+    assert total == len(lines)
+
+
+def test_blank_lines_counter_zero_when_no_blanks() -> None:
+    """Regression guard: a file with no whitespace-only lines reports
+    ``blank_lines == 0``. Pins the default and ensures the new counter
+    can't drift to a non-zero baseline that would inflate ``lines_processed``
+    on the modal hand-authored fixture."""
+    lines = [_line({"type": "user"}), _line({"type": "assistant"})]
+    out, counts = run_pipeline(lines)
+    assert len(out) == 2
+    assert counts.blank_lines == 0
+
+
 def test_transform_with_subtable_keeps_within_file_consistency() -> None:
     """A transform that funnels through a SubstitutionTable applies the
     same replacement to the same original on every line — the property
