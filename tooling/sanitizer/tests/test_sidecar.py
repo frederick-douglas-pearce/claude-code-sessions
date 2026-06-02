@@ -457,6 +457,39 @@ def test_stripped_lines_counts_match_dropped_lines(tmp_path: Path) -> None:
     assert payload["lines_processed"] == 5
 
 
+def test_lines_processed_matches_input_iterable_length_with_blanks(
+    tmp_path: Path,
+) -> None:
+    """PRD §10 audit semantic (#43): ``lines_processed`` equals the
+    number of items the input iterable produced -- survivors + stripped
+    + blank/whitespace input lines. A fixture-validator that diffs
+    against ``len(input_text.split('\\n'))`` sees parity. Without the
+    ``blank_lines`` tally, a file with interior whitespace lines
+    undercounts by the number of blanks."""
+    config = _config(tmp_path, _BASE_CONFIG)
+    raw_lines = [
+        _line({"type": "user"}),                              # survivor
+        "",                                                   # interior blank
+        _line({"type": "user"}),                              # survivor
+        _line({"type": "file-history-snapshot", "snapshot": {}}),  # stripped
+        "   ",                                                # whitespace-only
+        "",                                                   # trailing blank
+    ]
+    out, counts, subtable, secret_counts = sanitize_session(raw_lines, config)
+    sidecar_yaml = build_sidecar(
+        metadata=_metadata(),
+        config=config,
+        serialized_lines=out,
+        counts=counts,
+        subtable=subtable,
+        secret_counts=secret_counts,
+    )
+    payload = yaml.safe_load(sidecar_yaml)
+    # 2 survivors + 1 stripped + 3 blank = 6, which is ``len(raw_lines)``.
+    assert payload["lines_processed"] == len(raw_lines)
+    assert payload["lines_processed"] == 6
+
+
 def test_substitution_counts_match_table(tmp_path: Path) -> None:
     """``rules_applied.paths.substitutions`` equals the sum of occurrences
     across paths-labeled entries; ``distinct`` equals the count. Pin by

@@ -115,6 +115,18 @@ class PipelineCounts:
     lines dropped for it. Only types actually encountered appear; a zero
     count is never written.
 
+    ``blank_lines`` is the number of whitespace-only input lines the loop
+    in ``run_pipeline`` skipped over. Surfacing the tally is what lets the
+    sidecar's ``lines_processed`` equal the number of items the input
+    iterable produced (``len(input_text.split("\n"))`` for the CLI):
+    survivors + stripped + blanks. Without it, a file with interior blanks
+    silently undercounts by the number of blanks. (Note: this is NOT
+    literal ``wc -l`` parity -- ``split("\n")`` on a file ending in a
+    trailing newline yields one extra empty element vs the newline count,
+    which we count as a blank; the audit identity is "input items
+    iterated", which equals ``wc -l`` only for files without a trailing
+    newline.)
+
     The mapping is wrapped in a ``MappingProxyType`` after construction so
     callers cannot mutate the dict in place — the dataclass is frozen at the
     attribute level only, but the inner dict would otherwise share state with
@@ -123,6 +135,7 @@ class PipelineCounts:
     """
 
     stripped_lines: Mapping[str, int] = field(default_factory=dict)
+    blank_lines: int = 0
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -283,9 +296,13 @@ def run_pipeline(
     """
     stripped: dict[str, int] = {}
     out: list[str] = []
-    for line_number, raw in _iter_records(lines):
+    blank_lines = 0
+    for line_number, record in _iter_records(lines):
+        if not record:
+            blank_lines += 1
+            continue
         try:
-            obj = json.loads(raw)
+            obj = json.loads(record)
         except json.JSONDecodeError as exc:
             raise PipelineError(
                 f"malformed JSONL at line {line_number}: {exc.msg} (col {exc.colno})"
@@ -308,26 +325,25 @@ def run_pipeline(
             continue
         transformed = walk_strings(obj, transform, skip_predicate=skip_predicate)
         out.append(serialize_line(transformed))
-    return out, PipelineCounts(stripped_lines=stripped)
+    return out, PipelineCounts(stripped_lines=stripped, blank_lines=blank_lines)
 
 
 def _iter_records(lines: Iterable[str]) -> Iterator[tuple[int, str]]:
-    """Yield ``(input_line_number, stripped_record)`` for each non-blank line.
+    """Yield ``(input_line_number, stripped_line)`` for EVERY input line.
+
+    Whitespace-only lines are yielded with their stripped form (the empty
+    string); the caller decides whether to treat them as blanks (counting
+    for ``PipelineCounts.blank_lines``) or as records (parsing as JSON).
+    Pushing the blank/record decision up to ``run_pipeline`` is what lets
+    ``lines_processed`` cover interior blank lines (#43) -- earlier the
+    helper silently dropped blanks here and the count was unrecoverable,
+    so a file with interior whitespace lines undercounted.
 
     The line number is 1-indexed and tracks the original input position so
-    ``PipelineError`` messages can name the file line a user can locate
-    (rather than the post-filter record index, which would be off by N when
-    blank lines precede a malformed line).
-
-    Trailing newlines and incidental blank lines from file iteration are
-    dropped silently; anything else with non-whitespace content goes through
-    to be parsed.
+    ``PipelineError`` messages can name the file line a user can locate.
     """
     for line_number, raw in enumerate(lines, start=1):
-        stripped = raw.strip()
-        if not stripped:
-            continue
-        yield line_number, stripped
+        yield line_number, raw.strip()
 
 
 __all__ = [
