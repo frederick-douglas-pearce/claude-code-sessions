@@ -65,6 +65,30 @@ substitutions:             # one line per substitution, sorted by rule
   ...
 ```
 
+## Getting started
+
+The live `.ccs-sanitize.yaml` holds the literal PII strings the sanitizer
+will scrub (real home dir, real email, real name, etc.) and is gitignored.
+The committed `.ccs-sanitize.example.yaml` is a schema-only template. New
+users (or forks) bootstrap with three steps:
+
+```bash
+ccs-sanitize --init                 # writes .ccs-sanitize.example.yaml +
+                                    # .ccs-sanitize.yaml in the cwd from the
+                                    # bundled template. Does NOT mutate .gitignore.
+$EDITOR .ccs-sanitize.yaml          # fill in your real match values
+ccs-sanitize <input> -o <output>    # the pre-run gitignore guard refuses
+                                    # to scrub unless .ccs-sanitize.yaml is
+                                    # gitignored (opt out with --no-check)
+```
+
+The pre-run gitignore guard is built in and runs on every invocation —
+exit code 3 with an actionable message if the resolved config is not
+gitignored. `--no-check` opts out (for CI environments without a `.git`
+directory and for the test suite). The threat model and the full layered
+defenses are documented in
+[PRD §12b](../../.claude/specs/prd-sanitizer.md#12b-config-storage-and-safety).
+
 ## Development
 
 The package is `uv`-managed and Python 3.11+. From `tooling/sanitizer/`:

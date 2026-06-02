@@ -38,6 +38,53 @@ Use semver: `MAJOR.MINOR.PATCH`.
 
 ## [Unreleased]
 
+### Added (issue #45 — config storage and safety, PRD §12b)
+- `ccs-sanitize --init` bootstraps a fresh repo or fork: writes
+  `.ccs-sanitize.example.yaml` (if missing) and `.ccs-sanitize.yaml`
+  (if missing, populated from the bundled template) into the cwd, and
+  prints a one-line reminder to add the live config to `.gitignore`.
+  Does NOT mutate `.gitignore` — silently editing a tracked file on
+  first run is surprising and risks merge conflicts (architect review).
+  Idempotent: re-running on a populated cwd leaves user edits intact.
+- Built-in pre-run gitignore guard: after config discovery and before
+  `load_config`, the CLI asks `git check-ignore -v <config>` whether
+  the resolved config path is gitignored. If not, exits 3 with an
+  actionable message naming the file and pointing at
+  `.ccs-sanitize.example.yaml`. `--no-check` opts out for CI
+  environments without a `.git` directory and for the test suite. If
+  `git` is unavailable or the cwd is not a git repository, the check
+  warns to stderr and proceeds — defense-in-depth, not the only defense
+  (the convention layer and the future hook layer [#47] cover the same
+  threat from other angles).
+- Template lives at `ccs_sanitize/_templates/ccs-sanitize.example.yaml`
+  (package data, accessed via `importlib.resources`). The committed
+  `.ccs-sanitize.example.yaml` at the repo root is byte-identical; a
+  drift-guard test in `test_init_and_check.py` pins the equality.
+  Single source of truth survives `pip install` and eventual extraction
+  from the monorepo (PRD §12 D-5).
+- Template fix: the example `Real Name -> Real Name` identifier rule
+  was a same-string mapping that failed the I-3 idempotency guard at
+  load time (`_check_replacement_leak`). Updated to
+  `Real Name -> Example Author` with an inline comment explaining the
+  constraint, so a freshly-`--init`-ed config loads cleanly without
+  requiring the user to read the I-3 docstring first.
+- PRD §12b "Config storage and safety" added: threat model
+  (`git add .` primary, Read-into-transcript secondary), gitignore +
+  template convention, pre-run gitignore guard (default-on; opt out
+  with `--no-check`), hook layer (#47) as defense-in-depth,
+  sidecar-safety claim (`config_source` is basename-only by design).
+- Tests (`tests/test_init_and_check.py`, 10 cases): `--init` writes
+  both files into cwd from the bundled template and prints the
+  gitignore reminder; `--init` is idempotent and does not overwrite a
+  user-edited live config; `--init` does not mutate `.gitignore`;
+  package-data template equals the committed repo-root copy
+  byte-for-byte (drift guard); shipped template loads via
+  `load_config` without I-3 violations; pre-run check exits 3 on a
+  non-ignored config in a real git repo and refuses to write anything;
+  gitignored config proceeds normally; `--no-check` bypasses the
+  guard; missing-git-repo path warns and proceeds; missing-git-binary
+  path warns and proceeds.
+
 ### Added (issue #26 — CLI implementation, atomic write, end-to-end wiring)
 - `ccs-sanitize` now scrubs end-to-end. `cli.py` wires config discovery
   (explicit `--config` > `./.ccs-sanitize.yaml` > `<input_dir>/.ccs-sanitize.yaml`),
