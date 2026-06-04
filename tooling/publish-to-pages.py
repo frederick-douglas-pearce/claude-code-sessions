@@ -15,7 +15,7 @@ Example:
 
 Transformations:
 - Drops `claude_code_version_verified` (Pages Jekyll ignores it; lives only upstream).
-- Adds time + timezone suffix to `date:` if absent (default: 12:00:00-0800).
+- Adds time + timezone suffix to `date:` if absent (default: 00:00:00-0800).
 - Quotes bare-word elements in `tags:` / `categories:` arrays.
 - Adds `featured: false` if missing.
 - Body copied verbatim — links in posts/ already use full GitHub URLs.
@@ -31,7 +31,7 @@ import sys
 from pathlib import Path
 
 DROP_FIELDS = {"claude_code_version_verified"}
-DEFAULT_TIME_SUFFIX = "12:00:00-0800"
+DEFAULT_TIME_SUFFIX = "00:00:00-0800"
 
 
 def parse_frontmatter(block: str) -> dict:
