@@ -32,6 +32,10 @@ Session JSONL files contain prompts, file paths, code, and occasionally secrets.
 
 If you find a fixture in this repo that contains real personal data, file an issue immediately.
 
+## Supplemental study
+
+Readers studying for Anthropic's [Claude Certified Architect program](https://anthropic.skilljar.com/claude-certified-architect-foundations-access-request) (currently gated to Anthropic Partner organizations) may find this series useful as supplemental study material — the JSONL session format and tool invocation primitives documented here are foundational to that material. This repo is not affiliated with or endorsed by Anthropic.
+
 ## Licensing
 
 Dual-licensed:
