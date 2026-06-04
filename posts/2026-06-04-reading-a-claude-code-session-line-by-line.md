@@ -1,7 +1,7 @@
 ---
 layout: post
 title: "Reading a Claude Code session, line by line"
-date: 2026-06-05
+date: 2026-06-04
 description: "Part 2 of the anatomy series. Every type of line in a session JSONL, the snake_case/camelCase split that reveals two layers (API content wrapped in Claude Code's bookkeeping), and why tool results live inside user messages."
 categories: [foundation]
 tags: [claude-code, agent-sdk, jsonl, sessions]
