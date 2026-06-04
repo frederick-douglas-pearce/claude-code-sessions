@@ -2,7 +2,7 @@
 layout: post
 title: "Reading a Claude Code session, line by line"
 date: 2026-06-05
-description: "Part 2 of the anatomy series. The full message-type taxonomy, why tool results live inside user messages, and the toolUseResult envelope that breaks every convention in the format."
+description: "Part 2 of the anatomy series. Every type of line in a session JSONL, the snake_case/camelCase split that reveals two layers (API content wrapped in Claude Code's bookkeeping), and why tool results live inside user messages."
 categories: [foundation]
 tags: [claude-code, agent-sdk, jsonl, sessions]
 og_image: https://frederick-douglas-pearce.github.io/assets/img/reading-a-claude-code-session-line-by-line-og.png
@@ -11,11 +11,11 @@ claude_code_version_verified: v2.1.150
 
 Open any Claude Code session JSONL file and one structural quirk jumps out within a few lines: some field names use `snake_case` and others use `camelCase`. `tool_use_id` and `stop_reason` next to `parentUuid` and `toolUseResult`. It looks inconsistent.
 
-It isn't — it's a tell. snake_case fields are generally content the Anthropic API defines: things the model produces and consumes. camelCase fields are envelope metadata that Claude Code's harness adds on top — session identifiers, parent UUIDs, tool-invocation rollups. Once you see that split, the format stops looking messy and starts looking like two layers stacked together.
+It isn't — it's a tell. `snake_case` fields are generally content the Anthropic API defines: things the model produces and consumes. `camelCase` fields are envelope metadata that Claude Code's harness adds on top — session identifiers, parent UUIDs, tool-invocation rollups. Once that split clicks, the format stops looking messy and starts providing architectural insight: Anthropic API conversations are always wrapped in Claude Code's bookkeeping.
 
 This is Part 2 of the [Anatomy of a Claude Code session](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-05-26-anatomy-of-a-claude-code-session.md) series. Part 1 covered where session files live and what Claude Code itself uses them for. This post is the structural tour: every type of line you'll find inside a session, the two layers (API content and harness metadata) that compose them, why tool results live inside `user` messages, and what the `toolUseResult` envelope carries that the model never sees.
 
-By the end you'll have a mental model for every distinct `type` value in a session JSONL — including the half-dozen "metadata" types that most parsers silently drop — and three `jq` snippets to start asking your own questions of any session file on your disk.
+By the end you'll have a mental model for every distinct `type` value in a session JSONL — including the many "metadata" types that most parsers silently drop — and three `jq` snippets to start asking your own questions of any session file on your disk.
 
 If you want field-level definitions while reading, [`reference/data-dictionary.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md) in the repo is the source of truth. This post is the narrative; that doc is the lookup.
 
@@ -125,7 +125,7 @@ This isn't Claude Code being quirky. It's [the Anthropic Messages API's tool-use
 
 ---
 
-## The `toolUseResult` envelope — the camelCase anomaly
+## The `toolUseResult` envelope
 
 Here's the part that surprises readers who think they've figured the format out: when the underlying tool was a context-bearing one (`Agent`, `Bash`, `Edit`, `WebFetch`, and others), the `user` line that carries the tool result also carries a **second top-level key** called `toolUseResult`. It sits beside `message`, not inside it.
 
@@ -223,7 +223,7 @@ Useful for recovering the full multimodal context of a turn. If you only read `u
 
 ### `progress`, `hook_progress`, `bash_progress`, `queue-operation`
 
-Streaming events emitted as a tool runs, a hook executes, or the harness schedules work internally. Generally high-volume chatter. The data-dictionary notes that the first three appear in older AgentFluent notes but weren't observed in v2.1.150 sample sessions — they may still be emitted under specific conditions (long-running commands, hooks that emit progress), but presence is conditional.
+Streaming events emitted as a tool runs, a hook executes, or the harness schedules work internally. Generally high-volume chatter. The data-dictionary notes that the first three weren't observed in v2.1.150 sample sessions — they may still be emitted under specific conditions (long-running commands, hooks that emit progress), but presence is conditional.
 
 For real-time monitoring of a session-in-progress (`tail -f` on the JSONL), these are gold. For after-the-fact analysis, they're usually noise.
 
@@ -251,13 +251,14 @@ cat <session>.jsonl | jq -r 'select(.type=="assistant")
 # Every subagent invocation with its rollup:
 cat <session>.jsonl | jq 'select(.toolUseResult?.agentType?)
   | {agent: .toolUseResult.agentType,
+     agent_id: .toolUseResult.agentId,
      duration_ms: .toolUseResult.totalDurationMs,
      tokens: .toolUseResult.totalTokens}'
 ```
 
 The `?` operators in the third snippet matter: in real sessions, `toolUseResult` is sometimes an array or a string rather than an object, and without the `?` guards `jq` will raise an indexing error on those lines. With them, non-matching lines are silently skipped.
 
-The first snippet is the fastest way to feel the shape of a session you've never opened before — and the easiest way to discover top-level `type` values this post hasn't catalogued. The second is a one-line agent-trace. The third pulls the rollup of every subagent the parent session delegated to — which is the bridge to the next post. (I deliberately omitted `toolStats` from the third snippet because its shape varies by agent type — built-in subagents and the `Explore` agent populate different keys, and the reference doc is being re-verified.)
+The first snippet is the fastest way to feel the shape of a session you've never opened before — and the easiest way to discover top-level `type` values this post hasn't catalogued. The second is a one-line agent-trace. The third pulls the rollup of every subagent the parent session delegated to. The `agent_id` value in that rollup is the literal handle that takes you to the subagent's full trace file at `~/.claude/projects/<slug>/<session-uuid>/subagents/agent-<agent_id>.jsonl` — which is where Part 3 picks up. I deliberately omitted `toolStats` from the third snippet because its shape varies by agent type — built-in subagents and the `Explore` agent populate different keys.
 
 ---
 
