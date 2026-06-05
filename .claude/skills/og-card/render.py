@@ -2,13 +2,15 @@
 """Render an OG share card from a TOML brief.
 
 Pipeline: brief.toml -> tokenized JSON tspans -> SVG (from template) ->
-Inkscape PNG (1x + 2x) -> PIL flatten RGBA->RGB on #0f0f14 -> file check.
+Inkscape PNG @2x -> PIL downscale to 1x -> PIL flatten RGBA->RGB on #0f0f14.
 
 Usage:
     render.py <path/to/og-card.toml>
 
 The brief lives at social/images/<slug>/og-card.toml and produces
 og-card.svg, og-card.png, og-card@2x.png in the same directory.
+
+Requires Pillow (`pip install pillow`) and Inkscape on PATH.
 """
 from __future__ import annotations
 
@@ -20,7 +22,13 @@ import sys
 import tomllib
 from pathlib import Path
 
-from PIL import Image
+try:
+    from PIL import Image
+except ImportError:
+    sys.stderr.write(
+        "error: Pillow is required. Install with `pip install pillow`.\n"
+    )
+    sys.exit(2)
 
 # Canonical palette (matches Part 2 / issue #63 spec).
 BG = "#0f0f14"
@@ -46,9 +54,13 @@ PRESET_TWO_LINE = {
     "subhead_y": 158,
 }
 
-# Line-budget guardrails (warnings only).
+# Window right-edge in canvas px (window x=244, width=712). Used to warn
+# when a rendered line would overrun. Per-indent because deeper indents have
+# less room: at indent 0, ~56 chars fit; at indent 6, only ~50.
+WINDOW_RIGHT_EDGE = 956
+
+# Line-budget guardrail (warning only).
 MAX_CODE_LINES = 16
-MAX_LINE_CHARS_AT_DEEPEST_INDENT = 58
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 TEMPLATE_PATH = REPO_ROOT / "social" / "images" / "og-card-template.svg"
@@ -61,7 +73,7 @@ def tokenize_json_line(line: str) -> tuple[int, list[tuple[str, str]]]:
     rest = stripped
     tokens: list[tuple[str, str]] = []
     string_re = re.compile(r'"((?:[^"\\]|\\.)*)"')
-    number_re = re.compile(r"-?\d+(?:\.\d+)?")
+    number_re = re.compile(r"-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?")
     keyword_re = re.compile(r"true|false|null")
 
     while rest:
@@ -114,11 +126,11 @@ def render_code_block(json_sample: str) -> str:
         indent, tokens = tokenize_json_line(line)
         x = CODE_X_BASE + indent * INDENT_PX_PER_CHAR
         y = LINE_Y_START + i * LINE_HEIGHT
-        # Char-width guardrail at deepest indent.
-        if indent >= 4 and len(line) - indent > MAX_LINE_CHARS_AT_DEEPEST_INDENT:
+        x_end = x + (len(line) - indent) * INDENT_PX_PER_CHAR
+        if x_end > WINDOW_RIGHT_EDGE:
             print(
-                f"warn: line {i + 1} has {len(line) - indent} chars at indent {indent} — "
-                f"may overrun right edge (limit ~{MAX_LINE_CHARS_AT_DEEPEST_INDENT}).",
+                f"warn: line {i + 1} extends to x={x_end} past window right edge "
+                f"({WINDOW_RIGHT_EDGE}); shorten content or compress nested objects.",
                 file=sys.stderr,
             )
         tspans = "".join(
@@ -164,7 +176,7 @@ def build_svg(title: list[str], subhead: str, json_sample: str) -> str:
 
 
 def inkscape_export(svg_path: Path, png_path: Path, width: int) -> None:
-    """Inkscape is snap-confined to $HOME — both paths must be absolute and under $HOME."""
+    """Inkscape is snap-confined to $HOME — paths must be absolute and under $HOME."""
     cmd = [
         "inkscape",
         str(svg_path.resolve()),
@@ -172,32 +184,35 @@ def inkscape_export(svg_path: Path, png_path: Path, width: int) -> None:
         f"--export-width={width}",
         "--export-type=png",
     ]
-    subprocess.run(cmd, check=True, capture_output=True, text=True)
-    if not png_path.exists():
-        raise RuntimeError(
-            f"Inkscape did not write {png_path} — likely snap-confinement to $HOME. "
-            f"Ensure both SVG and output are under {Path.home()}."
-        )
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as e:
+        sys.stderr.write(f"inkscape failed (exit {e.returncode}):\n{e.stderr}")
+        raise
 
 
-def flatten_to_rgb(png_path: Path) -> None:
-    """LinkedIn composites RGBA OG images on white — flatten alpha onto canonical bg."""
-    img = Image.open(png_path)
-    if img.mode == "RGB":
-        return
-    if img.mode != "RGBA":
-        img = img.convert("RGBA")
-    bg = Image.new("RGB", img.size, BG_RGB)
-    bg.paste(img, mask=img.split()[3])
-    bg.save(png_path, "PNG")
+def flatten_and_downscale(png_2x: Path, png_1x: Path) -> None:
+    """Flatten RGBA->RGB on canonical bg, then write a downscaled 1x copy.
 
+    LinkedIn's Post Inspector composites RGBA OG images on white during preview
+    generation, which muddies dark cards. Rendering only @2x and downscaling
+    via PIL.LANCZOS halves Inkscape startup cost.
+    """
+    with Image.open(png_2x) as src:
+        src.load()
+    if src.mode != "RGBA":
+        src = src.convert("RGBA")
+    flat_2x = Image.new("RGB", src.size, BG_RGB)
+    flat_2x.paste(src, mask=src.split()[3])
+    flat_2x.save(png_2x, "PNG")
 
-def verify_rgb(png_path: Path) -> None:
-    out = subprocess.run(
-        ["file", str(png_path)], check=True, capture_output=True, text=True
-    ).stdout
-    if "RGBA" in out or "RGB" not in out:
-        raise RuntimeError(f"{png_path} did not flatten to RGB: {out.strip()}")
+    flat_1x = flat_2x.resize((1200, 630), Image.LANCZOS)
+    flat_1x.save(png_1x, "PNG")
+
+    for path in (png_2x, png_1x):
+        with Image.open(path) as img:
+            if img.mode != "RGB":
+                raise RuntimeError(f"{path} is mode {img.mode}, expected RGB")
 
 
 def main() -> int:
@@ -226,20 +241,30 @@ def main() -> int:
         print("error: inkscape not found on PATH", file=sys.stderr)
         return 2
 
+    home = Path.home().resolve()
+    try:
+        brief_path.relative_to(home)
+    except ValueError:
+        print(
+            f"error: brief must live under {home} — Inkscape is snap-confined "
+            f"to $HOME and cannot read/write outside it. Got: {brief_path}",
+            file=sys.stderr,
+        )
+        return 2
+
     out_dir = brief_path.parent
     svg_path = out_dir / "og-card.svg"
     png_1x = out_dir / "og-card.png"
     png_2x = out_dir / "og-card@2x.png"
 
     svg = build_svg(title, subhead, json_sample)
-    svg_path.write_text(svg)
+    svg_path.write_text(svg, encoding="utf-8")
     print(f"wrote {svg_path}")
 
-    for png, width in [(png_1x, 1200), (png_2x, 2400)]:
-        inkscape_export(svg_path, png, width)
-        flatten_to_rgb(png)
-        verify_rgb(png)
-        print(f"wrote {png} ({width}px, RGB)")
+    inkscape_export(svg_path, png_2x, 2400)
+    flatten_and_downscale(png_2x, png_1x)
+    print(f"wrote {png_2x} (2400px, RGB)")
+    print(f"wrote {png_1x} (1200px, RGB)")
     return 0
 
 

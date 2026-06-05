@@ -43,9 +43,13 @@ The brief is **committable** — it lives alongside the outputs as a build input
 
 ## Steps
 
+0. **Install Pillow once** (`pip install pillow`). Inkscape must also be on PATH. The brief and outputs must live under `$HOME` — Inkscape is snap-confined and silently no-ops on paths outside it; the script fails fast with a clear error if you pick a path outside `$HOME`.
+
 1. **Pick the slug** following `<YYYY-MM-DD>-linkedin-<short-name>`. Match the post's publication date and a slug derived from the title.
 
 2. **Author the brief** at `social/images/<slug>/og-card.toml` with title, subhead, and JSON sample. The JSON sample is the visual hero — pick a snippet that shows the post's central insight in 12–16 pretty-printed lines.
+
+   **Security:** `json_sample` is committed to the public repo as part of the brief. It must be **synthetic or sanitized data only** — never paste a raw line from `~/.claude/projects/*.jsonl`. Use fixtures from `fixtures/synthetic/` or hand-fabricated data that demonstrates the field shape without carrying real prompts, file paths, session UUIDs, or other PII. Avoid realistic-looking credential strings (even fabricated `sk-…` patterns) — they trip the `detect_secrets_in_output` hook on subsequent reads of the brief or the rendered SVG.
 
 3. **Render** by invoking the script with the brief path:
 
@@ -53,13 +57,13 @@ The brief is **committable** — it lives alongside the outputs as a build input
    python3 .claude/skills/og-card/render.py social/images/<slug>/og-card.toml
    ```
 
-   The script writes `og-card.svg`, `og-card.png` (1200x630), and `og-card@2x.png` (2400x1260) to the brief's directory. PNGs are flattened to RGB on `#0f0f14` and verified via `file`.
+   The script writes `og-card.svg`, then renders `og-card@2x.png` (2400x1260) via Inkscape, flattens RGBA→RGB on `#0f0f14`, and downscales to `og-card.png` (1200x630) via Pillow.
 
 4. **Spot-check** by reading the 1200x630 PNG back. Confirm:
    - Title fits the canvas; if it overflows, split into two lines at a natural comma break.
-   - No code line overruns the right window edge (the script warns at ~58 chars at deep indent).
+   - No code line overruns the right window edge (the script warns when a line's rendered extent crosses x=956).
    - Colon spacing renders as `": "` not `":"` (the `xml:space="preserve"` gotcha).
-   - `file og-card.png` reports `8-bit/color RGB`, not `RGBA`.
+   - The PNG is RGB, not RGBA (`file og-card.png` reports `8-bit/color RGB`). The script enforces this via Pillow before writing.
 
 ## Gotchas (baked into render.py; documented here for the author)
 
