@@ -1,0 +1,15 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg" font-family="'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif">
+<rect x="0" y="0" width="1200" height="630" fill="#0f0f14"/>
+{{TITLE_BLOCK}}
+{{SUBHEAD_BLOCK}}
+<g>
+<rect x="244" y="174" width="712" height="410" rx="14" fill="#16161d"/>
+<rect x="244" y="174" width="712" height="38" rx="14" fill="#1d1d26"/>
+<rect x="244" y="198" width="712" height="14" fill="#1d1d26"/>
+<circle cx="273" cy="193" r="6.5" fill="#ff5f56"/>
+<circle cx="295" cy="193" r="6.5" fill="#ffbd2e"/>
+<circle cx="317" cy="193" r="6.5" fill="#27c93f"/>
+{{CODE_BLOCK}}
+</g>
+<text x="38" y="606" fill="#8a8a99" font-size="22" font-weight="300">Frederick Pearce · Data. AI. Human.</text>
+</svg>
