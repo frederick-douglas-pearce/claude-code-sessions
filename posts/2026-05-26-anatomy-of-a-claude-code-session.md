@@ -252,3 +252,7 @@ This is Part 1 of an ongoing series. Part 2 goes field by field: the full messag
 If you want to get into the field-level detail before Part 2 lands, the [reference documentation at `reference/data-dictionary.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md) is being populated alongside this post series. It's the canonical home for format documentation as this repo matures.
 
 Let's connect if this resonates.
+
+---
+
+*Drafted with Claude Code (verified against v2.1.150). The ideas, claims, and any errors are mine.*

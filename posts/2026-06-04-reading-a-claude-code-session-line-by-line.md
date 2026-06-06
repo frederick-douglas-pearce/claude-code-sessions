@@ -271,3 +271,7 @@ If you want to look ahead, [`reference/subagent-traces.md`](https://github.com/f
 The synthetic fixtures referenced throughout this post are in [`fixtures/synthetic/`](https://github.com/frederick-douglas-pearce/claude-code-sessions/tree/main/fixtures/synthetic). If you want to run the `jq` snippets without using a real session, those files are valid JSONL by design and contain the structural patterns described here.
 
 If there's a line type or a behavior I didn't cover that you've seen in your own sessions, I'd love to know — that's exactly the kind of thing that updates the reference docs and refines later posts.
+
+---
+
+*Drafted with Claude Code (verified against v2.1.150). The ideas, claims, and any errors are mine.*

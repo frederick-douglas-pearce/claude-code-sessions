@@ -34,6 +34,9 @@ Mechanical enforcement is in place via `.claude/hooks/block_secret_reads.py` (Pr
 - Required frontmatter: `layout`, `title`, `date`, `description`, `categories`, `tags`, `claude_code_version_verified` (the Claude Code version the post was last fact-checked against)
 - Each post links to relevant `reference/` sections for evergreen detail; reference docs are the source of truth, posts are the narrative layer
 - Posts more than ~3 minor Claude Code versions behind their `claude_code_version_verified` should be re-verified
+- **AI-assistance disclosure footer is required.** Every post under `posts/` ends with a horizontal rule and the line:
+  `*Drafted with Claude Code (verified against <version>). The ideas, claims, and any errors are mine.*`
+  where `<version>` matches the post's `claude_code_version_verified`. Short-form derivatives (LinkedIn, Medium, X, dev.to) carry the shorter form: `*Drafted with Claude Code. Ideas and any errors are mine.*` (no version clause). The marketer agent (`~/.claude/agents/marketer.md`) is also instructed to include this.
 
 ### Reference docs
 
