@@ -1,0 +1,29 @@
+sanitizer_version: 0.2.0
+scrubbed_at: '2026-06-06T22:46:39Z'
+input_filename: agent-a1b3b450c41cb4387.jsonl
+input_sha256: 43f603594b73fe5fae1e74051d76e25d9f30c40a91e5f9f79b616571bff692cb
+config_version: 1
+config_source: .ccs-sanitize.yaml
+lines_processed: 54
+stripped_lines:
+  attachment: 1
+rules_applied:
+  paths:
+    substitutions: 65
+    distinct: 1
+  identifiers:
+    substitutions: 52
+    distinct: 1
+  secrets:
+    matches: 0
+  jitter: disabled
+substitutions:
+- rule: paths
+  placeholder: <path-1>
+  replacement: /home/user
+  occurrences: 65
+- rule: identifiers
+  placeholder: <git-branch>
+  replacement: feature/example
+  occurrences: 52
+residual_scan: clean
