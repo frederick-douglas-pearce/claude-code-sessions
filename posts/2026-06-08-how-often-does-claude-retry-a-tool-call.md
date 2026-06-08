@@ -11,7 +11,7 @@ claude_code_version_verified: v2.1.150
 
 [Part 2 of this series](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-04-reading-a-claude-code-session-line-by-line.md) introduced `tool_use_id` as the pairing key that ties every tool call to its result. Every `tool_use` block on an `assistant` line carries an `id`; the corresponding `tool_result` block on the next `user` line carries a `tool_use_id` that matches it. Walk those pairs and you've reconstructed the tool history of an entire session.
 
-The natural next question is: what does that pairing key let you *measure*?
+The natural next question is: what does that pairing key let you _measure_?
 
 Tool-call retry rate is one of the simplest signals to compute from the JSONL — three fields and a join. The answer is more telling than the simplicity suggests: different tools retry at very different rates, in patterns that say something about both the work being done and each tool's failure modes.
 
@@ -92,22 +92,24 @@ Here's a single retry from a real session — an `Explore` subagent dispatched b
 The first call passes `Read`'s `offset` as an array:
 
 ```json
-{"type":"tool_use","id":"toolu_…7pg","name":"Read",
- "input":{"file_path":"/tmp/simplify_481.diff","offset":[447,525]}}
+{ "type": "tool_use", "id": "toolu_…7pg", "name": "Read", "input": { "file_path": "/tmp/simplify_481.diff", "offset": [447, 525] } }
 ```
 
 `offset` is supposed to be a single starting line number. The result comes back flagged:
 
 ```json
-{"type":"tool_result","tool_use_id":"toolu_…7pg","is_error":true,
- "content":"<tool_use_error>InputValidationError: Read failed due to the following issue:\nThe parameter `offset` type is expected as `number` but provided as `array`</tool_use_error>"}
+{
+  "type": "tool_result",
+  "tool_use_id": "toolu_…7pg",
+  "is_error": true,
+  "content": "<tool_use_error>InputValidationError: Read failed due to the following issue:\nThe parameter `offset` type is expected as `number` but provided as `array`</tool_use_error>"
+}
 ```
 
 The `tool_use_id` on the result matches the `id` on the call — the pairing key earning its keep. On the next assistant turn, the model fixes the shape:
 
 ```json
-{"type":"tool_use","id":"toolu_…As","name":"Read",
- "input":{"file_path":"/tmp/simplify_481.diff","offset":447,"limit":80}}
+{ "type": "tool_use", "id": "toolu_…As", "name": "Read", "input": { "file_path": "/tmp/simplify_481.diff", "offset": 447, "limit": 80 } }
 ```
 
 Same tool, corrected input, succeeds. By the heuristic's definition — a same-name `tool_use` following an `is_error: true` result for that tool — this is one unambiguous retry. The full trace lives at [`fixtures/sanitized/retry-rate-parameter-shape.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/sanitized/retry-rate-parameter-shape.jsonl); the three blocks above are lines 45, 46, and 47.[^version]
@@ -120,12 +122,12 @@ Same tool, corrected input, succeeds. By the heuristic's definition — a same-n
 
 A single cycle shows the heuristic working. A session-wide distribution shows what it surfaces when you aggregate. From a different real session — sanitizer-PRD work on this repo, with intermixed `Bash`, `Edit`, `Read`, and `Write` activity, fixture at [`retry-rate-mixed-tools.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/sanitized/retry-rate-mixed-tools.jsonl) — 3 of 56 tool calls returned `is_error: true`:
 
-| Tool | Errors / Calls |
-|---|---:|
-| `Bash` | 1 / 20 |
-| `Edit` | 2 / 19 |
-| `Read` | 0 / 13 |
-| `Write` | 0 / 2 |
+| Tool    | Errors / Calls |
+| ------- | -------------: |
+| `Bash`  |         1 / 20 |
+| `Edit`  |         2 / 19 |
+| `Read`  |         0 / 13 |
+| `Write` |          0 / 2 |
 
 The non-zero entries cluster on the tools that operate against mutable state — a `Bash` command that fails because a dependency isn't installed yet, an `Edit` whose target string already changed. `Read` and `Write` can fail in principle but do so rarely. The relative order of `Bash` and `Edit` depends entirely on the work mix; what holds across sessions is the clustering, not the ranking.
 
@@ -153,16 +155,16 @@ One more thing the heuristic doesn't distinguish: an immediate retry (Claude see
 
 Every retry has a cost. The failed call, its error payload, and the corrected call all consume tokens and occupy the context window before any useful result lands — and they add latency to the turn. On a single session that's noise; aggregated across many runs, a tool that retries often is a recurring tax on both spend and wall-clock time.
 
-The more useful point is that the rate is *actionable*, and often the fix is on the tool side, not the model side. A tool that retries a lot frequently has a definition that doesn't constrain the call well enough. The `Read` case above is canonical: `offset` expects a number, the model passed an array, and nothing in the tool's schema or description steered it away. Anthropic's own guidance on [writing effective tools for agents](https://www.anthropic.com/engineering/writing-tools-for-agents) recommends exactly the remedies that move this rate — unambiguously named parameters, descriptions that make implicit context explicit, and examples of correctly formatted inputs surfaced in error responses. A per-tool retry rate, tracked across many sessions, is how you find which tools earn that investment first.
+The more useful point is that the rate is _actionable_, and often the fix is on the tool side, not the model side. A tool that retries a lot frequently has a definition that doesn't constrain the call well enough. The `Read` case above is canonical: `offset` expects a number, the model passed an array, and nothing in the tool's schema or description steered it away. Anthropic's own guidance on [writing effective tools for agents](https://www.anthropic.com/engineering/writing-tools-for-agents) recommends exactly the remedies that move this rate — unambiguously named parameters, descriptions that make implicit context explicit, and examples of correctly formatted inputs surfaced in error responses. A per-tool retry rate, tracked across many sessions, is how you find which tools earn that investment first.
 
 ---
 
 ## What's next
 
-This kind of analysis — defined heuristically, run across many sessions, surfaced as per-tool diagnostics — is what [AgentFluent](https://github.com/frederick-douglas-pearce/agentfluent) automates at scale. Its `parameter_retry` signal extracts the *corrected* call alongside the error — so instead of just knowing that `Read` failed, you see the exact input shape that succeeded (`{"file_path": "…", "offset": 447, "limit": 80}`).
+This kind of analysis — defined heuristically, run across many sessions, surfaced as per-tool diagnostics — is what [AgentFluent](https://github.com/frederick-douglas-pearce/agentfluent) automates at scale. Its `parameter_retry` signal extracts the _corrected_ call alongside the error — so instead of just knowing that `Read` failed, you see the exact input shape that succeeded (`{"file_path": "…", "offset": 447, "limit": 80}`).
 
 The session JSONL has more signals like this one: tool call latency distributions (from `toolUseResult.durationMs`), edit-to-error ratios, the ratio of cache reads to fresh input tokens as a measure of context efficiency. Each is derivable from fields already introduced in Parts 1 and 2. This post is the first in an occasional analysis cadence — concrete measurements from the format, grounded in specific fields, with honest limits on what a single session's numbers can support.
 
 ---
 
-*Drafted with Claude Code (verified against v2.1.150). The ideas, claims, and any errors are mine.*
+_Drafted with Claude Code (verified against v2.1.150). The ideas, claims, and any errors are mine._
