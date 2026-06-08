@@ -1,0 +1,14 @@
+{
+  "name": "claude-code-sessions",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Tooling deps for the claude-code-sessions repo (Prettier gate on posts/, mirroring the Pages site).",
+  "scripts": {
+    "format:check": "prettier \"posts/**/*.md\" --check",
+    "format:write": "prettier \"posts/**/*.md\" --write"
+  },
+  "devDependencies": {
+    "@shopify/prettier-plugin-liquid": "^1.9.3",
+    "prettier": "^3.6.2"
+  }
+}

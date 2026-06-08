@@ -1,0 +1,8 @@
+# The Prettier gate is scoped to posts/ for now (see issue #76). Everything else
+# in the repo is authored to other conventions (reference/ prose, .claude/ specs,
+# fixtures, tooling) and is intentionally NOT formatted by this gate. Whole-repo
+# formatting is a separate effort. We ignore-everything-then-unignore posts/ so a
+# bare `prettier .` can't accidentally reformat unscoped files.
+/*
+!/posts/
+node_modules/

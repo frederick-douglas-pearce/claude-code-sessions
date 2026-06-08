@@ -9,6 +9,9 @@ Thumbs.db
 .idea/
 *.iml
 
+# Node (Prettier gate on posts/ — see issue #76; deps installed via `npm ci`)
+node_modules/
+
 # Python (for sanitizer when it lands)
 __pycache__/
 *.py[cod]

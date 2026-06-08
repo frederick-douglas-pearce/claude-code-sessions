@@ -1,0 +1,31 @@
+name: Prettier (posts)
+
+# Pre-merge gate so posts/ is Prettier-clean BEFORE it reaches main and gets
+# synced to the Pages site, whose own `prettier . --check` would otherwise turn
+# red on a dirty post (bit the retry post on 2026-06-08). Scoped to posts/ only;
+# the rest of the repo is authored to other conventions. See issue #76.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  prettier:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # Pinned via package-lock.json (prettier@3 + @shopify/prettier-plugin-liquid),
+      # mirroring the Pages site's formatter so source == deployed.
+      - run: npm ci
+
+      - run: npm run format:check
