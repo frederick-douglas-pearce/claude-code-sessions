@@ -1,11 +1,12 @@
 ---
 layout: post
 title: "Anatomy of a Claude Code session"
-date: 2026-05-26
+date: 2026-05-26 00:00:00-0800
 description: "Every Claude Code session writes a detailed local JSONL record of your prompts, tool calls, and token usage — here's what's in it and what it powers."
-categories: [foundation]
-tags: [claude-code, agent-sdk, jsonl, sessions]
+categories: ["foundation"]
+tags: ["claude-code", "agent-sdk", "jsonl", "sessions"]
 og_image: https://frederick-douglas-pearce.github.io/assets/img/anatomy-of-a-claude-code-session-og.png
+featured: false
 claude_code_version_verified: v2.1.150
 ---
 
