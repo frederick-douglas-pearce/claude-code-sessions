@@ -1,0 +1,45 @@
+slug = "2026-06-08-linkedin-how-often-does-claude-retry-a-tool-call"
+
+# Two lines: full title is 39 chars, over the ~34 single-line budget.
+title = ["How often does Claude", "retry a tool call?"]
+
+# Single line, ~45 chars or fewer.
+subhead = "One error flag. One clean recovery."
+
+# The hero narrates the post's worked example as a three-beat cycle:
+# bad input -> is_error result -> corrected retry. Gray // comments label
+# each beat (the renderer's tokenizer colors them as punctuation).
+json_sample = """
+// failed call
+{ "name": "Read",
+  "input": { "offset": [447, 525] } }
+
+// error result
+{ "is_error": true,
+  "content": "InputValidationError" }
+
+// retry — corrected
+{ "name": "Read",
+  "input": { "offset": 447, "limit": 80 } }
+"""
+
+notes = """
+Why this JSON: the post's central worked example is a Read call whose `offset`
+was passed as an array instead of a number, producing an InputValidationError,
+which the model corrects on the next turn. Showing all three beats (call ->
+error -> retry) makes the "retry" concept legible at a glance for a general
+LinkedIn audience, and visually mirrors the LI post's lead example.
+
+Data safety: values are the post's already-published, sanitized example —
+truncated tool ids are omitted here, only field shapes shown. No raw session
+data, paths, or PII.
+
+Wrap decisions: title splits at the natural subject/predicate break ("How often
+does Claude" / "retry a tool call?") since the full 39-char string exceeds the
+single-line budget. Subhead ties to the card's three-beat visual (one flagged
+error, one successful correction).
+
+Layout: 11 code lines, within the 16-line budget; deepest line
+(`"input": { "offset": 447, "limit": 80 } }`) stays well left of the window
+right edge.
+"""
