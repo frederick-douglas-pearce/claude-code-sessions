@@ -255,4 +255,4 @@ Let's connect if this resonates.
 
 ---
 
-*Drafted with Claude Code (verified against v2.1.150). The ideas, claims, and any errors are mine.*
+_Drafted with Claude Code (verified against v2.1.150). The ideas, claims, and any errors are mine._
