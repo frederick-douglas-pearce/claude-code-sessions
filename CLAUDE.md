@@ -31,7 +31,12 @@ Mechanical enforcement is in place via `.claude/hooks/block_secret_reads.py` (Pr
 ### Posts
 
 - Format: Jekyll-flavored markdown (matching the target Pages site)
-- Required frontmatter: `layout`, `title`, `date`, `description`, `categories`, `tags`, `claude_code_version_verified` (the Claude Code version the post was last fact-checked against)
+- Required frontmatter: `layout`, `title`, `date`, `description`, `categories`, `tags`, `og_image`, `featured`, `claude_code_version_verified` (the Claude Code version the post was last fact-checked against)
+- **`posts/` frontmatter tracks the Pages site's conventions directly** (issue #14), so the publish transform stays thin:
+  - `date` carries a time + UTC offset: `YYYY-MM-DD HH:MM:SS-TZTZ` (e.g. `2026-05-26 00:00:00-0800`)
+  - `categories` and `tags` are quoted-string arrays: `["foundation"]`, `["claude-code", "jsonl"]`
+  - `featured: false` unless a post is explicitly featured
+  - `claude_code_version_verified` is **upstream-only**: it drives the re-verification cadence here but Pages ignores it, so `tooling/publish-to-pages.py` strips this one field on publish and copies everything else verbatim
 - Each post links to relevant `reference/` sections for evergreen detail; reference docs are the source of truth, posts are the narrative layer
 - Posts more than ~3 minor Claude Code versions behind their `claude_code_version_verified` should be re-verified
 - **AI-assistance disclosure footer is required.** Every post under `posts/` ends with a horizontal rule and the line:
