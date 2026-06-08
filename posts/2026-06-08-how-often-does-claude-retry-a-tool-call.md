@@ -139,13 +139,21 @@ The non-zero entries cluster on the tools that operate against mutable state —
 
 **A high `Edit` retry rate is more diagnostic.** `Edit` uses string matching (`old_string` must appear exactly in the file). Retries here usually mean the file changed between when Claude read it and when it tried to edit it — either because Claude's own earlier `Bash` commands modified it, or because the model read stale context. An `Edit` retry rate above ~20% across many sessions is worth investigating: it's a signal that the session has a context-freshness problem, not just an environment-variability problem.
 
-**Near-zero `Read` rate is normal — but when `Read` does fail, it's usually a parameter-type mismatch.** `Read` errors are uncommon (the aggregate session above had zero), but the worked-example retry is the recurring kind when they do happen: an `offset` or `limit` parameter passed as the wrong type (an array instead of a number, for instance). A `Read` retry rate above a few percent in a dataset is worth inspecting individually — either the model is exploring paths it hasn't confirmed exist, or it's mis-shaping parameters in a way that suggests the tool definition isn't constraining the call.
+**Near-zero `Read` rate is normal — but when `Read` does fail, it's usually a parameter-type mismatch.** `Read` errors are uncommon (the aggregate session above had zero), but the worked-example retry is the recurring kind when they do happen: an `offset` or `limit` parameter passed as the wrong type (an array instead of a number, for instance). A `Read` retry rate above a few percent in a dataset is worth inspecting individually — either the model is exploring paths it hasn't confirmed exist, or it's mis-shaping parameters.
 
 **Rate near 1.0 on any tool is an interruption signal, not a style signal.** If you aggregate across many sessions and find one tool with a near-100% retry rate, the likely explanation isn't that Claude is especially bad with that tool — it's that the sessions in that slice were short or interrupted, leaving a small total where any single retry dominates the rate.
 
 **n=1 is below threshold for any strong claim.** The example above is one session, one task type, one environment. The per-tool expectations above are directional based on how each tool operates — not statistical findings from a broad sample. AgentFluent's value is running this analysis across many sessions and surfacing per-tool distributions wide enough to make the rates meaningful.
 
 One more thing the heuristic doesn't distinguish: an immediate retry (Claude sees the error and tries again in the next turn) versus a deferred re-invocation (Claude does other work, then comes back to the same tool much later). Both look identical under this definition. The immediate retry is more clearly a recovery response; the deferred one might be coincidental reuse. If you care about the distinction, you'd need to add a limit on how many turns apart the two calls can be.
+
+---
+
+## Why the rate is worth tracking
+
+Every retry has a cost. The failed call, its error payload, and the corrected call all consume tokens and occupy the context window before any useful result lands — and they add latency to the turn. On a single session that's noise; aggregated across many runs, a tool that retries often is a recurring tax on both spend and wall-clock time.
+
+The more useful point is that the rate is *actionable*, and often the fix is on the tool side, not the model side. A tool that retries a lot frequently has a definition that doesn't constrain the call well enough. The `Read` case above is canonical: `offset` expects a number, the model passed an array, and nothing in the tool's schema or description steered it away. Anthropic's own guidance on [writing effective tools for agents](https://www.anthropic.com/engineering/writing-tools-for-agents) recommends exactly the remedies that move this rate — unambiguously named parameters, descriptions that make implicit context explicit, and examples of correctly formatted inputs surfaced in error responses. A per-tool retry rate, tracked across many sessions, is how you find which tools earn that investment first.
 
 ---
 
