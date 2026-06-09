@@ -6,6 +6,7 @@ description: "Every Claude Code session writes a detailed local JSONL record of 
 categories: ["foundation"]
 tags: ["claude-code", "agent-sdk", "jsonl", "sessions"]
 og_image: https://frederick-douglas-pearce.github.io/assets/img/anatomy-of-a-claude-code-session-og.png
+og_card_source: social/images/2026-05-28-linkedin-anatomy-of-a-claude-code-session/og-card.png
 featured: false
 claude_code_version_verified: v2.1.150
 ---
