@@ -61,4 +61,4 @@ Create a fine-grained PAT (`contents:write`, Pages repo only) and add it as secr
 
 ## Interim manual process
 
-Until this lands, deploy by hand per the runbook in memory `project-pages-push-pattern` (Prettier-format source upstream → detached worktree at `origin/main` → `publish-to-pages.py` → copy `og-card.png` to `assets/img/<slug>-og.png` → `prettier --check` → push with rebase-retry → remove worktree).
+Until the Action (#79) lands, deploy by hand per the runbook in memory `project-pages-push-pattern` (Prettier-format source upstream → detached worktree at `origin/main` → `publish-to-pages.py <posts> --posts-dir <_posts> --assets-dir <assets/img>` → `prettier --check` → push with rebase-retry → remove worktree). As of #78 the script copies each post's OG card itself (resolved from `og_card_source`), so the separate manual `cp og-card.png …` step is gone; run with `--dry-run` first to preview.
