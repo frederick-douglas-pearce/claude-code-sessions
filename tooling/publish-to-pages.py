@@ -80,29 +80,28 @@ def split_frontmatter(text: str) -> tuple[str, str]:
     return m.group(1), m.group(2)
 
 
-def read_field(fm_block: str, key: str) -> str | None:
-    """Value of a top-level frontmatter key, or None if absent.
+def _top_level_key(line: str) -> str | None:
+    """The key of a top-level frontmatter line, or None for indented / non-key lines.
 
-    Line-level (matching strip_dropped_fields), so no YAML parser is pulled in
-    and the byte-for-byte formatting guarantee from #14/#76 is preserved."""
+    Line-level (no YAML parser), so the byte-for-byte formatting guarantee from
+    #14/#76 is preserved — a line either matches a known key or passes through
+    untouched."""
+    if line.startswith(" ") or ":" not in line:
+        return None
+    return line.partition(":")[0].strip()
+
+
+def read_field(fm_block: str, key: str) -> str | None:
+    """Value of a top-level frontmatter key, or None if absent."""
     for line in fm_block.splitlines():
-        if line.startswith(" ") or ":" not in line:
-            continue
-        k, _, v = line.partition(":")
-        if k.strip() == key:
-            return v.strip()
+        if _top_level_key(line) == key:
+            return line.partition(":")[2].strip()
     return None
 
 
 def strip_dropped_fields(fm_block: str) -> str:
-    """Remove top-level frontmatter lines whose key is in DROP_FIELDS."""
-    kept = []
-    for line in fm_block.splitlines():
-        key = line.partition(":")[0].strip() if ":" in line and not line.startswith(" ") else None
-        if key in DROP_FIELDS:
-            continue
-        kept.append(line)
-    return "\n".join(kept)
+    """Drop the top-level frontmatter lines whose key is in DROP_FIELDS."""
+    return "\n".join(line for line in fm_block.splitlines() if _top_level_key(line) not in DROP_FIELDS)
 
 
 def transform_bytes(fm_block: str, body: str) -> bytes:
@@ -113,32 +112,32 @@ def transform_bytes(fm_block: str, body: str) -> bytes:
     return out.encode()
 
 
-def resolve_og_source(og_card_source: str | None, post_name: str) -> Path:
+def resolve_og_source(og_card_source: str | None) -> Path:
     """Resolve `og_card_source` to an existing file inside the repo. Fail closed.
 
     Rejects shape (absent / absolute / repo-escaping) before touching the FS."""
     if not og_card_source:
-        raise PublishError(f"{post_name}: missing `og_card_source` frontmatter field")
+        raise PublishError("missing `og_card_source` frontmatter field")
     p = Path(og_card_source)
     if p.is_absolute():
-        raise PublishError(f"{post_name}: `og_card_source` must be repo-root-relative, got absolute {og_card_source!r}")
+        raise PublishError(f"`og_card_source` must be repo-root-relative, got absolute {og_card_source!r}")
     resolved = (REPO_ROOT / p).resolve()
     try:
         resolved.relative_to(REPO_ROOT)
     except ValueError:
-        raise PublishError(f"{post_name}: `og_card_source` escapes the repo root: {og_card_source!r}")
+        raise PublishError(f"`og_card_source` escapes the repo root: {og_card_source!r}")
     if not resolved.is_file():
-        raise PublishError(f"{post_name}: og card source not found: {og_card_source!r}")
+        raise PublishError(f"og card source not found: {og_card_source!r}")
     return resolved
 
 
-def og_target_name(og_image: str | None, post_name: str) -> str:
+def og_target_name(og_image: str | None) -> str:
     """Pages target basename, from the post's og_image URL. Fail closed."""
     if not og_image:
-        raise PublishError(f"{post_name}: missing `og_image` frontmatter field")
+        raise PublishError("missing `og_image` frontmatter field")
     name = Path(urlparse(og_image).path).name
     if not name:
-        raise PublishError(f"{post_name}: could not derive an OG target basename from og_image {og_image!r}")
+        raise PublishError(f"could not derive an OG target basename from og_image {og_image!r}")
     return name
 
 
@@ -147,10 +146,7 @@ def _add(plan: dict, dest: Path, data: bytes, kind: str, post_name: str) -> None
     dest = dest.resolve()
     if dest in plan:
         prior = plan[dest]
-        raise PublishError(
-            f"target collision: {post_name} ({kind}) and {prior.post_name} ({prior.kind}) "
-            f"both map to {dest}"
-        )
+        raise PublishError(f"target collision ({kind}) with {prior.post_name} ({prior.kind}) at {dest}")
     plan[dest] = PlanEntry(data, kind, post_name)
 
 
@@ -158,21 +154,20 @@ def build_plan(sources: list[Path], posts_dir: Path, assets_dir: Path) -> dict:
     """Phase 1: resolve+validate every post into a dest-keyed plan. No writes.
 
     Raises PublishError on the first fail-closed condition, before any output is
-    written, so a bad post never half-publishes the batch."""
+    written, so a bad post never half-publishes the batch. Each source's failures
+    are tagged with its filename in one place, so leaf validators raise bare."""
     plan: dict[Path, PlanEntry] = {}
     for src in sources:
         if not src.is_file():
             raise PublishError(f"source not found: {src}")
         try:
             fm_block, body = split_frontmatter(src.read_text())
+            _add(plan, posts_dir / src.name, transform_bytes(fm_block, body), "post", src.name)
+            og_src = resolve_og_source(read_field(fm_block, "og_card_source"))
+            target = assets_dir / og_target_name(read_field(fm_block, "og_image"))
+            _add(plan, target, og_src.read_bytes(), "image", src.name)
         except PublishError as e:
             raise PublishError(f"{src.name}: {e}")
-
-        _add(plan, posts_dir / src.name, transform_bytes(fm_block, body), "post", src.name)
-
-        og_src = resolve_og_source(read_field(fm_block, "og_card_source"), src.name)
-        target = assets_dir / og_target_name(read_field(fm_block, "og_image"), src.name)
-        _add(plan, target, og_src.read_bytes(), "image", src.name)
     return plan
 
 
