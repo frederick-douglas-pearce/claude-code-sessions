@@ -4,8 +4,8 @@
   "private": true,
   "description": "Tooling deps for the claude-code-sessions repo (Prettier gate on posts/, mirroring the Pages site).",
   "scripts": {
-    "format:check": "prettier \"posts/**/*.md\" --check",
-    "format:write": "prettier \"posts/**/*.md\" --write"
+    "format:check": "prettier . --check",
+    "format:write": "prettier . --write"
   },
   "devDependencies": {
     "@shopify/prettier-plugin-liquid": "^1.9.3",
