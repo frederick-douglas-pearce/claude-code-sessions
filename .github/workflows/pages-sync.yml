@@ -1,0 +1,185 @@
+name: Pages sync
+
+# Publishes posts/ (and each post's OG card) from this repo to the separate
+# Jekyll Pages repo. The transform, OG-card resolution, and content-compare live
+# in tooling/publish-to-pages.py (#78); this Action owns auth + the reconcile-
+# retry push to a shared branch (#79, W4). Canonical plan:
+# .claude/specs/plan-w4-pages-sync.md
+#
+# Owner setup (one-time): create a fine-grained PAT with `contents: write` on
+# the Pages repo ONLY, then add it as the secret PAGES_SYNC_TOKEN inside a GitHub
+# Environment named `pages-sync` (Settings -> Environments). The token is never
+# echoed; it is consumed only by the Pages checkout below.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "posts/**"
+      - "social/images/**"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Transform + show the diff, but do NOT commit/push to Pages"
+        type: boolean
+        default: false
+
+# The default GITHUB_TOKEN can't write to another repo; the cross-repo push uses
+# PAGES_SYNC_TOKEN, exposed only inside the `pages-sync` Environment. This job
+# needs nothing from the source repo beyond read.
+permissions:
+  contents: read
+
+# Serialize syncs so two runs can't race each other onto Pages main. Let an
+# in-flight publish finish rather than cancelling it mid-push. (Forward-compat:
+# when multi-branch lands, key this on the target branch so distinct targets
+# don't serialize against each other — group: pages-sync-${{ matrix.branch }}.)
+concurrency:
+  group: pages-sync
+  cancel-in-progress: false
+
+env:
+  # Single source of truth for the target. Forward-compat: later multi-branch
+  # turns these into a matrix without touching the steps below. POSTS_DIR /
+  # ASSETS_DIR are relative to the Pages checkout.
+  PAGES_REPO: frederick-douglas-pearce/frederick-douglas-pearce.github.io
+  PAGES_BRANCH: main
+  PAGES_POSTS_DIR: _posts
+  PAGES_ASSETS_DIR: assets/img
+  MAX_PUSH_ATTEMPTS: "5"
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    environment: pages-sync
+    steps:
+      - name: Preflight — require the Pages PAT
+        env:
+          PAGES_SYNC_TOKEN: ${{ secrets.PAGES_SYNC_TOKEN }}
+        run: |
+          if [ -z "${PAGES_SYNC_TOKEN}" ]; then
+            echo "::error::PAGES_SYNC_TOKEN is not set in the 'pages-sync' environment — cannot publish."
+            exit 1
+          fi
+
+      - name: Checkout source (this repo)
+        uses: actions/checkout@v4
+        with:
+          path: source
+
+      - name: Checkout Pages repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PAGES_REPO }}
+          ref: ${{ env.PAGES_BRANCH }}
+          token: ${{ secrets.PAGES_SYNC_TOKEN }}
+          path: pages
+          # Full history so the reconcile/retry loop can reset onto a moved tip.
+          fetch-depth: 0
+          # persist-credentials (default true) stores the PAT in pages/.git/config
+          # for the push below. NEVER cat that file, dump `env`, or upload the
+          # workspace as an artifact — that is the only place the token lives.
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Publish to Pages
+        env:
+          # Explicit: only a dispatch with the box ticked is a dry run. On a push
+          # event `inputs.dry_run` is null, so this evaluates to false (publish).
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          SOURCE="${GITHUB_WORKSPACE}/source"
+          PAGES="${GITHUB_WORKSPACE}/pages"
+
+          # Only date-prefixed posts — posts/README.md (and any future non-post)
+          # has no frontmatter and must never reach the transform.
+          posts=("${SOURCE}"/posts/[0-9][0-9][0-9][0-9]-*.md)
+          if [ ${#posts[@]} -eq 0 ]; then
+            echo "::error::No date-prefixed posts found under posts/ — nothing to publish."
+            exit 1
+          fi
+          echo "Publishing ${#posts[@]} post(s)."
+
+          # Transform every post into the Pages tree and stage ONLY the two
+          # target dirs (safe-push discipline — never `git add -A`). Re-run after
+          # each reconcile so content-compare is evaluated against the CURRENT
+          # Pages tip, not the checkout-time tip. REPO_ROOT inside the script is
+          # derived from its own path (= $SOURCE), so og_card_source resolves
+          # there regardless of this CWD.
+          transform_and_stage() {
+            python3 "${SOURCE}/tooling/publish-to-pages.py" "${posts[@]}" \
+              --posts-dir  "${PAGES}/${PAGES_POSTS_DIR}" \
+              --assets-dir "${PAGES}/${PAGES_ASSETS_DIR}"
+            git -C "${PAGES}" add "${PAGES_POSTS_DIR}" "${PAGES_ASSETS_DIR}"
+          }
+
+          cd "${PAGES}"
+          transform_and_stage
+
+          # Always surface the planned changes — this is also the dry-run "diff".
+          {
+            echo "## Pages sync — planned changes"
+            echo
+            echo '```'
+            git --no-pager diff --cached --stat || true
+            echo '```'
+            echo
+            echo "<details><summary>Markdown content diff</summary>"
+            echo
+            echo '```diff'
+            git --no-pager diff --cached -- '*.md' || true
+            echo '```'
+            echo
+            echo "</details>"
+          } >> "${GITHUB_STEP_SUMMARY}"
+          echo "=== staged ==="
+          git --no-pager diff --cached --name-status
+
+          if [ "${DRY_RUN}" = "true" ]; then
+            echo "Dry run: transform + diff complete, no push. See the job summary."
+            exit 0
+          fi
+
+          if git diff --cached --quiet; then
+            echo "No changes to publish — ${PAGES_REPO}@${PAGES_BRANCH} already up to date."
+            exit 0
+          fi
+
+          git config user.name  "pages-sync[bot]"
+          git config user.email "pages-sync[bot]@users.noreply.github.com"
+          commit_msg="chore(sync): publish posts from claude-code-sessions@${GITHUB_SHA:0:7}"
+          git commit -m "${commit_msg}"
+
+          # Pages main has a SECOND automated writer (the daily ESG cron). An
+          # event-triggered push has no 'next run' to reconcile a lost race, so on
+          # rejection: fetch + reset to the moved tip, RE-TRANSFORM against it
+          # (content-compare authoritative at push time — no stale bytes and no
+          # rebase-replay conflict), re-commit, and retry. Bounded, then fail LOUD.
+          attempt=1
+          until git push origin "HEAD:${PAGES_BRANCH}"; do
+            if [ "${attempt}" -ge "${MAX_PUSH_ATTEMPTS}" ]; then
+              echo "::error::pages-sync: push to ${PAGES_REPO}@${PAGES_BRANCH} failed after ${MAX_PUSH_ATTEMPTS} attempts. POST NOT PUBLISHED — investigate the Pages branch."
+              exit 1
+            fi
+            echo "Push rejected (attempt ${attempt}/${MAX_PUSH_ATTEMPTS}); reconciling with ${PAGES_BRANCH} and retrying…"
+            sleep "$((attempt * 5))"
+            if ! git fetch origin "${PAGES_BRANCH}"; then
+              echo "::error::pages-sync: could not fetch ${PAGES_BRANCH} to reconcile. POST NOT PUBLISHED."
+              exit 1
+            fi
+            git reset --hard "origin/${PAGES_BRANCH}"
+            transform_and_stage
+            if git diff --cached --quiet; then
+              echo "After reconcile, ${PAGES_REPO}@${PAGES_BRANCH} is already up to date — nothing to push."
+              exit 0
+            fi
+            git commit -m "${commit_msg}"
+            attempt=$((attempt + 1))
+          done
+          echo "Published to ${PAGES_REPO}@${PAGES_BRANCH}."
