@@ -2,7 +2,7 @@
 
 **Epic:** [#2](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/2) · **Roadmap:** [W4 in roadmap-v0.md](roadmap-v0.md) · **Status:** in progress
 **Architect review:** [#2 comment](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/2#issuecomment-4652639220)
-**Status:** #14 ✅ · #76 ✅ · #77 ✅ · #78 ✅ · **#79 in progress (Action authored + architect-reviewed; awaiting owner PAT to go live).**
+**Status:** #14 ✅ · #76 ✅ · #77 ✅ · #78 ✅ · #79 ✅ · **W4 MVP LIVE — validated end-to-end 2026-06-09 (dry-run → real publish, Pages commit `701563a` → idempotent re-run). PAT + `pages-sync` Environment in place. Node-20 action bump tracked in #86.**
 
 Automate publishing posts from this repo's `posts/` to the separate Jekyll Pages repo
 (`frederick-douglas-pearce.github.io`), replacing the manual `tooling/publish-to-pages.py` run.
@@ -73,6 +73,6 @@ The Action is merged-but-inert until the PAT exists; the `pages-sync` Environmen
 
 Never paste the PAT into a file, commit, or log line — it lives only in the environment secret and, at runtime, in the ephemeral runner's `pages/.git/config`.
 
-## Interim manual process
+## Manual process (retired — emergency fallback only)
 
-Until the Action (#79) lands, deploy by hand per the runbook in memory `project-pages-push-pattern` (Prettier-format source upstream → detached worktree at `origin/main` → `publish-to-pages.py <posts> --posts-dir <_posts> --assets-dir <assets/img>` → `prettier --check` → push with rebase-retry → remove worktree). As of #78 the script copies each post's OG card itself (resolved from `og_card_source`), so the separate manual `cp og-card.png …` step is gone; run with `--dry-run` first to preview.
+Normal publishing now goes through the #79 Action. Keep this runbook only for the case where the Action is broken and a post must ship. Deploy by hand per the runbook in memory `project-pages-push-pattern` (Prettier-format source upstream → detached worktree at `origin/main` → `publish-to-pages.py <posts> --posts-dir <_posts> --assets-dir <assets/img>` → `prettier --check` → push with rebase-retry → remove worktree). As of #78 the script copies each post's OG card itself (resolved from `og_card_source`), so the separate manual `cp og-card.png …` step is gone; run with `--dry-run` first to preview.
