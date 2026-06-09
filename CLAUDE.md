@@ -37,6 +37,9 @@ Mechanical enforcement is in place via `.claude/hooks/block_secret_reads.py` (Pr
   - `categories` and `tags` are quoted-string arrays: `["foundation"]`, `["claude-code", "jsonl"]`
   - `featured: false` unless a post is explicitly featured
   - `claude_code_version_verified` is **upstream-only**: it drives the re-verification cadence here but Pages ignores it, so `tooling/publish-to-pages.py` strips this one field on publish and copies everything else verbatim
+- **Code fences and the Prettier gate.** The `posts/` Prettier gate (issue #76) formats fenced code in recognized languages. Author to it, don't fight it:
+  - JSON shown as a **pretty-printed structure** → fully expand objects (one key per line) in a ` ```json ` fence. Prettier's `objectWrap: preserve` leaves expanded objects alone, so they stay gate-clean *and* render as clean, syntax-highlighted, no-overflow multiline blocks. (A partially hand-wrapped object gets collapsed onto a single line, which can overflow on narrow screens — expand it instead.)
+  - A **raw session dump** where one record is one (long) line → use a ` ```jsonl ` fence. Prettier doesn't reformat `jsonl`, and Jekyll/Rouge renders it as plaintext, which is appropriate for a verbatim dump.
 - Each post links to relevant `reference/` sections for evergreen detail; reference docs are the source of truth, posts are the narrative layer
 - Posts more than ~3 minor Claude Code versions behind their `claude_code_version_verified` should be re-verified
 - **AI-assistance disclosure footer is required.** Every post under `posts/` ends with a horizontal rule and the line:
