@@ -31,7 +31,16 @@ Mechanical enforcement is in place via `.claude/hooks/block_secret_reads.py` (Pr
 ### Posts
 
 - Format: Jekyll-flavored markdown (matching the target Pages site)
-- Required frontmatter: `layout`, `title`, `date`, `description`, `categories`, `tags`, `claude_code_version_verified` (the Claude Code version the post was last fact-checked against)
+- Required frontmatter: `layout`, `title`, `date`, `description`, `categories`, `tags`, `og_image`, `featured`, `claude_code_version_verified` (the Claude Code version the post was last fact-checked against)
+- **`posts/` frontmatter tracks the Pages site's conventions directly** (issue #14), so the publish transform stays thin:
+  - `date` carries a time + UTC offset: `YYYY-MM-DD HH:MM:SS-TZTZ` (e.g. `2026-05-26 00:00:00-0800`)
+  - `categories` and `tags` are quoted-string arrays: `["foundation"]`, `["claude-code", "jsonl"]`
+  - `featured: false` unless a post is explicitly featured
+  - `claude_code_version_verified` is **upstream-only**: it drives the re-verification cadence here but Pages ignores it, so `tooling/publish-to-pages.py` strips this one field on publish and copies everything else verbatim
+- **Code fences and the Prettier gate.** The `posts/` Prettier gate (issue #76) formats fenced code in recognized languages. Author to it, don't fight it:
+  - JSON shown as a **pretty-printed structure** → fully expand objects (one key per line) in a ` ```json ` fence. Prettier's `objectWrap: preserve` leaves expanded objects alone, so they stay gate-clean *and* render as clean, syntax-highlighted, no-overflow multiline blocks. (A partially hand-wrapped object gets collapsed onto a single line, which can overflow on narrow screens — expand it instead.)
+  - A **raw session dump** where one record is one (long) line → use a ` ```jsonl ` fence. Prettier doesn't reformat `jsonl`, and Jekyll/Rouge renders it as plaintext, which is appropriate for a verbatim dump.
+  - The repo's `.prettierrc` (`printWidth: 150`, `trailingComma: es5`, `@shopify/prettier-plugin-liquid`) **hand-mirrors the Pages site's Prettier config** so source == deployed. There's no automated link between the two — if the Pages config changes, update `.prettierrc` here to match, or posts will format differently than they deploy.
 - Each post links to relevant `reference/` sections for evergreen detail; reference docs are the source of truth, posts are the narrative layer
 - Posts more than ~3 minor Claude Code versions behind their `claude_code_version_verified` should be re-verified
 - **AI-assistance disclosure footer is required.** Every post under `posts/` ends with a horizontal rule and the line:
