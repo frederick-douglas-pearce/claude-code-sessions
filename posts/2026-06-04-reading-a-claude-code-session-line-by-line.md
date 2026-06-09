@@ -25,11 +25,11 @@ If you want field-level definitions while reading, [`reference/data-dictionary.m
 
 Every line in a session JSONL has a top-level `type` field. In v2.1.150 you'll see **at least** the distinct values below. The list is observational — Anthropic doesn't publicly catalogue the full set, and sessions in the wild can carry types this list hasn't sampled yet. Treat the table as a strong starting point, not a closed taxonomy.
 
-| What it is | `type` values |
-|---|---|
-| **Activity** — what you and the model said and did | `user`, `assistant` |
-| **State** — what the session knows about itself | `file-history-snapshot`, `system`, `permission-mode`, `ai-title`, `last-prompt`, `attachment` |
-| **Telemetry** — events emitted as things happen | `progress`, `hook_progress`, `bash_progress`, `queue-operation` |
+| What it is                                         | `type` values                                                                                 |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| **Activity** — what you and the model said and did | `user`, `assistant`                                                                           |
+| **State** — what the session knows about itself    | `file-history-snapshot`, `system`, `permission-mode`, `ai-title`, `last-prompt`, `attachment` |
+| **Telemetry** — events emitted as things happen    | `progress`, `hook_progress`, `bash_progress`, `queue-operation`                               |
 
 Two types I've seen in real sessions but haven't independently verified at the time of writing are `custom-title` (which appears to be the user-set session title, distinct from the auto-generated `ai-title`) and `pr-link` (the per-session PR association mentioned in Part 1). They're not in the table above because the reference doc hasn't catalogued them yet — but if you run the `jq` snippet at the end of this post against your own sessions, expect to see them and other types appear.
 
@@ -50,12 +50,20 @@ This is the line type with the richest internal structure, because everything th
     "role": "assistant",
     "model": "claude-sonnet-4-6",
     "content": [
-      {"type": "text", "text": "I'll read the file."},
-      {"type": "tool_use", "id": "toolu_synthetic_001", "name": "Read",
-       "input": {"file_path": "/home/dev/example-project/src/main.py"}}
+      { "type": "text", "text": "I'll read the file." },
+      {
+        "type": "tool_use",
+        "id": "toolu_synthetic_001",
+        "name": "Read",
+        "input": { "file_path": "/home/dev/example-project/src/main.py" }
+      }
     ],
-    "usage": {"input_tokens": 18, "output_tokens": 35,
-              "cache_creation_input_tokens": 0, "cache_read_input_tokens": 1240},
+    "usage": {
+      "input_tokens": 18,
+      "output_tokens": 35,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 1240
+    },
     "stop_reason": "tool_use"
   }
 }
@@ -97,7 +105,7 @@ A `user` line carries one of two payload shapes:
 **Shape 1 — a string.** This is a plain user prompt. The string is the literal text you typed.
 
 ```json
-{"type": "user", "message": {"role": "user", "content": "What's in src/main.py?"}}
+{ "type": "user", "message": { "role": "user", "content": "What's in src/main.py?" } }
 ```
 
 **Shape 2 — an array of content blocks.** This is how tool results come back, and occasionally how structured prompts (e.g., with attached context) are recorded.
@@ -108,8 +116,11 @@ A `user` line carries one of two payload shapes:
   "message": {
     "role": "user",
     "content": [
-      {"type": "tool_result", "tool_use_id": "toolu_synthetic_001",
-       "content": "def main():\n    print('Hello, world!')\n"}
+      {
+        "type": "tool_result",
+        "tool_use_id": "toolu_synthetic_001",
+        "content": "def main():\n    print('Hello, world!')\n"
+      }
     ]
   }
 }
@@ -134,8 +145,13 @@ Here's the part that surprises readers who think they've figured the format out:
   "type": "user",
   "message": {
     "role": "user",
-    "content": [{"type": "tool_result", "tool_use_id": "toolu_synthetic_002",
-                 "content": "Drafted acceptance criteria for issue #5..."}]
+    "content": [
+      {
+        "type": "tool_result",
+        "tool_use_id": "toolu_synthetic_002",
+        "content": "Drafted acceptance criteria for issue #5..."
+      }
+    ]
   },
   "toolUseResult": {
     "status": "success",
@@ -144,8 +160,7 @@ Here's the part that surprises readers who think they've figured the format out:
     "totalDurationMs": 132140,
     "totalTokens": 18234,
     "totalToolUseCount": 7,
-    "toolStats": {"Read": 4, "mcp__github__get_issue": 1,
-                  "mcp__github__add_issue_comment": 2}
+    "toolStats": { "Read": 4, "mcp__github__get_issue": 1, "mcp__github__add_issue_comment": 2 }
   }
 }
 ```
@@ -191,7 +206,7 @@ The top-level shape:
 }
 ```
 
-The `trackedFileBackups` map is keyed by absolute file path; the values are the file's contents *before* each Claude-tool edit. When you run `/rewind` and choose to restore code, Claude Code reads these entries in reverse chronological order and writes the prior contents back to disk.
+The `trackedFileBackups` map is keyed by absolute file path; the values are the file's contents _before_ each Claude-tool edit. When you run `/rewind` and choose to restore code, Claude Code reads these entries in reverse chronological order and writes the prior contents back to disk.
 
 Part 1 inferred this connection from the docs (rewind persists across sessions and is cleaned up with sessions, therefore it has to live in the session files). Reading the JSONL confirms it directly: every Claude-tool edit produces a snapshot entry. If you want to audit which files Claude edited and when — or reproduce `/rewind`'s behavior in your own tools — these are the lines you read.
 
@@ -274,4 +289,4 @@ If there's a line type or a behavior I didn't cover that you've seen in your own
 
 ---
 
-*Drafted with Claude Code (verified against v2.1.150). The ideas, claims, and any errors are mine.*
+_Drafted with Claude Code (verified against v2.1.150). The ideas, claims, and any errors are mine._
