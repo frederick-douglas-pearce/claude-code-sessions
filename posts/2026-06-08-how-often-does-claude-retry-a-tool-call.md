@@ -6,6 +6,7 @@ description: "The session JSONL's tool_use_id pairing key (introduced in Part 2)
 categories: ["analysis"]
 tags: ["claude-code", "jsonl", "sessions", "tool-use"]
 og_image: https://frederick-douglas-pearce.github.io/assets/img/how-often-does-claude-retry-a-tool-call-og.png
+og_card_source: social/images/2026-06-08-linkedin-how-often-does-claude-retry-a-tool-call/og-card.png
 featured: false
 claude_code_version_verified: v2.1.150
 ---

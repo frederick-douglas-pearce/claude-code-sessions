@@ -6,6 +6,7 @@ description: "Part 2 of the anatomy series. Every type of line in a session JSON
 categories: ["foundation"]
 tags: ["claude-code", "agent-sdk", "jsonl", "sessions"]
 og_image: https://frederick-douglas-pearce.github.io/assets/img/reading-a-claude-code-session-line-by-line-og.png
+og_card_source: social/images/2026-06-04-linkedin-reading-a-claude-code-session-line-by-line/og-card.png
 featured: false
 claude_code_version_verified: v2.1.150
 ---

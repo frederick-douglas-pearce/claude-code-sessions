@@ -45,7 +45,7 @@ The brief is **committable** — it lives alongside the outputs as a build input
 
 0. **Install Pillow once** (`pip install pillow`). Inkscape must also be on PATH. The brief and outputs must live under `$HOME` — Inkscape is snap-confined and silently no-ops on paths outside it; the script fails fast with a clear error if you pick a path outside `$HOME`.
 
-1. **Pick the slug** following `<YYYY-MM-DD>-linkedin-<short-name>`. Match the post's publication date and a slug derived from the title.
+1. **Pick the slug** following `<YYYY-MM-DD>-linkedin-<post-slug>`, where `<post-slug>` is the part of the post's filename after its date (so the card dir always ends `-linkedin-<post-slug>`). The leading `<YYYY-MM-DD>` is the **card's** authoring date and is allowed to differ from the post's `date` — the two are authored independently (Part 1's card is `2026-05-28` against a `2026-05-26` post). **Do not assume they match.** The post→card link is made explicit by the post's `og_card_source` frontmatter field (step 5), never inferred from the date — see [Resolution contract](#resolution-contract-pages-sync) for why.
 
 2. **Author the brief** at `social/images/<slug>/og-card.toml` with title, subhead, and JSON sample. The JSON sample is the visual hero — pick a snippet that shows the post's central insight in 12–16 pretty-printed lines.
 
@@ -64,6 +64,24 @@ The brief is **committable** — it lives alongside the outputs as a build input
    - No code line overruns the right window edge (the script warns when a line's rendered extent crosses x=956).
    - Colon spacing renders as `": "` not `":"` (the `xml:space="preserve"` gotcha).
    - The PNG is RGB, not RGBA (`file og-card.png` reports `8-bit/color RGB`). The script enforces this via Pillow before writing.
+
+5. **Record the source pointer in the post.** Add (or update) the post's `og_card_source` frontmatter field to the repo-root-relative path of the rendered PNG:
+
+   ```yaml
+   og_card_source: social/images/<YYYY-MM-DD>-linkedin-<post-slug>/og-card.png
+   ```
+
+   This is the **only** thing that links the post to its card for the Pages sync. Without it the post has no resolvable OG card and the sync fails closed (see below). It is upstream-only and never reaches the deployed site.
+
+## Resolution contract (Pages sync)
+
+The Pages-sync tooling (`tooling/publish-to-pages.py`, issue #78) copies each post's OG card into the Pages repo. Resolution is **exact and fail-closed — never a glob**, because a fuzzy match would ship the wrong image with a green Action:
+
+- **Source** = the post's `og_card_source` frontmatter field, interpreted repo-root-relative. The sync reads it directly — it does **not** scan `social/images/`, parse `og-card.toml`, or reconstruct a path from the post's date/slug.
+- **Target** = the basename of the post's `og_image` URL → `assets/img/<post-slug>-og.png` in the Pages repo.
+- **Fail closed** if `og_card_source` is absent, points outside the repo (`..` or absolute), or names a file that does not exist. No fallback to a constructed path or a directory scan.
+
+This is why the card date may drift from the post date without breaking anything: nothing infers the source from the date. The decision (Option A — post-frontmatter pointer) and the alternatives considered are recorded on [issue #77](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/77) and in [`.claude/specs/plan-w4-pages-sync.md`](../../specs/plan-w4-pages-sync.md). `og-card.toml`'s `slug` is the **card** slug and is **not** used for this resolution.
 
 ## Gotchas (baked into render.py; documented here for the author)
 
