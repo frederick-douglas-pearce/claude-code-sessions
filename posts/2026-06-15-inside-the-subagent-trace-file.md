@@ -107,9 +107,9 @@ The link from subagent back to parent is encoded entirely in the file's location
 
 This has a concrete consequence for tooling: if you glob `~/.claude/projects/**/subagents/*.jsonl` and read the lines without tracking which directory each came from, you've thrown away the parent linkage. The `agentId` tells you _which invocation_ a line belongs to; it does not tell you _which parent session_ launched it. Only the path does.
 
-## The attribution fields, and the one that lies about its name
+## The subagent-specific fields, and the one that lies about its name
 
-Three subagent-specific fields show up alongside `agentId`, and each has a **strict per-line-type presence pattern**. They don't appear on every line — they appear on specific line types, consistently. Knowing the pattern lets you branch on `type` first and only check the fields that apply:
+Three subagent-specific fields show up alongside `agentId` — one of them an `attribution*` field, two not — and each has a **strict per-line-type presence pattern**. They don't appear on every line — they appear on specific line types, consistently. Knowing the pattern lets you branch on `type` first and only check the fields that apply:
 
 | Field                     | `assistant` lines | `user` lines                 | What it is                                                                                                                        |
 | ------------------------- | ----------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
