@@ -112,7 +112,8 @@ Examples:
 - **Post potential:** `format-update` / `tooling` — primary home is **Part 5 ("The tool call, completely," #67)**; also forces a fix to the **Part 3** directory-layout diagram (#65).
 - **Sibling-project impact:** AgentFluent/CodeFluent that read `tool_result.content` for large outputs will get a truncated/pointer payload unless they also read the sidecar.
 - **Decision (2026-06-10):** approve — verified (structure + pointer); reference + Part 5 home, forces Part 3 diagram fix
-- **Status:** queued
+- **Promotion (2026-06-10):** approve → filed #87 (cluster A — sidecar dirs); Part 3 post update tracked in #88
+- **Status:** promoted
 
 ### F-002: per-subagent `meta.json` sidecar
 
@@ -125,7 +126,8 @@ Examples:
 - **Post potential:** `foundation` — directly relevant to **Part 3 (#65)**; the subagents/ layout now has two files per invocation.
 - **Sibling-project impact:** AgentFluent can list/characterize subagents cheaply from `meta.json` instead of opening every trace.
 - **Decision (2026-06-10):** approve — reference subagent-traces; subagents/ now writes two files per invocation (Part 3)
-- **Status:** queued
+- **Promotion (2026-06-10):** approve → filed #87 (cluster A — sidecar dirs); Part 3 post update tracked in #88
+- **Status:** promoted
 
 ### F-003: hook-execution records on `system` lines
 
@@ -138,7 +140,8 @@ Examples:
 - **Post potential:** `format-update` — this is the empirical anchor for **Part 6 ("What hooks leave behind," #68)**; reshapes that post from "here's what I went looking for" toward "here's what's there."
 - **Sibling-project impact:** AgentFluent hook/quality diagnostics can read hook outcomes from `system` lines.
 - **Decision (2026-06-10):** approve — empirical anchor for Part 6; reference data-dictionary (system + hooks)
-- **Status:** queued
+- **Promotion (2026-06-10):** approve → filed #89 (cluster B — hook traces)
+- **Status:** promoted
 
 ### F-004: API retry metadata on `system` lines
 
@@ -151,7 +154,8 @@ Examples:
 - **Post potential:** `analysis` — feeds the retry/failure-rate line (#54) with a second, harness-level retry signal.
 - **Sibling-project impact:** AgentFluent reliability signals.
 - **Decision (2026-06-10):** approve — reference (system); pairs with the retry/failure line (#54)
-- **Status:** queued
+- **Promotion (2026-06-10):** approve → filed #90 (cluster C — failure & retry signals)
+- **Status:** promoted
 
 ### F-005: compaction records (`system` + `user`)
 
@@ -164,7 +168,8 @@ Examples:
 - **Post potential:** `foundation` — material for the **Part 7 capstone ("The conversation is the unit," #69)**: `logicalParentUuid` and compaction summaries are exactly the cross-session/thread-continuity machinery that post argues about.
 - **Sibling-project impact:** Anything reconstructing conversation threads must handle `logicalParentUuid` and skip/account for compaction-summary user lines.
 - **Decision (2026-06-10):** approve — Part 7 capstone material; reference (system/user, logicalParentUuid)
-- **Status:** queued
+- **Promotion (2026-06-10):** approve → filed #91 (cluster D — conversation continuity / compaction)
+- **Status:** promoted
 
 ### F-006: `attributionSkill` on `assistant` (sidechain) lines
 
@@ -177,7 +182,8 @@ Examples:
 - **Post potential:** `foundation` — Part 3 adjacent (attribution family).
 - **Sibling-project impact:** AgentFluent can attribute work to skills, not just agent types.
 - **Decision (2026-06-10):** approve — extends the attribution family in subagent-traces; Part 3 adjacent
-- **Status:** queued
+- **Promotion (2026-06-10):** approve → filed #92 (cluster E — attribution + new types)
+- **Status:** promoted
 
 ### F-007: new top-level `type` values — `mode`, `agent-name`
 
@@ -190,7 +196,8 @@ Examples:
 - **Post potential:** `foundation` — the "discover top-level type values you haven't catalogued" thread from Part 2.
 - **Sibling-project impact:** parsers branching on `type` should tolerate these.
 - **Decision (2026-06-10):** approve — reference observed-types; coordinate with #56 (custom-title/pr-link)
-- **Status:** queued
+- **Promotion (2026-06-10):** approve → filed #92 (cluster E — attribution + new types); coordinated with #56
+- **Status:** promoted
 
 ### F-008: API-error records on `assistant` lines
 
@@ -203,7 +210,8 @@ Examples:
 - **Post potential:** `tooling` / `analysis` — pairs with the retry/failure line.
 - **Sibling-project impact:** AgentFluent must exclude API-error assistant lines from token/turn metrics.
 - **Decision (2026-06-10):** approve — reference (assistant); sibling metric-correctness impact
-- **Status:** queued
+- **Promotion (2026-06-10):** approve → filed #90 (cluster C — failure & retry signals)
+- **Status:** promoted
 
 ### F-009: background-agent counter on `system` lines
 
@@ -229,7 +237,8 @@ Examples:
 - **Post potential:** `tooling` — Part 5 adjacent.
 - **Sibling-project impact:** cleaner event-to-tool correlation for both siblings.
 - **Decision (2026-06-10):** approve — reference common fields / tool-invocation
-- **Status:** queued
+- **Promotion (2026-06-10):** approve → filed #93 (cluster F — reference hygiene + re-verify)
+- **Status:** promoted
 
 ### F-011: misc envelope additions across many types
 
@@ -242,7 +251,8 @@ Examples:
 - **Post potential:** `none` (reference hygiene).
 - **Sibling-project impact:** low.
 - **Decision (2026-06-10):** approve — reference hygiene; first confirm messageId/isSnapshotUpdate aren't already documented
-- **Status:** queued
+- **Promotion (2026-06-10):** approve → filed #93 (cluster F — reference hygiene + re-verify)
+- **Status:** promoted
 
 ### F-012: reference baseline drift — v2.1.150 → v2.1.168
 
@@ -255,7 +265,8 @@ Examples:
 - **Post potential:** `none` (process); could seed a `reference/format-version-history.md` (long planned).
 - **Sibling-project impact:** n/a.
 - **Decision (2026-06-10):** approve — umbrella re-verification + baseline bump; could seed format-version-history.md
-- **Status:** queued
+- **Promotion (2026-06-10):** approve → filed #93 (cluster F — reference hygiene + re-verify)
+- **Status:** promoted
 
 ### F-013: `post-session` hook lifecycle event (new hook event type)
 
@@ -268,7 +279,8 @@ Examples:
 - **Post potential:** `format-update` — feeds Part 6 on hooks.
 - **Sibling-project impact:** AgentFluent hook monitoring should handle `post-session` events.
 - **Decision (2026-06-10):** approve — upstream-confirmed (v2.1.169); reference hook table; Part 6
-- **Status:** queued
+- **Promotion (2026-06-10):** approve → filed #89 (cluster B — hook traces)
+- **Status:** promoted
 
 ### F-014: `Stop`/`SubagentStop` `hookSpecificOutput.additionalContext` (new hook response field)
 
@@ -281,7 +293,8 @@ Examples:
 - **Post potential:** `format-update` — Part 6 on hooks; the response contract was previously undocumented here.
 - **Sibling-project impact:** AgentFluent hooks writing `Stop`/`SubagentStop` handlers can now return context.
 - **Decision (2026-06-10):** approve — reference hook response schema; Part 6
-- **Status:** queued
+- **Promotion (2026-06-10):** approve → filed #89 (cluster B — hook traces)
+- **Status:** promoted
 
 ### F-015: Agent SDK TS format additions — `stop_reason: 'refusal'`, `MessageDisplay` hook, `system/memory_recall`
 
