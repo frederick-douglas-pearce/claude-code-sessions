@@ -26,15 +26,23 @@ Sessions are stored as JSONL at:
 | `<slug>` | Derived from the working directory path at session start. Slashes are replaced with dashes, and the leading slash becomes a leading dash. Example: `/home/user/myproject` → `-home-user-myproject`. |
 | `<session-uuid>.jsonl` | One file per session. The file name is the session UUID (also recorded as `sessionId` on every line). |
 
-### Subagent traces
+### Overflow subdirectory: subagent traces and spilled tool results
 
-When a session invokes the `Agent` tool, the subagent's full trace is written to a separate file:
+When a session produces data that doesn't belong inline, Claude Code writes it under a `<session-uuid>/` subdirectory created lazily beside the parent `<session-uuid>.jsonl`:
 
 ```
-~/.claude/projects/<slug>/<session-uuid>/subagents/agent-<agentId>.jsonl
+~/.claude/projects/<slug>/<session-uuid>/
+├── subagents/
+│   ├── agent-<agentId>.jsonl        # subagent trace (one per invocation)
+│   └── agent-<agentId>.meta.json    # small manifest sidecar beside each trace
+└── tool-results/
+    └── <tool-use-id>.txt | .json    # tool outputs spilled out of the JSONL when large
 ```
 
-A session-uuid-named subdirectory holds one `subagents/` directory; each subagent invocation produces a single trace file. The `agentId` in the file name matches the `toolUseResult.agentId` on the parent session's user message that carried the subagent's `tool_result`. See [Subagent traces](#subagent-traces) below for the line-level shape.
+- **`subagents/`** — each subagent invocation produces a trace file plus a small `agent-<agentId>.meta.json` manifest (keys: `agentType`, `description`, `toolUseId`, `worktreePath`). The `agentId` in the trace file name matches the `toolUseResult.agentId` on the parent session's user message that carried the subagent's `tool_result`. Note the casing split: the manifest uses `toolUseId` while session lines use `toolUseID`. Full treatment in [`subagent-traces.md` § File layout](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#file-layout).
+- **`tool-results/`** — when a tool result is large (observed spill ≈ 20 KB and up), the in-session `tool_result.content` carries a `<persisted-output>` wrapper with a truncated preview, and the full payload is written here, named after the producing tool call. The in-JSONL reference is that text wrapper, not a dedicated pointer key. Full treatment in [`tool-invocation.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/tool-invocation.md).
+
+See [Subagent traces](#subagent-traces) below for the line-level shape of the trace files.
 
 ### Retention
 

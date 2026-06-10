@@ -26,28 +26,59 @@ This split is the reason `claude-code-sessions` documents subagent traces in the
 
 ## File layout
 
-**Verified against Claude Code v2.1.150.**
+**Verified against Claude Code v2.1.150.** The sidecar directories (`subagents/`, `tool-results/`) and the per-invocation `meta.json` were additionally confirmed by an observational format scan over `~/.claude/projects/` spanning v2.1.4–v2.1.170 — directory names, key names, value *types*, and file sizes only; no message content was read.
 
-Subagent trace files sit under a session-uuid-named subdirectory alongside the parent session JSONL:
+A session that delegates work grows a `<session-uuid>/` directory beside its `<session-uuid>.jsonl` file. That directory collects the two kinds of overflow that don't belong inline: subagent traces (under `subagents/`) and spilled large tool outputs (under `tool-results/`).
 
 ```
 ~/.claude/projects/<slug>/
 ├── <session-uuid>.jsonl                              # parent session
-└── <session-uuid>/
-    └── subagents/
-        ├── agent-<agentId-1>.jsonl                   # one file per subagent invocation
-        ├── agent-<agentId-2>.jsonl
-        └── agent-<agentId-N>.jsonl
+└── <session-uuid>/                                   # created lazily on first overflow
+    ├── subagents/                                    # one (trace + manifest) pair per invocation
+    │   ├── agent-<agentId-1>.jsonl                   #   the subagent trace
+    │   ├── agent-<agentId-1>.meta.json               #   a small manifest sidecar (see below)
+    │   ├── agent-<agentId-2>.jsonl
+    │   ├── agent-<agentId-2>.meta.json
+    │   └── …
+    └── tool-results/                                 # large tool outputs spilled out of the JSONL
+        └── <tool-use-id>.txt | <tool-use-id>.json    #   one file per oversized tool result
 ```
 
 | Path component | Semantics |
 |---|---|
 | `~/.claude/projects/<slug>/` | Same project root as the parent session. `<slug>` is the slugified `cwd` (see [`data-dictionary.md` § File location](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#file-location)). |
-| `<session-uuid>/` | A sibling directory to `<session-uuid>.jsonl`. Created lazily — exists only if the session invoked at least one subagent. |
-| `subagents/` | The single subagent-files directory for the session. |
-| `agent-<agentId>.jsonl` | One file per subagent invocation. The `<agentId>` segment in the file name is the same UUID that appears in the parent's `toolUseResult.agentId` on the `user` line that carried the subagent's `tool_result`. |
+| `<session-uuid>/` | A sibling directory to `<session-uuid>.jsonl`. Created lazily — exists only once the session produces overflow that doesn't fit inline: a subagent trace, a spilled tool result, or both. |
+| `subagents/` | The session's subagent-files directory. Present when the session invoked at least one subagent. |
+| `agent-<agentId>.jsonl` | The subagent trace. One file per subagent invocation. The `<agentId>` segment in the file name is the same UUID that appears in the parent's `toolUseResult.agentId` on the `user` line that carried the subagent's `tool_result`. |
+| `agent-<agentId>.meta.json` | A small manifest written beside each trace. See [The `meta.json` manifest](#the-metajson-manifest). |
+| `tool-results/` | Sibling to `subagents/`. Holds large tool outputs spilled out of the session JSONL — **not** subagent-specific. See [Spilled tool results](#spilled-tool-results) below, and [`tool-invocation.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/tool-invocation.md) for the full mechanism. |
 
-A subagent **invocation** (one `Agent` `tool_use` from the parent) maps to exactly one file. If the parent invokes the same `subagent_type` multiple times in the same session, you get multiple files — one per invocation, each with its own `agentId`.
+A subagent **invocation** (one `Agent` `tool_use` from the parent) maps to exactly one trace file plus its manifest. If the parent invokes the same `subagent_type` multiple times in the same session, you get multiple pairs — one per invocation, each with its own `agentId`.
+
+### The `meta.json` manifest
+
+**Verified against Claude Code v2.1.150.** Key set confirmed by observational scan over 563 `agent-<id>.meta.json` files spanning v2.1.4–v2.1.170 — key names and value *types* only; no values read.
+
+Beside every `agent-<agentId>.jsonl` trace sits a small `agent-<agentId>.meta.json` (tens to a few hundred bytes) — a manifest that lets Claude Code, and your own tooling, enumerate and route subagents without opening and parsing the full trace. All observed keys are string-valued:
+
+| Key | Present on | What it is |
+|---|---|---|
+| `agentType` | every manifest (563/563) | The subagent type that ran (`"general-purpose"`, `"pm"`, a custom agent name). Same value as `attributionAgent` in the trace and `toolUseResult.agentType` on the parent. |
+| `description` | most (546/563) | The human-readable task description from the parent's `Agent` call. |
+| `toolUseId` | when present (256/563) | The id of the parent `Agent` `tool_use` that spawned this run. See the casing note below. |
+| `worktreePath` | rarely (10/563) | Filesystem path of the git worktree the subagent ran in, present only for worktree-isolated runs. |
+
+**`toolUseId` is the one part of the subagent → parent relationship carried in data rather than inferred from disk location.** The trace lines themselves carry no field naming the parent (see [Parent ↔ subagent linkage](#parent--subagent-linkage)); the manifest's `toolUseId` names the exact parent `tool_use` the run answers. Note it sits *beside* the trace, not inside it.
+
+**Casing wrinkle.** The manifest spells this key `toolUseId` (lowercase `d`), while session and trace lines spell the analogous id `toolUseID` (uppercase `D`). Same kind of value, different casing, in files that sit next to each other — a parser reading both must handle both spellings.
+
+### Spilled tool results
+
+**Verified against Claude Code v2.1.150.** Directory presence, file-size band, and the in-content wrapper were confirmed by the observational scan (89 spilled files across 40 sessions).
+
+Alongside `subagents/`, a session often grows a `tool-results/` directory. It is **not** subagent-specific: it holds *large* tool outputs that would otherwise bloat a single JSONL line. When a tool result is big, the in-session `tool_result` content carries a `<persisted-output>` wrapper with a truncated preview, and the full payload lands in `tool-results/`, named after the tool call that produced it (`<tool-use-id>.txt` or `.json`). Observed spilled files ranged from ~20 KB to ~860 KB (median ~64 KB), implying a spill threshold near 20 KB. The in-JSONL reference is that plain-text `<persisted-output>` wrapper inside `tool_result.content` — **not** a dedicated JSON pointer key (the scan's tool_result-line key set carries no spill-pointer field).
+
+This is a tool-invocation concern, not a subagent one; it is documented in full in [`tool-invocation.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/tool-invocation.md). It appears here only so the `<session-uuid>/` directory listing makes sense.
 
 ### Nesting
 
@@ -109,7 +140,9 @@ For the parent side, see [`anatomy-agent-invocation.jsonl`](https://github.com/f
 
 ### Subagent → parent: implicit via directory location
 
-There is **no per-line field on subagent lines that points at the parent's session UUID or the parent's invoking `assistant` `uuid`.** The reverse linkage is reconstructed entirely from the file system: the subagent file lives at `~/.claude/projects/<slug>/<session-uuid>/subagents/agent-<agentId>.jsonl`, and `<session-uuid>` is the parent's sessionId.
+There is **no per-line field on subagent trace lines that points at the parent's session UUID or the parent's invoking `assistant` `uuid`.** Within the trace itself, the reverse linkage is reconstructed from the file system: the subagent file lives at `~/.claude/projects/<slug>/<session-uuid>/subagents/agent-<agentId>.jsonl`, and `<session-uuid>` is the parent's sessionId.
+
+The one in-data exception sits *beside* the trace, not inside it: the `agent-<agentId>.meta.json` manifest records the parent `Agent` `tool_use` id as `toolUseId` (see [The `meta.json` manifest](#the-metajson-manifest)). That names the exact parent `tool_use` the run answers — a link the trace lines alone don't carry. So a precise statement is: the trace *lines* carry only the forward `agentId`; the reverse pointer lives in the manifest sidecar and the directory path, not in the trace's line data.
 
 Importantly, **`sessionId` is NOT shared between parent and subagent in Claude Code.** Each subagent invocation has its **own** sessionId — distinct from the parent's. The subagent files in a parent's `subagents/` subdirectory have their own sessionIds, and the parent's sessionId appears only as the *directory name* containing them. Whether the Agent SDK follows the same convention is not yet verified.
 
@@ -145,10 +178,13 @@ The `attribution*` family captures *what the subagent is and how it routes*. Eac
 | `attributionAgent` | ✅ always | ❌ never | ❌ never | The subagent type that ran (e.g., `"general-purpose"`, `"pm"`, a custom agent name). Identifies *what* this subagent is. The value matches `toolUseResult.agentType` on the parent line that invoked this run. |
 | `attributionMcpServer` | ✅ when an MCP tool is involved in the turn | ❌ never | ❌ never | The MCP server name (e.g., `"github"`). Appears on assistant turns that interact with an MCP-defined tool. Absent (key omitted) on assistant turns that don't. |
 | `attributionMcpTool` | ✅ when an MCP tool is involved in the turn | ❌ never | ❌ never | The specific MCP tool name (e.g., `"get_issue"`). Paired with `attributionMcpServer` — appears together or not at all. |
+| `attributionSkill` | ✅ when the turn ran under an invoked Skill | ❌ never | ❌ never | The name of the Skill the assistant turn ran under. Parallels `attributionAgent`/`attributionMcp*`. **Not subagent-exclusive** — see the caveat below. |
 | `promptId` | ❌ never | ✅ always | ❌ never | An identifier for the prompt-flow this user line participates in. Stable across user lines of a single subagent invocation. |
 | `sourceToolAssistantUUID` | ❌ never | ✅ on tool_result user lines (not the initial prompt) | ❌ never | The `uuid` of the same-file `assistant` line whose `tool_use` this user line is the result for. See [Parent ↔ subagent linkage](#parent--subagent-linkage). |
 
 The per-line-type discipline is consistent across all observed Claude Code subagent files. A parser that needs to filter by attribution can branch on `type` first and only check the fields that apply to that type.
+
+**`attributionSkill` is not a sidechain marker.** Unlike `attributionAgent` — which the observational scan found *only* on sidechain assistant lines (10,291 sidechain, 0 main), making it a reliable subagent signal — `attributionSkill` appears on both subagent-trace and parent-session assistant lines (4,785 sidechain, 1,895 main in the scan), because Skills run in the main loop as well as inside subagents. So `attributionSkill` tells you *a Skill was active for this turn*, not *this line is from a subagent*. For the subagent question, branch on `isSidechain` (see [The `isSidechain` marker](#the-issidechain-marker)). The same caveat applies to `attributionMcpServer`/`attributionMcpTool`, which also appear on main-session assistant lines when an MCP tool is used outside a subagent.
 
 ### `attributionAgent` example values
 
@@ -268,5 +304,7 @@ Tracked here in plain view rather than in a separate TODO file, so any reader wh
 
 1. **Agent SDK subagent file layout, nesting, and field semantics** — Claude Code restricts subagents from invoking further subagents, so this doc's findings are necessarily limited to single-level (parent → subagent) cases produced by the Claude Code runtime. The Agent SDK may exhibit nested invocations and may differ in `sessionId` sharing, attribution-field placement, the set of `type` values, and other details. Re-verify when representative Agent SDK session files are available.
 2. **`attributionMcpServer`/`attributionMcpTool` precise trigger condition** — observed on a subset of assistant lines in MCP-using subagent flows. Whether they appear specifically on the assistant line that emits an MCP `tool_use`, on the line that follows an MCP `tool_result`, or on both, is not yet disambiguated. See [When attributionMcpServer/attributionMcpTool appear](#when-attributionmcpserverattributionmcptool-appear).
+3. **`attributionSkill` precise trigger condition and value space** — confirmed present on both subagent-trace and main-session assistant lines (so it is not a sidechain marker; see [Attribution fields](#attribution-fields)). Which turns within a Skill's execution carry it, and whether its value space is a closed vocabulary, are not yet characterized. The value (a Skill name) was not read by the observational scan.
+4. **`meta.json` `toolUseId` → parent cross-file match** — the manifest key `toolUseId` is documented from its name and the F-002 recon as the spawning parent `Agent` `tool_use` id; the scan confirmed the key's presence and string type but did not read the value (a tool-use id), so the exact cross-file match to the parent line was not machine-verified here. Confirm against a synthetic fixture before treating the linkage as guaranteed.
 
 Each of these is the kind of detail the format-watch skill can pick up incrementally; this section is the durable place to track them until they're resolved.
