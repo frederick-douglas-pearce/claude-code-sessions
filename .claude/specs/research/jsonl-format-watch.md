@@ -9,7 +9,7 @@
 
 The dispatch step is a skill (not a subagent) because subagents cannot invoke other subagents in Claude Code; the cross-post route may need to invoke a research or writing subagent later.
 
-See `.claude/skills/jsonl-format-watch/SKILL.md` for the implementation (currently a stub).
+See `.claude/skills/jsonl-format-watch/SKILL.md` for the implementation (v0: built scanner + scout + human gate + manual pm/architect dispatch).
 
 ---
 
@@ -107,10 +107,11 @@ Examples:
 - **Added:** 2026-06-09
 - **Change type:** `envelope-change`
 - **Affected message types:** `user`/`tool_result` (the referencing line); new on-disk sidecar directory
-- **Summary:** A new directory `~/.claude/projects/<slug>/<session-uuid>/tool-results/` sits as a sibling to `subagents/`. It holds one file per oversized tool result, named by the producing tool call (`toolu_*.txt`, `mcp-github-{list,search,get}_*.txt|json`). All 89 observed files are >20 KB (min 20,152 B, median ~64 KB, max ~840 KB), strongly implying a ~20 KB spill threshold: large tool output is written here instead of being inlined in the `tool_result` block. **Upstream evidence (2026-06-09):** GitHub issue #23948 (filed v2.1.17, closed duplicate) confirms the sidecar path `tool-results/<tool-use-id>.txt` and shows the in-JSONL reference is plain text in `tool_result.content` wrapped in `<persisted-output>` tags with a "Preview (first 2KB)" message — NOT a dedicated JSON pointer field. The feature predates v2.1.150 (present at least since v2.1.17); introduction version unknown. The CHANGELOG shows no explicit announcement for this feature across v2.1.150–v2.1.170, indicating it was a silent addition at some earlier version. Scanner confirmation still needed for the exact `<persisted-output>` text shape in the JSONL.
+- **Summary:** A new directory `~/.claude/projects/<slug>/<session-uuid>/tool-results/` sits as a sibling to `subagents/`. It holds one file per oversized tool result, named by the producing tool call (`toolu_*.txt`, `mcp-github-{list,search,get}_*.txt|json`). All 89 observed files are >20 KB (min 20,152 B, median ~64 KB, max ~840 KB), strongly implying a ~20 KB spill threshold: large tool output is written here instead of being inlined in the `tool_result` block. **Upstream evidence (2026-06-09):** GitHub issue #23948 (filed v2.1.17, closed duplicate) confirms the sidecar path `tool-results/<tool-use-id>.txt` and shows the in-JSONL reference is plain text in `tool_result.content` wrapped in `<persisted-output>` tags with a "Preview (first 2KB)" message — NOT a dedicated JSON pointer field. The feature predates v2.1.150 (present at least since v2.1.17); introduction version unknown. The CHANGELOG shows no explicit announcement for this feature across v2.1.150–v2.1.170, indicating it was a silent addition at some earlier version. **Scanner-confirmed (2026-06-09):** the `scan.py --probe-tool-results` pass found `<persisted-output>` / `</persisted-output>` wrapper tags (118 / 98 occurrences) plus a `Preview (first …)` message (103) and `tool-results/<id>` path references (171) inside `tool_result.content` — so the in-JSONL reference is a plain-text wrapper *in the content string*, carrying a truncated preview, NOT a dedicated JSON pointer key. Full output lives in the `tool-results/` sidecar. This candidate is now verified (structure + pointer); ready to dispatch.
 - **Reference impact:** `reference/subagent-traces.md` (File layout diagram shows only `subagents/`); `reference/data-dictionary.md` (File location); likely a new `reference/tool-results.md` or a tool-invocation section.
 - **Post potential:** `format-update` / `tooling` — primary home is **Part 5 ("The tool call, completely," #67)**; also forces a fix to the **Part 3** directory-layout diagram (#65).
 - **Sibling-project impact:** AgentFluent/CodeFluent that read `tool_result.content` for large outputs will get a truncated/pointer payload unless they also read the sidecar.
+- **Decision (2026-06-10):** approve — verified (structure + pointer); reference + Part 5 home, forces Part 3 diagram fix
 - **Status:** queued
 
 ### F-002: per-subagent `meta.json` sidecar
@@ -123,6 +124,7 @@ Examples:
 - **Reference impact:** `reference/subagent-traces.md` (File layout — currently shows `subagents/` containing only `agent-<id>.jsonl`).
 - **Post potential:** `foundation` — directly relevant to **Part 3 (#65)**; the subagents/ layout now has two files per invocation.
 - **Sibling-project impact:** AgentFluent can list/characterize subagents cheaply from `meta.json` instead of opening every trace.
+- **Decision (2026-06-10):** approve — reference subagent-traces; subagents/ now writes two files per invocation (Part 3)
 - **Status:** queued
 
 ### F-003: hook-execution records on `system` lines
@@ -135,6 +137,7 @@ Examples:
 - **Reference impact:** `reference/data-dictionary.md` (`system` type; Hook event fields section).
 - **Post potential:** `format-update` — this is the empirical anchor for **Part 6 ("What hooks leave behind," #68)**; reshapes that post from "here's what I went looking for" toward "here's what's there."
 - **Sibling-project impact:** AgentFluent hook/quality diagnostics can read hook outcomes from `system` lines.
+- **Decision (2026-06-10):** approve — empirical anchor for Part 6; reference data-dictionary (system + hooks)
 - **Status:** queued
 
 ### F-004: API retry metadata on `system` lines
@@ -147,6 +150,7 @@ Examples:
 - **Reference impact:** `reference/data-dictionary.md` (`system` type).
 - **Post potential:** `analysis` — feeds the retry/failure-rate line (#54) with a second, harness-level retry signal.
 - **Sibling-project impact:** AgentFluent reliability signals.
+- **Decision (2026-06-10):** approve — reference (system); pairs with the retry/failure line (#54)
 - **Status:** queued
 
 ### F-005: compaction records (`system` + `user`)
@@ -159,6 +163,7 @@ Examples:
 - **Reference impact:** `reference/data-dictionary.md` (`system`, `user`, Common fields — `logicalParentUuid`).
 - **Post potential:** `foundation` — material for the **Part 7 capstone ("The conversation is the unit," #69)**: `logicalParentUuid` and compaction summaries are exactly the cross-session/thread-continuity machinery that post argues about.
 - **Sibling-project impact:** Anything reconstructing conversation threads must handle `logicalParentUuid` and skip/account for compaction-summary user lines.
+- **Decision (2026-06-10):** approve — Part 7 capstone material; reference (system/user, logicalParentUuid)
 - **Status:** queued
 
 ### F-006: `attributionSkill` on `assistant` (sidechain) lines
@@ -171,6 +176,7 @@ Examples:
 - **Reference impact:** `reference/subagent-traces.md` (Attribution fields table).
 - **Post potential:** `foundation` — Part 3 adjacent (attribution family).
 - **Sibling-project impact:** AgentFluent can attribute work to skills, not just agent types.
+- **Decision (2026-06-10):** approve — extends the attribution family in subagent-traces; Part 3 adjacent
 - **Status:** queued
 
 ### F-007: new top-level `type` values — `mode`, `agent-name`
@@ -183,6 +189,7 @@ Examples:
 - **Reference impact:** `reference/data-dictionary.md` (Skipped types / observed top-level types); coordinate with #56.
 - **Post potential:** `foundation` — the "discover top-level type values you haven't catalogued" thread from Part 2.
 - **Sibling-project impact:** parsers branching on `type` should tolerate these.
+- **Decision (2026-06-10):** approve — reference observed-types; coordinate with #56 (custom-title/pr-link)
 - **Status:** queued
 
 ### F-008: API-error records on `assistant` lines
@@ -195,6 +202,7 @@ Examples:
 - **Reference impact:** `reference/data-dictionary.md` (`assistant` type; error handling notes).
 - **Post potential:** `tooling` / `analysis` — pairs with the retry/failure line.
 - **Sibling-project impact:** AgentFluent must exclude API-error assistant lines from token/turn metrics.
+- **Decision (2026-06-10):** approve — reference (assistant); sibling metric-correctness impact
 - **Status:** queued
 
 ### F-009: background-agent counter on `system` lines
@@ -207,6 +215,7 @@ Examples:
 - **Reference impact:** `reference/data-dictionary.md` (`system` type).
 - **Post potential:** `none`/`format-update` (watch) — note for now.
 - **Sibling-project impact:** TBD.
+- **Decision (2026-06-10):** defer — low volume, purpose unconfirmed; re-observe before documenting
 - **Status:** queued
 
 ### F-010: top-level tool-use linkage keys
@@ -219,6 +228,7 @@ Examples:
 - **Reference impact:** `reference/data-dictionary.md` (Common fields); `reference/tool-invocation.md`.
 - **Post potential:** `tooling` — Part 5 adjacent.
 - **Sibling-project impact:** cleaner event-to-tool correlation for both siblings.
+- **Decision (2026-06-10):** approve — reference common fields / tool-invocation
 - **Status:** queued
 
 ### F-011: misc envelope additions across many types
@@ -231,6 +241,7 @@ Examples:
 - **Reference impact:** `reference/data-dictionary.md` (Common fields; `file-history-snapshot`).
 - **Post potential:** `none` (reference hygiene).
 - **Sibling-project impact:** low.
+- **Decision (2026-06-10):** approve — reference hygiene; first confirm messageId/isSnapshotUpdate aren't already documented
 - **Status:** queued
 
 ### F-012: reference baseline drift — v2.1.150 → v2.1.168
@@ -243,6 +254,7 @@ Examples:
 - **Reference impact:** all `reference/` "Verified against" headers; the format-scan baseline file.
 - **Post potential:** `none` (process); could seed a `reference/format-version-history.md` (long planned).
 - **Sibling-project impact:** n/a.
+- **Decision (2026-06-10):** approve — umbrella re-verification + baseline bump; could seed format-version-history.md
 - **Status:** queued
 
 ### F-013: `post-session` hook lifecycle event (new hook event type)
@@ -255,6 +267,7 @@ Examples:
 - **Reference impact:** `reference/data-dictionary.md` (Hook event fields — Event types table; add `post-session` row).
 - **Post potential:** `format-update` — feeds Part 6 on hooks.
 - **Sibling-project impact:** AgentFluent hook monitoring should handle `post-session` events.
+- **Decision (2026-06-10):** approve — upstream-confirmed (v2.1.169); reference hook table; Part 6
 - **Status:** queued
 
 ### F-014: `Stop`/`SubagentStop` `hookSpecificOutput.additionalContext` (new hook response field)
@@ -267,6 +280,7 @@ Examples:
 - **Reference impact:** `reference/data-dictionary.md` (Hook event fields — add a "Hook response schema" section documenting `hookSpecificOutput` and `additionalContext`).
 - **Post potential:** `format-update` — Part 6 on hooks; the response contract was previously undocumented here.
 - **Sibling-project impact:** AgentFluent hooks writing `Stop`/`SubagentStop` handlers can now return context.
+- **Decision (2026-06-10):** approve — reference hook response schema; Part 6
 - **Status:** queued
 
 ### F-015: Agent SDK TS format additions — `stop_reason: 'refusal'`, `MessageDisplay` hook, `system/memory_recall`
@@ -279,4 +293,5 @@ Examples:
 - **Reference impact:** `reference/data-dictionary.md` (`assistant` stop_reason enum; Hook event fields table — `MessageDisplay` row; `system` type — `memory_recall` subtype and `init` subtype `memory_paths` field).
 - **Post potential:** `format-update` — if confirmed in Claude Code, feeds Part 6 (hooks) and data-dictionary updates.
 - **Sibling-project impact:** AgentFluent should handle `stop_reason: 'refusal'` to avoid miscounting error turns as normal completions.
+- **Decision (2026-06-10):** defer — Claude Code parity unconfirmed; verify via scanner before acting
 - **Status:** queued

@@ -41,6 +41,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import statistics
 import sys
 from collections import Counter, defaultdict
@@ -51,6 +52,28 @@ from pathlib import Path
 # a field here without confirming its value space is a closed, content-free
 # vocabulary (and update the SECURITY CONTRACT above if you do).
 EMITTABLE_VALUE_FIELDS = frozenset({"type", "version"})
+
+# --probe-tool-results hypothesis markers. The probe reports only how many
+# tool_result contents CONTAIN each of these fixed strings (presence + count) —
+# it never emits the content around a match. This lets us confirm the shape of
+# the tool-results/ externalization wrapper (candidate F-001) without reading the
+# spilled output (the wrapper carries a preview of real tool output, which IS
+# content and must not be surfaced). Add hypotheses freely; they are strings WE
+# supply, so testing for them leaks nothing.
+PERSISTED_MARKERS = (
+    "<persisted-output",
+    "</persisted-output>",
+    "persisted-output",
+    "persisted_output",
+    "Preview (first",
+    "Preview of",
+    "tool-results/",
+    "characters truncated",
+    "truncated",
+    "saved to",
+    "output exceeds",
+    "[Tool",
+)
 
 
 def default_root() -> Path:
@@ -208,6 +231,71 @@ def diff_against_baseline(obs: Observation, baseline: dict) -> dict:
     }
 
 
+# --- tool-results pointer probe ----------------------------------------------
+
+# A bounded, vocabulary-anchored tag matcher: an angle-bracket tag of <=40 chars
+# that contains "persist" or "output". This only ever yields the wrapper tag
+# itself (e.g. "<persisted-output>"), never the content inside it.
+_TAG_RE = re.compile(r"<[^>\n]{1,40}>")
+
+
+def _iter_tool_result_strings(root: Path, max_files: int | None):
+    """Yield the string content of each tool_result block. Content is consumed
+    only for fixed-marker membership tests in probe_tool_results — never emitted.
+    """
+    files = 0
+    for jsonl_path in sorted(root.rglob("*.jsonl")):
+        if max_files is not None and files >= max_files:
+            break
+        files += 1
+        try:
+            with jsonl_path.open("r", encoding="utf-8", errors="replace") as fh:
+                for raw in fh:
+                    raw = raw.strip()
+                    if not raw:
+                        continue
+                    try:
+                        obj = json.loads(raw)
+                    except json.JSONDecodeError:
+                        continue
+                    msg = obj.get("message") if isinstance(obj, dict) else None
+                    content = msg.get("content") if isinstance(msg, dict) else None
+                    if not isinstance(content, list):
+                        continue
+                    for block in content:
+                        if isinstance(block, dict) and block.get("type") == "tool_result":
+                            c = block.get("content")
+                            if isinstance(c, str):
+                                yield c
+                            elif isinstance(c, list):
+                                for part in c:
+                                    if isinstance(part, dict) and isinstance(part.get("text"), str):
+                                        yield part["text"]
+        except OSError:
+            continue
+
+
+def probe_tool_results(root: Path, max_files: int | None = None) -> dict:
+    marker_counts: Counter[str] = Counter()
+    persist_tags: Counter[str] = Counter()
+    total = 0
+    for text in _iter_tool_result_strings(root, max_files):
+        total += 1
+        for marker in PERSISTED_MARKERS:
+            if marker in text:
+                marker_counts[marker] += 1
+        if "persist" in text or "Preview (first" in text:
+            for tag in _TAG_RE.findall(text):
+                low = tag.lower()
+                if "persist" in low or "output" in low:
+                    persist_tags[tag] += 1
+    return {
+        "tool_result_string_contents": total,
+        "marker_counts": dict(marker_counts.most_common()),
+        "persist_anchored_tags": dict(persist_tags.most_common()),
+    }
+
+
 # --- reporting ---------------------------------------------------------------
 
 
@@ -307,7 +395,34 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--baseline", type=Path, help="JSON baseline to diff observed taxonomy against")
     parser.add_argument("--json", action="store_true", help="emit JSON instead of a human report")
     parser.add_argument("--max-files", type=int, help="stop after N jsonl files (sampling)")
+    parser.add_argument(
+        "--probe-tool-results",
+        action="store_true",
+        help="probe tool_result contents for the tool-results/ externalization wrapper "
+        "(fixed-marker presence + counts only — no content emitted)",
+    )
     args = parser.parse_args(argv)
+
+    if args.probe_tool_results:
+        result = probe_tool_results(args.root, max_files=args.max_files)
+        if args.json:
+            print(json.dumps(result, indent=2, sort_keys=True))
+        else:
+            print("# tool-results pointer probe\n")
+            print(f"tool_result string contents scanned: {result['tool_result_string_contents']}\n")
+            print("## Fixed-marker presence (count of tool_result contents containing each)\n")
+            if result["marker_counts"]:
+                for m, c in result["marker_counts"].items():
+                    print(f"- `{m}` — {c}")
+            else:
+                print("_none of the hypothesis markers matched_")
+            print("\n## Distinct persist/output-anchored tags observed\n")
+            if result["persist_anchored_tags"]:
+                for t, c in result["persist_anchored_tags"].items():
+                    print(f"- `{t}` — {c}")
+            else:
+                print("_none_")
+        return 0
 
     obs = Observation()
     scan(args.root, obs, max_files=args.max_files)
