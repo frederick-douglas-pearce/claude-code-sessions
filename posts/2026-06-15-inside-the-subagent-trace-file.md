@@ -120,6 +120,8 @@ Three subagent-specific fields show up alongside `agentId`, and each has a **str
 
 (There's also an `attributionMcpServer` / `attributionMcpTool` pair that shows up on `assistant` lines involved in an MCP-tool turn — you can see it on the first `assistant` line of the fixture, which calls `mcp__github__get_issue`. The exact trigger condition is still an [open verification item](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#open-verification-items).)
 
+(And one more, `attributionSkill`, marks an `assistant` turn that ran under an invoked Skill. It's the odd one out: unlike the fields above, it shows up in _parent_ sessions too — Skills run in the main loop, not just inside subagents — so it is _not_ a sidechain signal. For the "is this a subagent line?" question, `isSidechain` remains the field to branch on; the [reference doc](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#attribution-fields) covers `attributionSkill` in full.)
+
 The interesting one is `sourceToolAssistantUUID`, because its name invites a wrong inference. It _sounds_ like it should point back at the parent's invoking `assistant` line — the "source tool" that launched the subagent. It does not.
 
 Trace it in the fixture. The tool-result `user` line carries `"sourceToolAssistantUUID":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaa0001"`. That UUID is the `uuid` of the `assistant` line _earlier in the same subagent file_ — the one that emitted `tool_use` id `toolu_synthetic_sub_001`. In other words, it's an **internal pairing key**: it ties a tool result back to the tool call it answers, within the subagent's own trace.
@@ -134,7 +136,7 @@ assistant line:  uuid "aaaa…0001"  emits tool_use "toolu_synthetic_sub_001"
 user line:       tool_result.tool_use_id "toolu_synthetic_sub_001"
 ```
 
-It's redundant with `tool_use_id`, but it lives at the top level of the line, which lets a parser reconstruct the assistant ↔ user tool cycle without descending into the `message.content` array. Useful — but it points _inward_, never at the parent. The only data-carried link to the parent is `agentId`. The directory carries the rest.
+It's redundant with `tool_use_id`, but it lives at the top level of the line, which lets a parser reconstruct the assistant ↔ user tool cycle without descending into the `message.content` array. Useful — but it points _inward_, never at the parent. The only parent link carried on the trace lines themselves is the forward `agentId`; the back-reference lives in the directory path and the `meta.json` sidecar (above), not in the line data.
 
 ## The rollup is a summary. The trace file is the evidence.
 
@@ -201,7 +203,7 @@ There's a trap baked into the two-file split, and it deserves a flag here even t
 
 A subagent's token usage is reported in **two places for the same work**: on every `assistant` line _inside_ the trace file (`message.usage`, per turn), and in the parent's `toolUseResult.usage` / `totalTokens` (rolled up across the whole run). These are the **same tokens, counted twice**. Sum both sources and your session-cost number is inflated — and inflated in a way that doesn't look obviously wrong, which is what makes it dangerous.
 
-The "right" way depends on which question you're asking: do you need a quick total from the parent alone, the full breakdown that reads trace files but excludes the parent rollup, or just the subagent's cost on its own? And, what about the the four token kinds, `service_tier`, and per-model pricing? That's a whole post. [Part 4 — "Token accounting is harder than it looks"](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/.claude/specs/series-outline.md) is where the double-count hazard gets the full treatment. For now, know that the same tokens live in both files, and don't add them together.
+The "right" way depends on which question you're asking: do you need a quick total from the parent alone, the full breakdown that reads trace files but excludes the parent rollup, or just the subagent's cost on its own? And, what about the four token kinds, `service_tier`, and per-model pricing? That's a whole post. [Part 4 — "Token accounting is harder than it looks"](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/.claude/specs/series-outline.md) is where the double-count hazard gets the full treatment. For now, know that the same tokens live in both files, and don't add them together.
 
 ## Try it on your own sessions
 
