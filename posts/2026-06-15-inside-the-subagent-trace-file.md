@@ -11,24 +11,15 @@ featured: false
 claude_code_version_verified: v2.1.150
 ---
 
-[Part 2 of this series](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-04-reading-a-claude-code-session-line-by-line.md) ended on a loose end. The last `jq` snippet pulled the rollup of every subagent a session had delegated to, and the output carried a field called `agent_id`:
+[Part 2 of this series](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-04-reading-a-claude-code-session-line-by-line.md) ended by teasing the value of `agent_id` in the parent session jsonl data as "the literal handle that takes you to the subagent's full trace file".
 
-```json
-{
-  "agent": "pm",
-  "agent_id": "99999999-9999-9999-9999-999999999001",
-  "duration_ms": 132140,
-  "tokens": 18234
-}
-```
+This post fills in the details. We're going to take that `agent_id`, follow it to a separate file on disk, and open it. The gap between the two is the whole point.
 
-I said that value was "the literal handle that takes you to the subagent's full trace file" — and then stopped. This post cashes that promise. We're going to take that `agent_id`, follow it to a separate file on disk, open it, and read it against what the parent already told us. The gap between the two is the whole point.
-
-Here's the short version: when the parent session delegates to a subagent, it records the _outcome_ — a duration, a token total, a per-tool count, and the subagent's final summary. It does not record what the subagent actually did, step by step. That lives somewhere else. And "somewhere else" turns out to be the most structurally interesting corner of the entire format.
+Here's the short version: when the parent session delegates to a subagent, it records the _outcome_ — a duration, a token total, a per-tool count, and the subagent's final summary. It does not record what the subagent actually did, step by step. That lives somewhere else.
 
 ## Following the handle
 
-The `agent_id` above is `99999999-9999-9999-9999-999999999001`. That same UUID is a file name. The subagent's complete trace lives at:
+The `agent_id` from the Part 2 snippet is `99999999-9999-9999-9999-999999999001`. That same UUID is a file name. The subagent's complete trace lives at:
 
 ```
 ~/.claude/projects/<slug>/<session-uuid>/subagents/agent-99999999-9999-9999-9999-999999999001.jsonl
@@ -38,7 +29,7 @@ Three things to notice about that path:
 
 - `<slug>` is the same project root as the parent session — the slugified `cwd` (Part 1 covered the slug convention).
 - `<session-uuid>/` is a directory that sits _next to_ the parent's `<session-uuid>.jsonl` file, sharing its name. It's created lazily — it exists only when the session produces overflow that doesn't belong inline: a subagent trace, a spilled tool result, or both.
-- `subagents/` holds the traces — one `agent-<agentId>.jsonl` per subagent invocation, each with its own `agentId`. Invoke the `pm` agent three times in one session and you get three traces. (Each trace also gets a small `agent-<agentId>.meta.json` companion, and there's often a `tool-results/` sibling directory too — both covered just below.)
+- `subagents/` holds the traces — one `agent-<agentId>.jsonl` per subagent invocation, each with its own `agentId`. Invoke the `pm` agent three times in one session and you get three traces. Each trace also gets a small `agent-<agentId>.meta.json` companion, and there's often a `tool-results/` sibling directory too — both covered below.
 
 So the directory layout for a session that delegated work looks like this:
 
@@ -54,11 +45,11 @@ So the directory layout for a session that delegated work looks like this:
         └── …
 ```
 
-The link from parent to subagent is carried in exactly one place in the data: `toolUseResult.agentId` on the parent's `user` line — the same value the Part 2 snippet surfaced. The file name is that value with an `agent-` prefix and a `.jsonl` suffix. There is no other parent → subagent pointer. Everything else about the relationship is reconstructed from where the file sits on disk.
+The only parent → subagent link in the session data is `toolUseResult.agentId` on the parent's `user` line — the same value the Part 2 snippet surfaced. The file name is that value with an `agent-` prefix and a `.jsonl` suffix. There's no per-line back-pointer _inside_ the subagent's lines that names the parent; that direction is reconstructed from where the file sits on disk — with a partial assist from the `meta.json` sidecar (below), which records the parent `toolUseId` that spawned the run.
 
 Two other things share that `<session-uuid>/` directory, and naming them now keeps the layout above from being a surprise when you open your own:
 
-- **A manifest beside each trace.** Every `agent-<agentId>.jsonl` has a small `agent-<agentId>.meta.json` companion — a few hundred bytes. It's an index card for the run: the subagent's `agentType`, the human-readable `description` from the parent's `Agent` call, the `toolUseId` that spawned it, and a `worktreePath` when the subagent ran in an isolated git worktree. It lets Claude Code — and your own tooling — list and route subagents without opening and parsing every trace. One wrinkle worth flagging: the manifest spells the key `toolUseId`, while the session lines use `toolUseID`. Same value, different casing, in files that sit next to each other.
+- **A manifest beside each trace.** Every `agent-<agentId>.jsonl` has a small `agent-<agentId>.meta.json` companion — a few hundred bytes. It's an index card for the run: the subagent's `agentType`, the human-readable `description` from the parent's `Agent` call, the `toolUseId` that spawned it, and a `worktreePath` when the subagent ran in an isolated git worktree. That `toolUseId` is the one piece of the subagent → parent relationship carried in data rather than reconstructed from disk: it names the exact parent `Agent` `tool_use` this run answers, which the file's location alone can't tell you. The manifest also lets Claude Code — and your own tooling — list and route subagents without opening and parsing every trace. One wrinkle worth flagging: the manifest spells the key `toolUseId`, while the session lines use `toolUseID`. Same value, different casing, in files that sit next to each other.
 - **A `tool-results/` sibling.** Alongside `subagents/` you'll often see a `tool-results/` directory. It isn't subagent-specific — it's where Claude Code spills _large_ tool outputs that would otherwise bloat a single JSONL line. When a tool result is big, the `tool_result` content in the session carries a `<persisted-output>` wrapper with a truncated preview, and the full payload lands in `tool-results/`, named after the tool call that produced it. That's a tool-invocation concern more than a subagent one, so it gets its full treatment in Part 5 — it's flagged here only so the directory listing makes sense.
 
 A word on versions: this post is verified against Claude Code v2.1.150, and the trace-file internals below hold there. The two sidecars are a reminder that the on-disk _layout_ keeps evolving independently of the line format — `tool-results/` predates this post's baseline, and the per-subagent `meta.json` shows up in current sessions. The [reference docs](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md) track the directory layout as it shifts; the rest of this post stays inside the trace file itself.
