@@ -1,0 +1,67 @@
+{
+  "_meta": {
+    "description": "Taxonomy documented in reference/ as of the v2.1.150 verification baseline. scan.py --baseline diffs observed session data against this so the delta is undocumented drift. Update this file (and bump the name) when reference/ catches up to a newer version.",
+    "source": "reference/data-dictionary.md, reference/subagent-traces.md, reference/tool-invocation.md",
+    "verified_against": "v2.1.150"
+  },
+  "top_level_types": [
+    "assistant",
+    "user",
+    "system",
+    "attachment",
+    "file-history-snapshot",
+    "permission-mode",
+    "ai-title",
+    "last-prompt",
+    "queue-operation",
+    "progress",
+    "hook_progress",
+    "bash_progress",
+    "create"
+  ],
+  "content_block_types": [
+    "text",
+    "tool_use",
+    "tool_result",
+    "thinking"
+  ],
+  "session_subdirs": [
+    "subagents"
+  ],
+  "versions": [
+    "2.1.150"
+  ],
+  "top_level_keys": [
+    "type",
+    "uuid",
+    "parentUuid",
+    "sessionId",
+    "timestamp",
+    "cwd",
+    "version",
+    "isSidechain",
+    "isMeta",
+    "gitBranch",
+    "requestId",
+    "userType",
+    "entrypoint",
+    "message",
+    "toolUseResult",
+    "agentId",
+    "attributionAgent",
+    "attributionMcpServer",
+    "attributionMcpTool",
+    "promptId",
+    "sourceToolAssistantUUID",
+    "snapshot",
+    "permissionMode",
+    "aiTitle",
+    "lastPrompt",
+    "leafUuid",
+    "attachment",
+    "operation",
+    "content",
+    "subtype",
+    "durationMs"
+  ]
+}
