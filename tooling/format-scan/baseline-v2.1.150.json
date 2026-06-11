@@ -28,6 +28,12 @@
   "session_subdirs": [
     "subagents"
   ],
+  "meta_json_keys": [
+    "agentType",
+    "description",
+    "toolUseId",
+    "worktreePath"
+  ],
   "versions": [
     "2.1.150"
   ],

@@ -5,27 +5,36 @@ Walks a Claude Code projects root (default ~/.claude/projects/) and reports the
 *shape* of the session data on disk: which top-level `type` values appear, which
 envelope keys appear (overall and per type), which content-block types appear,
 which session subdirectories exist (e.g. subagents/, tool-results/), the file
-shape inside tool-results/, and which Claude Code `version` values produced the
-data. With --baseline it diffs the observed taxonomy against a checked-in list
-of what `reference/` already documents, so the delta is "undocumented drift" —
-exactly the input the jsonl-format-watch queue wants.
+shape inside tool-results/, the key set of the per-subagent `meta.json` manifest
+sidecars, and which Claude Code `version` values produced the data. With
+--baseline it diffs the observed taxonomy against a checked-in list of what
+`reference/` already documents, so the delta is "undocumented drift" — exactly
+the input the jsonl-format-watch queue wants.
 
 SECURITY CONTRACT (read before editing — see CLAUDE.md "Security posture"):
 
     This tool reads raw, unsanitized session transcripts. It MUST NOT emit their
     contents. Everything this script prints is one of:
 
-      - a structural KEY NAME (a JSON object key, e.g. "toolUseResult")
+      - a structural KEY NAME (a JSON object key, e.g. "toolUseResult", or a
+        top-level key of a subagent `meta.json` manifest)
       - a TAXONOMY ENUM that reference/ already publishes as a public value
         (the `type` field, content-block `type`, and the `version` string)
+      - a VALUE JSON-TYPE drawn from the fixed, content-free vocabulary
+        {str, int, float, bool, list, dict, null} — the *type* of a value, never
+        the value itself (mirrors how keys_by_type and meta_json_keys describe
+        what a key holds without revealing what it holds)
       - a COUNT, a SIZE in bytes, a file EXTENSION, or a DIRECTORY name
 
     It MUST NEVER emit a message value: no prompt text, no file contents, no
     command output, no tool inputs/results, no paths from inside the data, no
-    UUIDs, no filenames-with-arbitrary-content. The whitelist of value-bearing
-    fields is defined once in EMITTABLE_VALUE_FIELDS below; if you find yourself
-    wanting to print anything else, stop — that is a leak, and it defeats the
-    reason this scanner exists instead of `cat`.
+    UUIDs, no filenames-with-arbitrary-content. This bites hardest for the
+    `meta.json` probe: its `description` and `worktreePath` keys carry free-text
+    and filesystem-path PII, so the probe emits only those keys' NAMES, counts,
+    and value JSON-types — never their string values. The whitelist of
+    value-bearing fields is defined once in EMITTABLE_VALUE_FIELDS below; if you
+    find yourself wanting to print anything else, stop — that is a leak, and it
+    defeats the reason this scanner exists instead of `cat`.
 
     The block_secret_reads.py hook deliberately does NOT block Bash from reading
     ~/.claude/projects/ (so this scanner and the sanitizer CLI work). That makes
@@ -50,8 +59,36 @@ from pathlib import Path
 # The ONLY message fields whose *values* may be emitted. Each is a public
 # taxonomy enum already documented in reference/ — not user content. Do not add
 # a field here without confirming its value space is a closed, content-free
-# vocabulary (and update the SECURITY CONTRACT above if you do).
+# vocabulary (and update the SECURITY CONTRACT above if you do). Note that the
+# meta.json manifest keys (agentType, description, toolUseId, worktreePath) are
+# deliberately ABSENT: the probe reports their key names + value JSON-types, not
+# their values — description/worktreePath carry PII and must never be printed.
 EMITTABLE_VALUE_FIELDS = frozenset({"type", "version"})
+
+
+def json_type(value) -> str:
+    """Name the JSON type of a value, drawn from a fixed content-free vocabulary.
+
+    Returns one of: null, bool, int, float, str, list, dict (or "<unknown>" for
+    anything else). This is the ONLY thing the meta.json probe records about a
+    value — never the value itself. bool is checked before int because Python's
+    bool is an int subclass.
+    """
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "bool"
+    if isinstance(value, int):
+        return "int"
+    if isinstance(value, float):
+        return "float"
+    if isinstance(value, str):
+        return "str"
+    if isinstance(value, list):
+        return "list"
+    if isinstance(value, dict):
+        return "dict"
+    return "<unknown>"
 
 # --probe-tool-results hypothesis markers. The probe reports only how many
 # tool_result contents CONTAIN each of these fixed strings (presence + count) —
@@ -104,6 +141,12 @@ class Observation:
         self.tool_results_sizes: list[int] = []
         self.tool_results_name_prefixes: Counter[str] = Counter()
         self.sessions_with_subdir_dir = 0
+        # Per-subagent meta.json manifest sidecars (subagents/*.meta.json).
+        # Key NAMES + counts, and value JSON-TYPES per key — never values.
+        self.meta_json_files = 0
+        self.meta_json_parse_errors = 0
+        self.meta_json_keys: Counter[str] = Counter()
+        self.meta_json_key_types: defaultdict[str, Counter[str]] = defaultdict(Counter)
 
     # --- line-level ingestion -------------------------------------------------
 
@@ -151,6 +194,8 @@ class Observation:
                 self.session_subdirs[child.name] += 1
                 if child.name == "tool-results":
                     self._ingest_tool_results(child)
+                elif child.name == "subagents":
+                    self._ingest_subagent_meta(child)
 
     def _ingest_tool_results(self, tr_dir: Path) -> None:
         for f in tr_dir.iterdir():
@@ -170,6 +215,29 @@ class Observation:
                 if idx != -1:
                     stem = stem[:idx]
             self.tool_results_name_prefixes[stem] += 1
+
+    def _ingest_subagent_meta(self, subagents_dir: Path) -> None:
+        """Probe each subagents/*.meta.json manifest for its top-level key shape.
+
+        Records key NAMES + counts and value JSON-TYPES per key only. The values
+        (notably `description` and `worktreePath`) are PII and are never read
+        into anything that gets emitted — see the SECURITY CONTRACT.
+        """
+        for f in sorted(subagents_dir.glob("*.meta.json")):
+            if not f.is_file():
+                continue
+            self.meta_json_files += 1
+            try:
+                with f.open("r", encoding="utf-8", errors="replace") as fh:
+                    manifest = json.load(fh)
+            except (OSError, json.JSONDecodeError):
+                self.meta_json_parse_errors += 1
+                continue
+            if not isinstance(manifest, dict):
+                continue
+            for key, value in manifest.items():
+                self.meta_json_keys[key] += 1
+                self.meta_json_key_types[key][json_type(value)] += 1
 
 
 def scan(root: Path, obs: Observation, max_files: int | None = None) -> None:
@@ -215,20 +283,45 @@ def load_baseline(path: Path) -> dict:
         return json.load(fh)
 
 
+# (Observation attribute / baseline key, report_removals?). Each name is both
+# the Observation attribute holding the observed set AND the baseline key holding
+# the documented set. `report_removals` categories are closed vocabularies, so a
+# documented item that goes unobserved is a candidate removal worth surfacing.
+# `versions` is additive-only: an open, ever-growing set, so a documented version
+# missing from a scan is not drift (you'd never expect a scan to contain every
+# version reference/ has ever seen).
+_DIFF_CATEGORIES = (
+    ("top_level_types", True),
+    ("top_level_keys", True),
+    ("content_block_types", True),
+    ("session_subdirs", True),
+    ("meta_json_keys", True),
+    ("versions", False),
+)
+
+
 def diff_against_baseline(obs: Observation, baseline: dict) -> dict:
     def new_items(observed, known):
+        # Observed in the data but absent from the baseline — a hard signal: this
+        # item exists in real sessions and reference/ hasn't documented it.
         known_set = set(known or [])
         return sorted(k for k in observed if k not in known_set)
 
-    return {
-        "new_top_level_types": new_items(obs.top_level_types, baseline.get("top_level_types")),
-        "new_top_level_keys": new_items(obs.top_level_keys, baseline.get("top_level_keys")),
-        "new_content_block_types": new_items(
-            obs.content_block_types, baseline.get("content_block_types")
-        ),
-        "new_session_subdirs": new_items(obs.session_subdirs, baseline.get("session_subdirs")),
-        "new_versions": new_items(obs.versions, baseline.get("versions")),
-    }
+    def removed_items(observed, known):
+        # Documented in the baseline but absent from the data — a softer signal:
+        # a candidate removal, or just absent from this corpus / --max-files sample.
+        observed_set = set(observed)
+        return sorted(k for k in (known or []) if k not in observed_set)
+
+    # Per category: new_* then (where applicable) removed_*, so a diff reads as
+    # additions then candidate removals.
+    diff: dict = {}
+    for name, report_removals in _DIFF_CATEGORIES:
+        observed, known = getattr(obs, name), baseline.get(name)
+        diff[f"new_{name}"] = new_items(observed, known)
+        if report_removals:
+            diff[f"removed_{name}"] = removed_items(observed, known)
+    return diff
 
 
 # --- tool-results pointer probe ----------------------------------------------
@@ -329,6 +422,14 @@ def build_report(obs: Observation, diff: dict | None) -> dict:
             "name_prefixes": dict(obs.tool_results_name_prefixes.most_common()),
             "size_bytes": size_summary(obs.tool_results_sizes),
         },
+        "meta_json_keys": {
+            "files": obs.meta_json_files,
+            "parse_errors": obs.meta_json_parse_errors,
+            "keys": dict(obs.meta_json_keys.most_common()),
+            "key_types": {
+                k: dict(c.most_common()) for k, c in sorted(obs.meta_json_key_types.items())
+            },
+        },
         "versions": dict(obs.versions.most_common()),
         "baseline_diff": diff,
     }
@@ -368,18 +469,37 @@ def print_human(report: dict) -> None:
     else:
         print("_no tool-results/ files observed_\n")
 
+    mj = report["meta_json_keys"]
+    print("## subagents/ meta.json manifest keys\n")
+    if mj["files"]:
+        print(f"_{mj['files']} manifest(s) scanned, {mj['parse_errors']} parse error(s)._\n")
+        for k, v in mj["keys"].items():
+            types = mj["key_types"].get(k, {})
+            type_str = ", ".join(f"{t}×{n}" for t, n in types.items())
+            print(f"- `{k}` — {v} manifests ({type_str})")
+        print()
+    else:
+        print("_no subagents/*.meta.json manifests observed_\n")
+
     table("Claude Code `version` values", report["versions"], "lines")
 
     if report["baseline_diff"] is not None:
-        print("## Drift vs. baseline (undocumented observations)\n")
+        print("## Drift vs. baseline\n")
         diff = report["baseline_diff"]
         any_drift = any(diff.values())
         if not any_drift:
-            print("_no drift — everything observed is in the baseline_\n")
-        for label, items in diff.items():
-            if items:
-                pretty = label.replace("new_", "new ").replace("_", " ")
-                print(f"- **{pretty}:** {', '.join('`' + i + '`' for i in items)}")
+            print("_no drift — observed taxonomy matches the baseline (both directions)_\n")
+        else:
+            for label, items in diff.items():
+                if items:
+                    pretty = label.replace("_", " ")
+                    print(f"- **{pretty}:** {', '.join('`' + i + '`' for i in items)}")
+            if any(items for label, items in diff.items() if label.startswith("removed_")):
+                print(
+                    "\n_`removed` = documented in the baseline but not seen in this scan; "
+                    "could be a real removal/deprecation, or just absent from this "
+                    "corpus or --max-files sample._"
+                )
         print()
 
 
