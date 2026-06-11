@@ -40,16 +40,24 @@ This fixture pair is the worked example behind the "same tokens, counted twice" 
 
   | Field | Sum across trace assistant turns | Parent `toolUseResult.usage` |
   |---|---|---|
-  | `input_tokens` | 6000 | 6000 |
-  | `output_tokens` | 2000 | 2000 |
-  | `cache_creation_input_tokens` | 12000 | 12000 |
-  | `cache_read_input_tokens` | 16000 | 16000 |
+  | `input_tokens` | 20 | 20 |
+  | `output_tokens` | 1000 | 1000 |
+  | `cache_creation_input_tokens` | 29000 | 29000 |
+  | `cache_read_input_tokens` | 150000 | 150000 |
 
-- `totalTokens` (36000) is defined here as the **sum of all four `usage` fields** (input + output + cache_creation + cache_read = total token volume across the run). **Note:** Claude Code's exact production formula for `totalTokens` is not pinned in the reference; this fixture adopts the four-field sum as a clear, reader-verifiable definition. If upstream is later confirmed to compute it differently (e.g., excluding cache reads), update this fixture and the note together.
+- `totalTokens` (180020) is defined here as the **sum of all four `usage` fields** (input + output + cache_creation + cache_read = total token volume across the run). **Note:** Claude Code's exact production formula for `totalTokens` is not pinned in the reference; this fixture adopts the four-field sum as a clear, reader-verifiable definition. If upstream is later confirmed to compute it differently (e.g., excluding cache reads), update this fixture and the note together.
 - `totalToolUseCount` (7) equals the number of `tool_use` blocks in the trace, and `toolStats` (`{Read:4, mcp__github__get_issue:1, mcp__github__add_issue_comment:2}`) equals their per-name tally.
 - `totalDurationMs` (132140, parent-side) is slightly longer than the trace's own first→last timestamp span (~131504 ms), reflecting parent-side spawn/return overhead bracketing the subagent run.
 
-The per-turn **split** of cache_creation vs cache_read across turns is illustrative (turn 1 writes cache; later turns read it, cache_creation tapering) — only the **column sums** above are load-bearing.
+### The per-turn cache pattern is realistic, not arbitrary (#103)
+
+The per-turn `usage` values are calibrated to how Claude Code prompt caching actually behaves, per [`.claude/specs/research/token-accounting-mechanics.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/.claude/specs/research/token-accounting-mechanics.md) (measured from 746 real subagent traces):
+
+- **`input_tokens` is negligible** (1–3/turn, 20 total) — Claude Code caches almost everything, so the full-price input number is near-zero even across a long run.
+- **`cache_creation` is front-loaded** — 13,000 on turn 1 (system prompt + tools written to cache), tapering to 1,500 by the end.
+- **`cache_read` starts at 0 on turn 1** (fresh cache) and **grows every turn** (13,000 → 27,000), because each turn re-reads the whole accumulated prefix. It dominates: **150,000 of 180,020 tokens (~83%)**.
+
+This is the shape the prior version of this fixture got wrong (it had `cache_read` *smaller* than turn-1 `cache_creation`, off from reality by ~8–160× per category). Only the **column sums** are load-bearing for the #98/#99 reconciliation invariant; the per-turn split now also mirrors real behavior so the example survives Part 4's cost scrutiny. (Note: a truly fresh cache reads 0 on turn 1, as encoded here; real runs often show a non-zero warm-cache read on turn 1 when a prior invocation's cache is still alive within the 5-minute TTL.)
 
 ## Synthetic conventions used
 

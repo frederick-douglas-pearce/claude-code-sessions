@@ -27,14 +27,15 @@ This fixture is also the gateway to the subagent-traces story (`~/.claude/projec
   - `totalDurationMs`, `totalTokens`, `totalToolUseCount` — rollups across the entire subagent run
   - `usage` — sub-totals broken out into input/output/cache fields
   - `toolStats` — per-tool invocation counts inside the subagent
-- The subagent took ~132 seconds and burned ~36k tokens (from `totalDurationMs` and `totalTokens`) — the parent session sees these rollups but does **not** see the subagent's individual tool calls in this file. Those live in the subagent trace file.
+- The subagent took ~132 seconds and burned ~180k tokens (from `totalDurationMs` and `totalTokens`) — the parent session sees these rollups but does **not** see the subagent's individual tool calls in this file. Those live in the subagent trace file. Note that ~83% of that volume is `cache_read` (priced at ~0.1× base input), so the run is far cheaper than the raw count implies — the kind of nuance Part 4 unpacks.
 
 ### Rollup numbers reconcile with the paired trace
 
-As of the 2026-06-10 reconciliation (issue #98), the numbers in this envelope are constructed to match the paired [`anatomy-subagent-trace.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-subagent-trace.jsonl) exactly:
+As of the #103 token-realism pass (building on the #98/#99 reconciliation), the numbers in this envelope are constructed to match the paired [`anatomy-subagent-trace.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-subagent-trace.jsonl) exactly **and** to mirror real per-turn caching behavior:
 
-- `usage` (`input 6000 / output 2000 / cache_creation 12000 / cache_read 16000`) equals the **sum** of the eight `assistant` lines' `message.usage` in the trace file — this is the worked example of the "same tokens, counted twice" double-count hazard.
-- `totalTokens` (36000) is the sum of those four `usage` fields. (Claude Code's exact production formula for `totalTokens` is not pinned in the reference; the fixture adopts the four-field sum as a reader-verifiable definition. See the trace fixture's generator note for the full reconciliation table.)
+- `usage` (`input 20 / output 1000 / cache_creation 29000 / cache_read 150000`) equals the **sum** of the eight `assistant` lines' `message.usage` in the trace file — this is the worked example of the "same tokens, counted twice" double-count hazard.
+- `totalTokens` (180020) is the sum of those four `usage` fields. (Claude Code's exact production formula for `totalTokens` is not pinned in the reference; the fixture adopts the four-field sum as a reader-verifiable definition. See the trace fixture's generator note for the full reconciliation table.)
+- The category split is realistic, not arbitrary: `input_tokens` is negligible (~20), `cache_read` dominates (~83%), `cache_creation` is front-loaded — calibrated against 746 real subagent traces, see [`.claude/specs/research/token-accounting-mechanics.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/.claude/specs/research/token-accounting-mechanics.md).
 - `totalToolUseCount` (7) and `toolStats` match the seven `tool_use` blocks in the trace.
 
 If you change either fixture's token numbers, change both — the cross-fixture sum is the invariant the series relies on.
