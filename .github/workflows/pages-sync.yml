@@ -63,12 +63,12 @@ jobs:
           fi
 
       - name: Checkout source (this repo)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: source
 
       - name: Checkout Pages repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: ${{ env.PAGES_REPO }}
           ref: ${{ env.PAGES_BRANCH }}
@@ -81,7 +81,7 @@ jobs:
           # workspace as an artifact — that is the only place the token lives.
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
