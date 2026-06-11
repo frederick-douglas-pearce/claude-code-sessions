@@ -13,9 +13,9 @@ claude_code_version_verified: v2.1.150
 
 [Part 2 of this series](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-04-reading-a-claude-code-session-line-by-line.md) ended by teasing the value of `agent_id` in the parent session jsonl data as "the literal handle that takes you to the subagent's full trace file".
 
-This post fills in the details. We're going to take that `agent_id`, follow it to a separate file on disk, and open it. The gap between the two is the whole point.
+This post fills in the details. We're going to take that `agent_id`, follow it to a separate file on disk, and open it. The same activity is recorded twice — at two granularities, in two files — and that split is the thread this post pulls on.
 
-Here's the short version: when the parent session delegates to a subagent, it records the _outcome_ — a duration, a token total, a per-tool count, and the subagent's final summary. It does not record what the subagent actually did, step by step. That lives somewhere else.
+Here's the short version: when the parent session delegates to a subagent, it records a **rollup** — a condensed account of the whole run: a duration, a token total, a per-tool count, and the subagent's final summary. It does not record what the subagent actually did, step by step. That lives somewhere else.
 
 ## Following the handle
 
@@ -91,7 +91,7 @@ Why does "content-free" matter? Because the alternatives are all worse:
 
 ## The `sessionId` is not the one you'd expect
 
-Here's the detail that trips up almost everyone who first reconstructs the parent ↔ subagent relationship: **the subagent does not share the parent's `sessionId`.**
+Here's the tricky part of the parent ↔ subagent relationship: **the subagent does not share the parent's `sessionId`.**
 
 Look at the trace fixture again. Every line carries `"sessionId":"77777777-7777-7777-7777-777777777003"`. Now look at the parent invocation [in the paired fixture](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-agent-invocation.jsonl) — its lines carry `"sessionId":"00000000-0000-0000-0000-000000000003"`. Different values. Each subagent invocation gets its **own** `sessionId`, distinct from the parent's and distinct from every other subagent's.
 
@@ -167,13 +167,13 @@ Here's what the parent saw for our `pm` invocation — the `toolUseResult` from 
 }
 ```
 
-That's genuinely useful — at a glance you know the `pm` agent ran for ~132 seconds, burned ~36K tokens (most of it cache reads — a hint of why Part 4 exists), and made 7 tool calls across `Read`, `get_issue`, and `add_issue_comment`. For a lot of questions, that's enough, and you never have to open the trace file.
+That's genuinely useful — at a glance you know the `pm` agent ran for ~132 seconds, burned ~36K tokens, and made 7 tool calls across `Read`, `get_issue`, and `add_issue_comment`. For a lot of questions, that's enough, and you never have to open the trace file.
 
 But notice what it can't tell you. It says `Read` was called four times — not _which files_. It says `add_issue_comment` was called twice — not _what the comments said_, or whether the first attempt failed and the second was a retry. It gives one cumulative token number — not which turn was expensive. It records the final summary string — not the reasoning that produced it. `toolStats` is an aggregate; the trace file is the transcript.
 
 |             | Parent `toolUseResult` (rollup)              | Subagent trace file (evidence)                                  |
 | ----------- | -------------------------------------------- | --------------------------------------------------------------- |
-| Granularity | One line, whole-run summary                  | Every model turn, every tool call, every result                 |
+| Granularity | One line covering the whole run              | Every model turn, every tool call, every result                 |
 | Tokens      | One cumulative `totalTokens` + a `usage` sum | Per-`assistant`-line `message.usage`                            |
 | Tools       | Per-tool **counts** (`{"Read": 4}`)          | Every `tool_use`/`tool_result` pair, full `input` and `content` |
 | Duration    | One `totalDurationMs` scalar                 | Per-line `timestamp`s — diff them yourself                      |
@@ -216,13 +216,13 @@ cat ~/.claude/projects/<slug>/<session-uuid>/subagents/agent-<agentId>.jsonl \
   | wc -l
 
 # List the tools the subagent ACTUALLY called, in order —
-# the evidence behind the parent's toolStats histogram:
+# the evidence behind the parent's toolStats aggregate:
 cat ~/.claude/projects/<slug>/<session-uuid>/subagents/agent-<agentId>.jsonl \
   | jq -r 'select(.type? == "assistant")
       | .message.content[]? | select(.type? == "tool_use") | .name'
 ```
 
-The first snippet answers "how many turns did this subagent take?" — a number the parent rollup never gives you. The second one expands the parent's `toolStats` counts back into an ordered list of what the subagent did, which is the difference between "called `Read` four times" and "read these four files, in this order, before commenting." That expansion — from summary back to transcript — is one of many reasons trace files are worth opening.
+The first snippet answers "how many turns did this subagent take?" — a number the parent rollup never gives you. The second one expands the parent's `toolStats` counts back into an ordered list of what the subagent did, which is the difference between "called `Read` four times" and "read these four files, in this order, before commenting." That expansion — from rollup back to transcript — is one of many reasons trace files are worth opening.
 
 ## What's next
 
@@ -230,9 +230,13 @@ We've now seen both halves of a delegation: the parent's rollup (Part 2) and the
 
 [Part 4](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/.claude/specs/series-outline.md) takes the gotcha seriously. "What did this session actually cost?" sounds like a sum, but between the four token kinds, cache reads priced differently from cache creation, `service_tier`, per-model pricing, and the double-count we just flagged, it's the question this whole series has been circling. Token accounting is harder than it looks — and the data to get it right is all sitting in these files.
 
-The reference grounding for this post is [`reference/subagent-traces.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md); the planning context for the series is [`series-outline.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/.claude/specs/series-outline.md). The synthetic fixtures used throughout — the [parent invocation](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-agent-invocation.jsonl) and the [subagent trace](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-subagent-trace.jsonl) — are valid JSONL by design, so the `jq` snippets run against them without a real session.
+The sources behind this post:
 
-If your own traces show a `type` value, an attribution field, or a nesting layout I haven't described — especially from the Agent SDK — that's exactly the kind of thing that updates the reference docs and sharpens later posts. I'd want to know.
+- **Reference grounding:** [`reference/subagent-traces.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md)
+- **Series planning:** [`series-outline.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/.claude/specs/series-outline.md)
+- **Synthetic fixtures** — valid JSONL, so the `jq` snippets run against them without a real session: the [parent invocation](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-agent-invocation.jsonl) and the [subagent trace](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-subagent-trace.jsonl)
+
+If your own traces show a `type` value, an attribution field, or a nesting layout I haven't described — especially from the Agent SDK — that's exactly the kind of thing that updates the reference docs and sharpens later posts. Please let me know by creating an issue in the `claude-code-sessions` repo linked above.
 
 ---
 
