@@ -62,9 +62,9 @@ Here's a four-line slice of that trace — the prompt, the first tool call, and 
 
 ```jsonl
 {"type":"user","sessionId":"77777777-7777-7777-7777-777777777003","uuid":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbb0001","parentUuid":null,"isSidechain":true,"agentId":"99999999-9999-9999-9999-999999999001","promptId":"prompt_synthetic_001","cwd":"/home/dev/example-project","version":"2.1.150","timestamp":"2026-05-22T16:45:02.300Z","message":{"role":"user","content":"Read issue #5 and draft acceptance criteria for each open item."}}
-{"type":"assistant","sessionId":"77777777-7777-7777-7777-777777777003","uuid":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaa0001","parentUuid":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbb0001","isSidechain":true,"agentId":"99999999-9999-9999-9999-999999999001","attributionAgent":"pm","attributionMcpServer":"github","attributionMcpTool":"get_issue","cwd":"/home/dev/example-project","version":"2.1.150","timestamp":"2026-05-22T16:45:03.110Z","message":{"id":"msg_synthetic_sub_001","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[{"type":"text","text":"I'll read issue #5 first."},{"type":"tool_use","id":"toolu_synthetic_sub_001","name":"mcp__github__get_issue","input":{"owner":"example","repo":"example","issue_number":5}}],"usage":{"input_tokens":900,"output_tokens":64,"cache_creation_input_tokens":9000,"cache_read_input_tokens":0},"stop_reason":"tool_use"}}
+{"type":"assistant","sessionId":"77777777-7777-7777-7777-777777777003","uuid":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaa0001","parentUuid":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbb0001","isSidechain":true,"agentId":"99999999-9999-9999-9999-999999999001","attributionAgent":"pm","attributionMcpServer":"github","attributionMcpTool":"get_issue","cwd":"/home/dev/example-project","version":"2.1.150","timestamp":"2026-05-22T16:45:03.110Z","message":{"id":"msg_synthetic_sub_001","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[{"type":"text","text":"I'll read issue #5 first."},{"type":"tool_use","id":"toolu_synthetic_sub_001","name":"mcp__github__get_issue","input":{"owner":"example","repo":"example","issue_number":5}}],"usage":{"input_tokens":3,"output_tokens":60,"cache_creation_input_tokens":13000,"cache_read_input_tokens":0},"stop_reason":"tool_use"}}
 {"type":"user","sessionId":"77777777-7777-7777-7777-777777777003","uuid":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbb0002","parentUuid":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaa0001","isSidechain":true,"agentId":"99999999-9999-9999-9999-999999999001","promptId":"prompt_synthetic_001","sourceToolAssistantUUID":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaa0001","cwd":"/home/dev/example-project","version":"2.1.150","timestamp":"2026-05-22T16:45:04.512Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_synthetic_sub_001","content":"Issue #5: Migrate JSONL format docs to reference/. Open items: data-dictionary, subagent-traces, tool-invocation, two coordinating PRs."}]},"toolUseResult":{"status":"success","durationMs":1402}}
-{"type":"assistant","sessionId":"77777777-7777-7777-7777-777777777003","uuid":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaa0008","parentUuid":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbb0008","isSidechain":true,"agentId":"99999999-9999-9999-9999-999999999001","attributionAgent":"pm","cwd":"/home/dev/example-project","version":"2.1.150","timestamp":"2026-05-22T16:47:13.804Z","message":{"id":"msg_synthetic_sub_008","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[{"type":"text","text":"Drafted acceptance criteria for issue #5 covering scope, success conditions, and test plan. See comment on the issue."}],"usage":{"input_tokens":980,"output_tokens":312,"cache_creation_input_tokens":0,"cache_read_input_tokens":200},"stop_reason":"end_turn"}}
+{"type":"assistant","sessionId":"77777777-7777-7777-7777-777777777003","uuid":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaa0008","parentUuid":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbb0008","isSidechain":true,"agentId":"99999999-9999-9999-9999-999999999001","attributionAgent":"pm","cwd":"/home/dev/example-project","version":"2.1.150","timestamp":"2026-05-22T16:47:13.804Z","message":{"id":"msg_synthetic_sub_008","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[{"type":"text","text":"Drafted acceptance criteria for issue #5 covering scope, success conditions, and test plan. See comment on the issue."}],"usage":{"input_tokens":3,"output_tokens":300,"cache_creation_input_tokens":1500,"cache_read_input_tokens":27000},"stop_reason":"end_turn"}}
 ```
 
 Read top to bottom, that's the shape of a subagent run: the prompt that started it, an `assistant` turn that calls a tool, the `tool_result` for that call, and — skipping the run's middle — the final `assistant` turn with the summary. (That last line's `parentUuid` points at `…bbbb0008`, the result of the second comment, which is one of the elided turns; in the full trace the chain is unbroken.) The summary on that last line — _"Drafted acceptance criteria for issue #5..."_ — is the exact string the parent recorded as the subagent's `tool_result`. Same words, two files.
@@ -151,13 +151,13 @@ Here's what the parent saw for our `pm` invocation — the `toolUseResult` from 
   "agentId": "99999999-9999-9999-9999-999999999001",
   "agentType": "pm",
   "totalDurationMs": 132140,
-  "totalTokens": 36000,
+  "totalTokens": 180020,
   "totalToolUseCount": 7,
   "usage": {
-    "input_tokens": 6000,
-    "output_tokens": 2000,
-    "cache_creation_input_tokens": 12000,
-    "cache_read_input_tokens": 16000
+    "input_tokens": 20,
+    "output_tokens": 1000,
+    "cache_creation_input_tokens": 29000,
+    "cache_read_input_tokens": 150000
   },
   "toolStats": {
     "Read": 4,
@@ -167,7 +167,7 @@ Here's what the parent saw for our `pm` invocation — the `toolUseResult` from 
 }
 ```
 
-That's genuinely useful — at a glance you know the `pm` agent ran for ~132 seconds, burned ~36K tokens, and made 7 tool calls across `Read`, `get_issue`, and `add_issue_comment`. For a lot of questions, that's enough, and you never have to open the trace file.
+That's genuinely useful — at a glance you know the `pm` agent ran for ~132 seconds, burned ~180K tokens, and made 7 tool calls across `Read`, `get_issue`, and `add_issue_comment`. For a lot of questions, that's enough, and you never have to open the trace file.
 
 But notice what it can't tell you. It says `Read` was called four times — not _which files_. It says `add_issue_comment` was called twice — not _what the comments said_, or whether the first attempt failed and the second was a retry. It gives one cumulative token number — not which turn was expensive. It records the final summary string — not the reasoning that produced it. `toolStats` is an aggregate; the trace file is the transcript.
 
