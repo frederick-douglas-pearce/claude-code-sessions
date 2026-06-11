@@ -1,0 +1,47 @@
+slug = "2026-06-15-linkedin-inside-the-subagent-trace-file"
+
+# Single line: title is 30 chars, within the ~34 single-line budget.
+title = ["Inside the subagent trace file"]
+
+# Single line, ~45 chars or fewer.
+subhead = "One rollup. One trace. Two granularities."
+
+# Two-beat hero: the SAME agentId appears in two files — the parent's rollup
+# (toolUseResult) and the subagent's own trace (isSidechain). Gray // comments
+# label each beat; the renderer's tokenizer colors them as punctuation.
+json_sample = """
+// parent session — the rollup
+{ "toolUseResult": {
+    "agentId": "9999…9001",
+    "totalTokens": 36000 } }
+
+// subagent trace — the evidence
+{ "isSidechain": true,
+  "agentId": "9999…9001",
+  "attributionAgent": "pm" }
+"""
+
+notes = """
+Why this JSON: the post's thesis is that one delegation is recorded in two
+files at two granularities. The hero shows the SAME agentId
+(99999999-…-999999999001, truncated) on both sides — the parent's rollup
+(toolUseResult with totalTokens) and the subagent's trace line (isSidechain:
+true, attributionAgent) — so the "two files, one run" idea reads at a glance,
+and the field the post hangs on (isSidechain) is visible.
+
+Numbers tie to the paired synthetic fixtures (anatomy-agent-invocation.jsonl /
+anatomy-subagent-trace.jsonl): totalTokens 36000 matches the reconciled rollup
+(#98/#99).
+
+Data safety: all values are synthetic — the 9999…/agentId family from
+fixtures/synthetic, no raw session data, paths, or PII. No credential-shaped
+strings.
+
+Wrap decisions: title is 30 chars, under the ~34 single-line budget, so one
+line. Subhead mirrors the two-beat visual and the series' staccato cadence
+(Part 2: "Two naming styles. One boundary made visible.").
+
+Layout: 9 code lines (incl. one blank), within the 16-line budget; the longest
+line ("// subagent trace — the evidence", 32 chars) stays well left of the
+window right edge.
+"""
