@@ -285,17 +285,46 @@ def load_baseline(path: Path) -> dict:
 
 def diff_against_baseline(obs: Observation, baseline: dict) -> dict:
     def new_items(observed, known):
+        # Observed in the data but absent from the baseline — a hard signal: this
+        # item exists in real sessions and reference/ hasn't documented it.
         known_set = set(known or [])
         return sorted(k for k in observed if k not in known_set)
 
+    def removed_items(observed, known):
+        # Documented in the baseline but absent from the scanned data — a softer
+        # signal than new_*: a candidate removal/deprecation, but a documented
+        # item can also be absent simply because this corpus (or a --max-files
+        # sample) didn't happen to contain it. NOT computed for `versions`, which
+        # is an open, ever-growing set rather than a closed vocabulary — you would
+        # never expect a scan to contain every version reference/ has ever seen.
+        observed_set = set(observed)
+        return sorted(k for k in (known or []) if k not in observed_set)
+
+    # Per category: new_* then removed_*, so a diff reads as additions then
+    # candidate removals. `versions` is additive-only (see removed_items).
     return {
         "new_top_level_types": new_items(obs.top_level_types, baseline.get("top_level_types")),
+        "removed_top_level_types": removed_items(
+            obs.top_level_types, baseline.get("top_level_types")
+        ),
         "new_top_level_keys": new_items(obs.top_level_keys, baseline.get("top_level_keys")),
+        "removed_top_level_keys": removed_items(
+            obs.top_level_keys, baseline.get("top_level_keys")
+        ),
         "new_content_block_types": new_items(
             obs.content_block_types, baseline.get("content_block_types")
         ),
+        "removed_content_block_types": removed_items(
+            obs.content_block_types, baseline.get("content_block_types")
+        ),
         "new_session_subdirs": new_items(obs.session_subdirs, baseline.get("session_subdirs")),
+        "removed_session_subdirs": removed_items(
+            obs.session_subdirs, baseline.get("session_subdirs")
+        ),
         "new_meta_json_keys": new_items(obs.meta_json_keys, baseline.get("meta_json_keys")),
+        "removed_meta_json_keys": removed_items(
+            obs.meta_json_keys, baseline.get("meta_json_keys")
+        ),
         "new_versions": new_items(obs.versions, baseline.get("versions")),
     }
 
@@ -460,15 +489,22 @@ def print_human(report: dict) -> None:
     table("Claude Code `version` values", report["versions"], "lines")
 
     if report["baseline_diff"] is not None:
-        print("## Drift vs. baseline (undocumented observations)\n")
+        print("## Drift vs. baseline\n")
         diff = report["baseline_diff"]
         any_drift = any(diff.values())
         if not any_drift:
-            print("_no drift — everything observed is in the baseline_\n")
-        for label, items in diff.items():
-            if items:
-                pretty = label.replace("new_", "new ").replace("_", " ")
-                print(f"- **{pretty}:** {', '.join('`' + i + '`' for i in items)}")
+            print("_no drift — observed taxonomy matches the baseline (both directions)_\n")
+        else:
+            for label, items in diff.items():
+                if items:
+                    pretty = label.replace("_", " ")
+                    print(f"- **{pretty}:** {', '.join('`' + i + '`' for i in items)}")
+            if any(items for label, items in diff.items() if label.startswith("removed_")):
+                print(
+                    "\n_`removed` = documented in the baseline but not seen in this scan; "
+                    "could be a real removal/deprecation, or just absent from this "
+                    "corpus or --max-files sample._"
+                )
         print()
 
 

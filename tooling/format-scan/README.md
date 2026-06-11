@@ -37,9 +37,13 @@ python3 scan.py --json --max-files 200
 python3 scan.py --probe-tool-results
 ```
 
-`--baseline` updates: bump `baseline-v<version>.json` when `reference/` catches
-up to a newer Claude Code version, so the diff keeps measuring *undocumented*
-drift.
+The `--baseline` diff reports drift in **both directions**: `new_*` items
+(observed but undocumented — a hard signal) and `removed_*` items (documented in
+the baseline but not seen in this scan — a softer candidate-removal signal, since
+an item can also be absent simply because this corpus or `--max-files` sample
+didn't contain it). `versions` is additive-only — it's an open, ever-growing set,
+not a closed vocabulary. Bump `baseline-v<version>.json` when `reference/` catches
+up to a newer Claude Code version, so the diff keeps measuring real drift.
 
 ## Tests
 

@@ -189,6 +189,87 @@ def test_baseline_diff_surfaces_new_meta_json_key(tmp_path):
     assert diff["new_meta_json_keys"] == ["newKey", "toolUseID"]
 
 
+# --- functional: baseline diff — removal detection ---------------------------
+
+
+def test_baseline_diff_flags_documented_but_unobserved_meta_key(tmp_path):
+    """A baseline meta.json key not present in any scanned manifest is a candidate
+    removal/deprecation — it surfaces under removed_meta_json_keys."""
+    make_session(
+        tmp_path, slug="-s", session_id="sess-1",
+        lines=[{"type": "user", "uuid": "u1", "version": "2.1.150"}],
+        meta_manifests={
+            # Only agentType + toolUseId present; description + worktreePath gone.
+            "agent-a.meta.json": {"agentType": "pm", "toolUseId": "t"},
+        },
+    )
+    obs = _scan(tmp_path)
+    diff = scan_mod.diff_against_baseline(obs, scan_mod.load_baseline(BASELINE))
+    assert diff["new_meta_json_keys"] == []
+    assert diff["removed_meta_json_keys"] == ["description", "worktreePath"]
+
+
+def test_baseline_diff_flags_documented_but_unobserved_type_and_subdir(tmp_path):
+    """Removal detection spans the other closed-vocabulary categories too."""
+    make_session(
+        tmp_path, slug="-s", session_id="sess-1",
+        lines=[{"type": "user", "uuid": "u1", "version": "2.1.150",
+                "message": {"content": [{"type": "text"}]}}],
+        # A tool-results/ subdir but no subagents/ — so 'subagents' is documented
+        # yet unobserved here, while 'tool-results' is observed-but-undocumented.
+        tool_results={"toolu_0.txt": b"x"},
+    )
+    obs = _scan(tmp_path)
+    diff = scan_mod.diff_against_baseline(obs, scan_mod.load_baseline(BASELINE))
+    # 'assistant' is documented but this tree has only a 'user' line.
+    assert "assistant" in diff["removed_top_level_types"]
+    # 'tool_use'/'tool_result'/'thinking' documented but only 'text' observed.
+    assert "tool_use" in diff["removed_content_block_types"]
+    # 'subagents' documented but no session dir actually contains one here.
+    assert diff["removed_session_subdirs"] == ["subagents"]
+    assert diff["new_session_subdirs"] == ["tool-results"]
+
+
+def test_baseline_diff_no_removed_when_everything_documented_present(tmp_path):
+    """No false removal: a tree covering every baseline item reports nothing
+    removed for the closed-vocabulary categories."""
+    base = scan_mod.load_baseline(BASELINE)
+    # One line per documented top_level_type, carrying every documented key and
+    # every documented content-block type, plus a manifest with every meta key.
+    content = [{"type": bt} for bt in base["content_block_types"]]
+    lines = []
+    for t in base["top_level_types"]:
+        line = {k: "x" for k in base["top_level_keys"]}
+        line["type"] = t
+        line["version"] = "2.1.150"
+        line["message"] = {"content": content}
+        lines.append(line)
+    make_session(
+        tmp_path, slug="-s", session_id="sess-1",
+        lines=lines,
+        subagent_traces={"agent-a.jsonl": [{"type": "assistant", "uuid": "s1"}]},
+        meta_manifests={"agent-a.meta.json": {k: "x" for k in base["meta_json_keys"]}},
+    )
+    obs = _scan(tmp_path)
+    diff = scan_mod.diff_against_baseline(obs, base)
+    for cat in ("top_level_types", "top_level_keys", "content_block_types",
+                "session_subdirs", "meta_json_keys"):
+        assert diff[f"removed_{cat}"] == [], f"unexpected removal in {cat}: {diff[f'removed_{cat}']}"
+
+
+def test_baseline_diff_has_no_removed_versions_key(tmp_path):
+    """versions is additive-only: an open, ever-growing set, so absence of a
+    documented version is not treated as drift."""
+    make_session(
+        tmp_path, slug="-s", session_id="sess-1",
+        lines=[{"type": "user", "uuid": "u1", "version": "2.1.999"}],
+    )
+    obs = _scan(tmp_path)
+    diff = scan_mod.diff_against_baseline(obs, scan_mod.load_baseline(BASELINE))
+    assert "removed_versions" not in diff
+    assert diff["new_versions"] == ["2.1.999"]
+
+
 # --- functional: tool-results probe ------------------------------------------
 
 
