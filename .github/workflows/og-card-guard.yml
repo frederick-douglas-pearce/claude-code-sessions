@@ -1,0 +1,43 @@
+name: OG card guard
+
+# Pre-merge check that every post under posts/ has a resolvable og_card_source —
+# the SAME fail-closed resolution the Pages-sync Action runs at publish time
+# (tooling/publish-to-pages.py). Without it, a post merged without its (manually
+# rendered) OG card turns the Pages sync RED on main, after the fact — it did, for
+# the Part 3 post. Running it on PRs surfaces the miss on the PR; the push:main run
+# mirrors pages-sync's own trigger so main independently proves green, with a
+# faster/clearer signal and no Pages checkout or PAT. Stdlib only.
+#
+# Scope note: posts/ is direct-commit-allowed to main, so this is not a hard gate —
+# it's loud at PR time when a PR is used, plus a fast backstop on main pushes.
+
+on:
+  pull_request:
+    paths:
+      - "posts/**"
+      - "social/images/**"
+      - "tooling/publish-to-pages.py"
+      - "tooling/check-og-cards.py"
+      - ".github/workflows/og-card-guard.yml"
+  push:
+    branches: [main]
+    paths:
+      - "posts/**"
+      - "social/images/**"
+
+permissions:
+  contents: read
+
+jobs:
+  og-card-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Reads frontmatter and checks each post's og_card_source resolves to an
+      # existing file. No npm, no Pages repo, no secrets.
+      - run: python3 tooling/check-og-cards.py
