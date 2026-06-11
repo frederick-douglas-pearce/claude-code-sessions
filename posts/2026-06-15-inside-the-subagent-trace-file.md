@@ -167,7 +167,7 @@ Here's what the parent saw for our `pm` invocation — the `toolUseResult` from 
 }
 ```
 
-That's genuinely useful — at a glance you know the `pm` agent ran for ~132 seconds, burned ~180K tokens, and made 7 tool calls across `Read`, `get_issue`, and `add_issue_comment`. For a lot of questions, that's enough, and you never have to open the trace file.
+That's genuinely useful — at a glance you know the `pm` agent ran for ~132 seconds, burned ~180K tokens (nearly all cache reads), and made 7 tool calls across `Read`, `get_issue`, and `add_issue_comment`. For a lot of questions, that's enough, and you never have to open the trace file.
 
 But notice what it can't tell you. It says `Read` was called four times — not _which files_. It says `add_issue_comment` was called twice — not _what the comments said_, or whether the first attempt failed and the second was a retry. It gives one cumulative token number — not which turn was expensive. It records the final summary string — not the reasoning that produced it. `toolStats` is an aggregate; the trace file is the transcript.
 
