@@ -11,24 +11,15 @@ featured: false
 claude_code_version_verified: v2.1.150
 ---
 
-[Part 2 of this series](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-04-reading-a-claude-code-session-line-by-line.md) ended on a loose end. The last `jq` snippet pulled the rollup of every subagent a session had delegated to, and the output carried a field called `agent_id`:
+[Part 2 of this series](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-04-reading-a-claude-code-session-line-by-line.md) ended by teasing the value of `agent_id` in the parent session jsonl data as "the literal handle that takes you to the subagent's full trace file".
 
-```json
-{
-  "agent": "pm",
-  "agent_id": "99999999-9999-9999-9999-999999999001",
-  "duration_ms": 132140,
-  "tokens": 18234
-}
-```
+This post fills in the details. We're going to take that `agent_id`, follow it to a separate file on disk, and open it. The same activity is recorded twice — at two granularities, in two files — and that split is the thread this post pulls on.
 
-I said that value was "the literal handle that takes you to the subagent's full trace file" — and then stopped. This post cashes that promise. We're going to take that `agent_id`, follow it to a separate file on disk, open it, and read it against what the parent already told us. The gap between the two is the whole point.
-
-Here's the short version: when the parent session delegates to a subagent, it records the _outcome_ — a duration, a token total, a per-tool count, and the subagent's final summary. It does not record what the subagent actually did, step by step. That lives somewhere else. And "somewhere else" turns out to be the most structurally interesting corner of the entire format.
+Here's the short version: when the parent session delegates to a subagent, it records a **rollup** — a condensed account of the whole run: a duration, a token total, a per-tool count, and the subagent's final summary. It does not record what the subagent actually did, step by step. That lives somewhere else.
 
 ## Following the handle
 
-The `agent_id` above is `99999999-9999-9999-9999-999999999001`. That same UUID is a file name. The subagent's complete trace lives at:
+The `agent_id` from the Part 2 snippet is `99999999-9999-9999-9999-999999999001`. That same UUID is a file name. The subagent's complete trace lives at:
 
 ```
 ~/.claude/projects/<slug>/<session-uuid>/subagents/agent-99999999-9999-9999-9999-999999999001.jsonl
@@ -38,7 +29,7 @@ Three things to notice about that path:
 
 - `<slug>` is the same project root as the parent session — the slugified `cwd` (Part 1 covered the slug convention).
 - `<session-uuid>/` is a directory that sits _next to_ the parent's `<session-uuid>.jsonl` file, sharing its name. It's created lazily — it exists only when the session produces overflow that doesn't belong inline: a subagent trace, a spilled tool result, or both.
-- `subagents/` holds the traces — one `agent-<agentId>.jsonl` per subagent invocation, each with its own `agentId`. Invoke the `pm` agent three times in one session and you get three traces. (Each trace also gets a small `agent-<agentId>.meta.json` companion, and there's often a `tool-results/` sibling directory too — both covered just below.)
+- `subagents/` holds the traces — one `agent-<agentId>.jsonl` per subagent invocation, each with its own `agentId`. Invoke the `pm` agent three times in one session and you get three traces. Each trace also gets a small `agent-<agentId>.meta.json` companion, and there's often a `tool-results/` sibling directory too — both covered below.
 
 So the directory layout for a session that delegated work looks like this:
 
@@ -54,11 +45,11 @@ So the directory layout for a session that delegated work looks like this:
         └── …
 ```
 
-The link from parent to subagent is carried in exactly one place in the data: `toolUseResult.agentId` on the parent's `user` line — the same value the Part 2 snippet surfaced. The file name is that value with an `agent-` prefix and a `.jsonl` suffix. There is no other parent → subagent pointer. Everything else about the relationship is reconstructed from where the file sits on disk.
+The only parent → subagent link in the session data is `toolUseResult.agentId` on the parent's `user` line — the same value the Part 2 snippet surfaced. The file name is that value with an `agent-` prefix and a `.jsonl` suffix. There's no per-line back-pointer _inside_ the subagent's lines that names the parent; that direction is reconstructed from where the file sits on disk — with a partial assist from the `meta.json` sidecar (below), which records the parent `toolUseId` that spawned the run.
 
 Two other things share that `<session-uuid>/` directory, and naming them now keeps the layout above from being a surprise when you open your own:
 
-- **A manifest beside each trace.** Every `agent-<agentId>.jsonl` has a small `agent-<agentId>.meta.json` companion — a few hundred bytes. It's an index card for the run: the subagent's `agentType`, the human-readable `description` from the parent's `Agent` call, the `toolUseId` that spawned it, and a `worktreePath` when the subagent ran in an isolated git worktree. It lets Claude Code — and your own tooling — list and route subagents without opening and parsing every trace. One wrinkle worth flagging: the manifest spells the key `toolUseId`, while the session lines use `toolUseID`. Same value, different casing, in files that sit next to each other.
+- **A manifest beside each trace.** Every `agent-<agentId>.jsonl` has a small `agent-<agentId>.meta.json` companion — a few hundred bytes. It's an index card for the run: the subagent's `agentType`, the human-readable `description` from the parent's `Agent` call, the `toolUseId` that spawned it, and a `worktreePath` when the subagent ran in an isolated git worktree. That `toolUseId` is the one piece of the subagent → parent relationship carried in data rather than reconstructed from disk: it names the exact parent `Agent` `tool_use` this run answers, which the file's location alone can't tell you. The manifest also lets Claude Code — and your own tooling — list and route subagents without opening and parsing every trace. One wrinkle worth flagging: the manifest spells the key `toolUseId`, while the session lines use `toolUseID`. Same value, different casing, in files that sit next to each other.
 - **A `tool-results/` sibling.** Alongside `subagents/` you'll often see a `tool-results/` directory. It isn't subagent-specific — it's where Claude Code spills _large_ tool outputs that would otherwise bloat a single JSONL line. When a tool result is big, the `tool_result` content in the session carries a `<persisted-output>` wrapper with a truncated preview, and the full payload lands in `tool-results/`, named after the tool call that produced it. That's a tool-invocation concern more than a subagent one, so it gets its full treatment in Part 5 — it's flagged here only so the directory listing makes sense.
 
 A word on versions: this post is verified against Claude Code v2.1.150, and the trace-file internals below hold there. The two sidecars are a reminder that the on-disk _layout_ keeps evolving independently of the line format — `tool-results/` predates this post's baseline, and the per-subagent `meta.json` shows up in current sessions. The [reference docs](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md) track the directory layout as it shifts; the rest of this post stays inside the trace file itself.
@@ -67,16 +58,16 @@ A word on versions: this post is verified against Claude Code v2.1.150, and the 
 
 Open `agent-99999999-...-999999999001.jsonl` and you'll find it looks _almost_ exactly like a parent session: the same line shape, the same `type` values, `assistant` lines with `message.content` and `message.usage`, `user` lines carrying tool results. If you've read Part 2, you can already parse it.
 
-Here's a four-line synthetic trace, abbreviated for the post; a real one would have many more turns — that pairs with the parent invocation [in the fixtures](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-subagent-trace.jsonl):
+Here's a four-line slice of that trace — the prompt, the first tool call, and the final summary, with the four `Read`s and two `add_issue_comment`s in between elided. The full sixteen-line run pairs with the parent invocation [in the fixtures](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-subagent-trace.jsonl):
 
 ```jsonl
 {"type":"user","sessionId":"77777777-7777-7777-7777-777777777003","uuid":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbb0001","parentUuid":null,"isSidechain":true,"agentId":"99999999-9999-9999-9999-999999999001","promptId":"prompt_synthetic_001","cwd":"/home/dev/example-project","version":"2.1.150","timestamp":"2026-05-22T16:45:02.300Z","message":{"role":"user","content":"Read issue #5 and draft acceptance criteria for each open item."}}
-{"type":"assistant","sessionId":"77777777-7777-7777-7777-777777777003","uuid":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaa0001","parentUuid":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbb0001","isSidechain":true,"agentId":"99999999-9999-9999-9999-999999999001","attributionAgent":"pm","attributionMcpServer":"github","attributionMcpTool":"get_issue","cwd":"/home/dev/example-project","version":"2.1.150","timestamp":"2026-05-22T16:45:03.110Z","message":{"id":"msg_synthetic_sub_001","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[{"type":"text","text":"I'll read issue #5 first."},{"type":"tool_use","id":"toolu_synthetic_sub_001","name":"mcp__github__get_issue","input":{"owner":"example","repo":"example","issue_number":5}}],"usage":{"input_tokens":1280,"output_tokens":64,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"stop_reason":"tool_use"}}
+{"type":"assistant","sessionId":"77777777-7777-7777-7777-777777777003","uuid":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaa0001","parentUuid":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbb0001","isSidechain":true,"agentId":"99999999-9999-9999-9999-999999999001","attributionAgent":"pm","attributionMcpServer":"github","attributionMcpTool":"get_issue","cwd":"/home/dev/example-project","version":"2.1.150","timestamp":"2026-05-22T16:45:03.110Z","message":{"id":"msg_synthetic_sub_001","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[{"type":"text","text":"I'll read issue #5 first."},{"type":"tool_use","id":"toolu_synthetic_sub_001","name":"mcp__github__get_issue","input":{"owner":"example","repo":"example","issue_number":5}}],"usage":{"input_tokens":3,"output_tokens":60,"cache_creation_input_tokens":13000,"cache_read_input_tokens":0},"stop_reason":"tool_use"}}
 {"type":"user","sessionId":"77777777-7777-7777-7777-777777777003","uuid":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbb0002","parentUuid":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaa0001","isSidechain":true,"agentId":"99999999-9999-9999-9999-999999999001","promptId":"prompt_synthetic_001","sourceToolAssistantUUID":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaa0001","cwd":"/home/dev/example-project","version":"2.1.150","timestamp":"2026-05-22T16:45:04.512Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_synthetic_sub_001","content":"Issue #5: Migrate JSONL format docs to reference/. Open items: data-dictionary, subagent-traces, tool-invocation, two coordinating PRs."}]},"toolUseResult":{"status":"success","durationMs":1402}}
-{"type":"assistant","sessionId":"77777777-7777-7777-7777-777777777003","uuid":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaa0002","parentUuid":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbb0002","isSidechain":true,"agentId":"99999999-9999-9999-9999-999999999001","attributionAgent":"pm","cwd":"/home/dev/example-project","version":"2.1.150","timestamp":"2026-05-22T16:47:13.804Z","message":{"id":"msg_synthetic_sub_002","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[{"type":"text","text":"Drafted acceptance criteria for issue #5 covering scope, success conditions, and test plan. See comment on the issue."}],"usage":{"input_tokens":1844,"output_tokens":312,"cache_creation_input_tokens":0,"cache_read_input_tokens":1280},"stop_reason":"end_turn"}}
+{"type":"assistant","sessionId":"77777777-7777-7777-7777-777777777003","uuid":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaa0008","parentUuid":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbb0008","isSidechain":true,"agentId":"99999999-9999-9999-9999-999999999001","attributionAgent":"pm","cwd":"/home/dev/example-project","version":"2.1.150","timestamp":"2026-05-22T16:47:13.804Z","message":{"id":"msg_synthetic_sub_008","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[{"type":"text","text":"Drafted acceptance criteria for issue #5 covering scope, success conditions, and test plan. See comment on the issue."}],"usage":{"input_tokens":3,"output_tokens":300,"cache_creation_input_tokens":1500,"cache_read_input_tokens":27000},"stop_reason":"end_turn"}}
 ```
 
-Read top to bottom, that's a complete subagent run in miniature: the prompt that started it, an `assistant` turn that calls a tool, the `tool_result` for that call, and a final `assistant` turn with the summary. The summary on that last line — _"Drafted acceptance criteria for issue #5..."_ — is the exact string the parent recorded as the subagent's `tool_result`. Same words, two files.
+Read top to bottom, that's the shape of a subagent run: the prompt that started it, an `assistant` turn that calls a tool, the `tool_result` for that call, and — skipping the run's middle — the final `assistant` turn with the summary. (That last line's `parentUuid` points at `…bbbb0008`, the result of the second comment, which is one of the elided turns; in the full trace the chain is unbroken.) The summary on that last line — _"Drafted acceptance criteria for issue #5..."_ — is the exact string the parent recorded as the subagent's `tool_result`. Same words, two files.
 
 But look at the fields that _aren't_ in a parent session. Every single line carries `isSidechain: true`. Every line carries a top-level `agentId`. The `assistant` lines carry `attributionAgent`. The `user` lines carry `promptId`, and the tool-result line carries `sourceToolAssistantUUID`. None of those appear in a parent session file. They're the markers that tell you you've crossed into a sidechain.
 
@@ -100,7 +91,7 @@ Why does "content-free" matter? Because the alternatives are all worse:
 
 ## The `sessionId` is not the one you'd expect
 
-Here's the detail that trips up almost everyone who first reconstructs the parent ↔ subagent relationship: **the subagent does not share the parent's `sessionId`.**
+Here's the tricky part of the parent ↔ subagent relationship: **the subagent does not share the parent's `sessionId`.**
 
 Look at the trace fixture again. Every line carries `"sessionId":"77777777-7777-7777-7777-777777777003"`. Now look at the parent invocation [in the paired fixture](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-agent-invocation.jsonl) — its lines carry `"sessionId":"00000000-0000-0000-0000-000000000003"`. Different values. Each subagent invocation gets its **own** `sessionId`, distinct from the parent's and distinct from every other subagent's.
 
@@ -116,9 +107,9 @@ The link from subagent back to parent is encoded entirely in the file's location
 
 This has a concrete consequence for tooling: if you glob `~/.claude/projects/**/subagents/*.jsonl` and read the lines without tracking which directory each came from, you've thrown away the parent linkage. The `agentId` tells you _which invocation_ a line belongs to; it does not tell you _which parent session_ launched it. Only the path does.
 
-## The attribution fields, and the one that lies about its name
+## The subagent-specific fields, and the one that lies about its name
 
-Three subagent-specific fields show up alongside `agentId`, and each has a **strict per-line-type presence pattern**. They don't appear on every line — they appear on specific line types, consistently. Knowing the pattern lets you branch on `type` first and only check the fields that apply:
+Three subagent-specific fields show up alongside `agentId` — one of them an `attribution*` field, two not — and each has a **strict per-line-type presence pattern**. They don't appear on every line — they appear on specific line types, consistently. Knowing the pattern lets you branch on `type` first and only check the fields that apply:
 
 | Field                     | `assistant` lines | `user` lines                 | What it is                                                                                                                        |
 | ------------------------- | ----------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
@@ -128,6 +119,8 @@ Three subagent-specific fields show up alongside `agentId`, and each has a **str
 | `sourceToolAssistantUUID` | ❌ never          | ✅ on tool-result lines only | The `uuid` of the `assistant` line whose `tool_use` this user line is the result for.                                             |
 
 (There's also an `attributionMcpServer` / `attributionMcpTool` pair that shows up on `assistant` lines involved in an MCP-tool turn — you can see it on the first `assistant` line of the fixture, which calls `mcp__github__get_issue`. The exact trigger condition is still an [open verification item](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#open-verification-items).)
+
+(And one more, `attributionSkill`, marks an `assistant` turn that ran under an invoked Skill. It's the odd one out: unlike the fields above, it shows up in _parent_ sessions too — Skills run in the main loop, not just inside subagents — so it is _not_ a sidechain signal. For the "is this a subagent line?" question, `isSidechain` remains the field to branch on; the [reference doc](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#attribution-fields) covers `attributionSkill` in full.)
 
 The interesting one is `sourceToolAssistantUUID`, because its name invites a wrong inference. It _sounds_ like it should point back at the parent's invoking `assistant` line — the "source tool" that launched the subagent. It does not.
 
@@ -143,7 +136,7 @@ assistant line:  uuid "aaaa…0001"  emits tool_use "toolu_synthetic_sub_001"
 user line:       tool_result.tool_use_id "toolu_synthetic_sub_001"
 ```
 
-It's redundant with `tool_use_id`, but it lives at the top level of the line, which lets a parser reconstruct the assistant ↔ user tool cycle without descending into the `message.content` array. Useful — but it points _inward_, never at the parent. The only data-carried link to the parent is `agentId`. The directory carries the rest.
+It's redundant with `tool_use_id`, but it lives at the top level of the line, which lets a parser reconstruct the assistant ↔ user tool cycle without descending into the `message.content` array. Useful — but it points _inward_, never at the parent. The only parent link carried on the trace lines themselves is the forward `agentId`; the back-reference lives in the directory path and the `meta.json` sidecar (above), not in the line data.
 
 ## The rollup is a summary. The trace file is the evidence.
 
@@ -158,13 +151,13 @@ Here's what the parent saw for our `pm` invocation — the `toolUseResult` from 
   "agentId": "99999999-9999-9999-9999-999999999001",
   "agentType": "pm",
   "totalDurationMs": 132140,
-  "totalTokens": 18234,
+  "totalTokens": 180020,
   "totalToolUseCount": 7,
   "usage": {
-    "input_tokens": 54,
-    "output_tokens": 1240,
-    "cache_creation_input_tokens": 12450,
-    "cache_read_input_tokens": 24500
+    "input_tokens": 20,
+    "output_tokens": 1000,
+    "cache_creation_input_tokens": 29000,
+    "cache_read_input_tokens": 150000
   },
   "toolStats": {
     "Read": 4,
@@ -174,13 +167,13 @@ Here's what the parent saw for our `pm` invocation — the `toolUseResult` from 
 }
 ```
 
-That's genuinely useful — at a glance you know the `pm` agent ran for ~132 seconds, burned ~18K tokens, and made 7 tool calls across `Read`, `get_issue`, and `add_issue_comment`. For a lot of questions, that's enough, and you never have to open the trace file.
+That's genuinely useful — at a glance you know the `pm` agent ran for ~132 seconds, burned ~180K tokens (nearly all cache reads), and made 7 tool calls across `Read`, `get_issue`, and `add_issue_comment`. For a lot of questions, that's enough, and you never have to open the trace file.
 
 But notice what it can't tell you. It says `Read` was called four times — not _which files_. It says `add_issue_comment` was called twice — not _what the comments said_, or whether the first attempt failed and the second was a retry. It gives one cumulative token number — not which turn was expensive. It records the final summary string — not the reasoning that produced it. `toolStats` is an aggregate; the trace file is the transcript.
 
 |             | Parent `toolUseResult` (rollup)              | Subagent trace file (evidence)                                  |
 | ----------- | -------------------------------------------- | --------------------------------------------------------------- |
-| Granularity | One line, whole-run summary                  | Every model turn, every tool call, every result                 |
+| Granularity | One line covering the whole run              | Every model turn, every tool call, every result                 |
 | Tokens      | One cumulative `totalTokens` + a `usage` sum | Per-`assistant`-line `message.usage`                            |
 | Tools       | Per-tool **counts** (`{"Read": 4}`)          | Every `tool_use`/`tool_result` pair, full `input` and `content` |
 | Duration    | One `totalDurationMs` scalar                 | Per-line `timestamp`s — diff them yourself                      |
@@ -210,7 +203,7 @@ There's a trap baked into the two-file split, and it deserves a flag here even t
 
 A subagent's token usage is reported in **two places for the same work**: on every `assistant` line _inside_ the trace file (`message.usage`, per turn), and in the parent's `toolUseResult.usage` / `totalTokens` (rolled up across the whole run). These are the **same tokens, counted twice**. Sum both sources and your session-cost number is inflated — and inflated in a way that doesn't look obviously wrong, which is what makes it dangerous.
 
-The "right" way depends on which question you're asking: do you need a quick total from the parent alone, the full breakdown that reads trace files but excludes the parent rollup, or just the subagent's cost on its own? And, what about the the four token kinds, `service_tier`, and per-model pricing? That's a whole post. [Part 4 — "Token accounting is harder than it looks"](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/.claude/specs/series-outline.md) is where the double-count hazard gets the full treatment. For now, know that the same tokens live in both files, and don't add them together.
+The "right" way depends on which question you're asking: do you need a quick total from the parent alone, the full breakdown that reads trace files but excludes the parent rollup, or just the subagent's cost on its own? And, what about the four token kinds, `service_tier`, and per-model pricing? That's a whole post. [Part 4 — "Token accounting is harder than it looks"](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/.claude/specs/series-outline.md) is where the double-count hazard gets the full treatment. For now, know that the same tokens live in both files, and don't add them together.
 
 ## Try it on your own sessions
 
@@ -223,13 +216,13 @@ cat ~/.claude/projects/<slug>/<session-uuid>/subagents/agent-<agentId>.jsonl \
   | wc -l
 
 # List the tools the subagent ACTUALLY called, in order —
-# the evidence behind the parent's toolStats histogram:
+# the evidence behind the parent's toolStats aggregate:
 cat ~/.claude/projects/<slug>/<session-uuid>/subagents/agent-<agentId>.jsonl \
   | jq -r 'select(.type? == "assistant")
       | .message.content[]? | select(.type? == "tool_use") | .name'
 ```
 
-The first snippet answers "how many turns did this subagent take?" — a number the parent rollup never gives you. The second one expands the parent's `toolStats` counts back into an ordered list of what the subagent did, which is the difference between "called `Read` four times" and "read these four files, in this order, before commenting." That expansion — from summary back to transcript — is one of many reasons trace files are worth opening.
+The first snippet answers "how many turns did this subagent take?" — a number the parent rollup never gives you. The second one expands the parent's `toolStats` counts back into an ordered list of what the subagent did, which is the difference between "called `Read` four times" and "read these four files, in this order, before commenting." That expansion — from rollup back to transcript — is one of many reasons trace files are worth opening.
 
 ## What's next
 
@@ -237,9 +230,13 @@ We've now seen both halves of a delegation: the parent's rollup (Part 2) and the
 
 [Part 4](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/.claude/specs/series-outline.md) takes the gotcha seriously. "What did this session actually cost?" sounds like a sum, but between the four token kinds, cache reads priced differently from cache creation, `service_tier`, per-model pricing, and the double-count we just flagged, it's the question this whole series has been circling. Token accounting is harder than it looks — and the data to get it right is all sitting in these files.
 
-The reference grounding for this post is [`reference/subagent-traces.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md); the planning context for the series is [`series-outline.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/.claude/specs/series-outline.md). The synthetic fixtures used throughout — the [parent invocation](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-agent-invocation.jsonl) and the [subagent trace](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-subagent-trace.jsonl) — are valid JSONL by design, so the `jq` snippets run against them without a real session.
+The sources behind this post:
 
-If your own traces show a `type` value, an attribution field, or a nesting layout I haven't described — especially from the Agent SDK — that's exactly the kind of thing that updates the reference docs and sharpens later posts. I'd want to know.
+- **Reference grounding:** [`reference/subagent-traces.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md)
+- **Series planning:** [`series-outline.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/.claude/specs/series-outline.md)
+- **Synthetic fixtures** — valid JSONL, so the `jq` snippets run against them without a real session: the [parent invocation](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-agent-invocation.jsonl) and the [subagent trace](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-subagent-trace.jsonl)
+
+If your own traces show a `type` value, an attribution field, or a nesting layout I haven't described — especially from the Agent SDK — that's exactly the kind of thing that updates the reference docs and sharpens later posts. Please let me know by creating an issue in the `claude-code-sessions` repo linked above.
 
 ---
 
