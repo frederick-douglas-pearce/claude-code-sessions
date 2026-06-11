@@ -283,6 +283,23 @@ def load_baseline(path: Path) -> dict:
         return json.load(fh)
 
 
+# (Observation attribute / baseline key, report_removals?). Each name is both
+# the Observation attribute holding the observed set AND the baseline key holding
+# the documented set. `report_removals` categories are closed vocabularies, so a
+# documented item that goes unobserved is a candidate removal worth surfacing.
+# `versions` is additive-only: an open, ever-growing set, so a documented version
+# missing from a scan is not drift (you'd never expect a scan to contain every
+# version reference/ has ever seen).
+_DIFF_CATEGORIES = (
+    ("top_level_types", True),
+    ("top_level_keys", True),
+    ("content_block_types", True),
+    ("session_subdirs", True),
+    ("meta_json_keys", True),
+    ("versions", False),
+)
+
+
 def diff_against_baseline(obs: Observation, baseline: dict) -> dict:
     def new_items(observed, known):
         # Observed in the data but absent from the baseline — a hard signal: this
@@ -291,42 +308,20 @@ def diff_against_baseline(obs: Observation, baseline: dict) -> dict:
         return sorted(k for k in observed if k not in known_set)
 
     def removed_items(observed, known):
-        # Documented in the baseline but absent from the scanned data — a softer
-        # signal than new_*: a candidate removal/deprecation, but a documented
-        # item can also be absent simply because this corpus (or a --max-files
-        # sample) didn't happen to contain it. NOT computed for `versions`, which
-        # is an open, ever-growing set rather than a closed vocabulary — you would
-        # never expect a scan to contain every version reference/ has ever seen.
+        # Documented in the baseline but absent from the data — a softer signal:
+        # a candidate removal, or just absent from this corpus / --max-files sample.
         observed_set = set(observed)
         return sorted(k for k in (known or []) if k not in observed_set)
 
-    # Per category: new_* then removed_*, so a diff reads as additions then
-    # candidate removals. `versions` is additive-only (see removed_items).
-    return {
-        "new_top_level_types": new_items(obs.top_level_types, baseline.get("top_level_types")),
-        "removed_top_level_types": removed_items(
-            obs.top_level_types, baseline.get("top_level_types")
-        ),
-        "new_top_level_keys": new_items(obs.top_level_keys, baseline.get("top_level_keys")),
-        "removed_top_level_keys": removed_items(
-            obs.top_level_keys, baseline.get("top_level_keys")
-        ),
-        "new_content_block_types": new_items(
-            obs.content_block_types, baseline.get("content_block_types")
-        ),
-        "removed_content_block_types": removed_items(
-            obs.content_block_types, baseline.get("content_block_types")
-        ),
-        "new_session_subdirs": new_items(obs.session_subdirs, baseline.get("session_subdirs")),
-        "removed_session_subdirs": removed_items(
-            obs.session_subdirs, baseline.get("session_subdirs")
-        ),
-        "new_meta_json_keys": new_items(obs.meta_json_keys, baseline.get("meta_json_keys")),
-        "removed_meta_json_keys": removed_items(
-            obs.meta_json_keys, baseline.get("meta_json_keys")
-        ),
-        "new_versions": new_items(obs.versions, baseline.get("versions")),
-    }
+    # Per category: new_* then (where applicable) removed_*, so a diff reads as
+    # additions then candidate removals.
+    diff: dict = {}
+    for name, report_removals in _DIFF_CATEGORIES:
+        observed, known = getattr(obs, name), baseline.get(name)
+        diff[f"new_{name}"] = new_items(observed, known)
+        if report_removals:
+            diff[f"removed_{name}"] = removed_items(observed, known)
+    return diff
 
 
 # --- tool-results pointer probe ----------------------------------------------
