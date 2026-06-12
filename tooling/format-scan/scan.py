@@ -56,6 +56,23 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
+# Scanner build identity, stamped into --json output by build_report(). These are
+# tool-STATIC strings — they describe the scanner, not the scanned data — so they
+# are content-free and do NOT belong on EMITTABLE_VALUE_FIELDS (that whitelist
+# governs values read *from* session data; these are never read from anything).
+#
+# CROSS-REPO CONTRACT: the Claude Code Data Collective (CCDC) keys each Tier 2
+# "structural" contribution by version *attestation* — it does not re-derive the
+# profile, it trusts (tool, scan_version) — so its locked SCHEMA.md reads these
+# field names directly out of scan.json. Renaming either field, or changing the
+# tool id, is a downstream-breaking change. See CCDC SCHEMA.md ("Upstream
+# dependencies") and CHANGELOG.md in this directory for the bump policy.
+#
+# Bump __version__ (semver) on ANY change that alters --json output shape or
+# semantics; CCDC gates on it, so it must move when the output does.
+__version__ = "0.1.0"
+TOOL_ID = "ccs-format-scan"
+
 # The ONLY message fields whose *values* may be emitted. Each is a public
 # taxonomy enum already documented in reference/ — not user content. Do not add
 # a field here without confirming its value space is a closed, content-free
@@ -405,6 +422,11 @@ def size_summary(sizes: list[int]) -> dict:
 
 def build_report(obs: Observation, diff: dict | None) -> dict:
     return {
+        # Tool-static build identity (see __version__/TOOL_ID above). Output uses
+        # sort_keys=True, so these sort alphabetically in the emitted JSON — CCDC
+        # reads them by name, not position.
+        "scan_version": __version__,
+        "tool": TOOL_ID,
         "summary": {
             "files_scanned": obs.files_scanned,
             "lines_scanned": obs.lines_scanned,
@@ -438,6 +460,7 @@ def build_report(obs: Observation, diff: dict | None) -> dict:
 def print_human(report: dict) -> None:
     s = report["summary"]
     print("# JSONL format scan\n")
+    print(f"_{report['tool']} v{report['scan_version']}_\n")
     print(
         f"Scanned {s['files_scanned']} files / {s['lines_scanned']} lines "
         f"({s['parse_errors']} parse errors). "

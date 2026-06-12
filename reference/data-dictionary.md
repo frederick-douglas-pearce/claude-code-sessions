@@ -79,7 +79,7 @@ Some fields documented in AgentFluent's notes (`isSidechain`, `cwd`, `version`) 
 
 ### `assistant`
 
-**Verified against Claude Code v2.1.150.**
+**Verified against Claude Code v2.1.170.** The core `message` fields are unchanged since v2.1.150; the top-level API-error markers below were added in the v2.1.170 re-verification, with presence confirmed by structural scan (values not read).
 
 Model responses — text, tool calls, reasoning, and token usage. Top-level fields are those listed in [Common fields](#common-fields). The `message` object carries the model-side payload:
 
@@ -95,6 +95,17 @@ Model responses — text, tool calls, reasoning, and token usage. Top-level fiel
 | `message.stop_sequence` | string \| `null` | The stop sequence that triggered termination, if any. |
 | `message.stop_details` | object | Additional stop information when available (rarely populated in practice). |
 | `message.diagnostics` | object | Optional diagnostic metadata. Observed sub-key: `cache_miss_reason` when a cache lookup did not hit. |
+
+Beyond [Common fields](#common-fields), an `assistant` line can carry top-level **API-error markers** (sibling to `message`, not inside it) when the line records a failed API call rather than a real model turn. These are scan-observed (present; values not read):
+
+| Field | Type | Semantics |
+|---|---|---|
+| `isApiErrorMessage` | boolean | `true` when this `assistant` line is an API-error record, not a real model turn. **Such lines should be excluded from token and turn metrics** — counting them inflates turn counts and (if any usage shape is present) misattributes tokens. |
+| `apiError` | object | Error detail for the failed API call, when present. |
+| `apiErrorStatus` | number \| string | HTTP-style status of the API error. |
+| `error` | (shape not inspected) | Error detail observed alongside the markers above on some error lines. |
+
+The harness/transport-level retry signal that pairs with these errors (`retryInMs`, `retryAttempt`, `maxRetries`, `cause`) lands on `system` lines — see [`system` § API-retry and inline-error fields](#api-retry-and-inline-error-fields).
 
 Inline minimal example (see [`anatomy-minimal-session.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-minimal-session.jsonl) for a full session):
 
@@ -200,6 +211,51 @@ This envelope is one of the highest-information surfaces in the format. The Agen
 
 See [`anatomy-agent-invocation.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-agent-invocation.jsonl) for an end-to-end synthetic Agent invocation including the `toolUseResult` envelope.
 
+### `system`
+
+**Verified against Claude Code v2.1.170.** Field presence confirmed by a structural scan of local sessions (key names and carrier type only — no field values read). Specific introduction versions are cited inline from the CHANGELOG where known; fields marked scan-observed have a confirmed carrier type but an uninspected value shape.
+
+Session-internal events emitted by Claude Code itself — model switches, tool-registry refreshes, context-compaction boundaries, hook-execution bookkeeping, and transport-level API retries. Most analytics parsers skip `system` lines (they aren't user-visible model or user activity), but several field families on them are the *only* on-disk record of their respective events, which is why `system` is documented here rather than left under [Skipped types](#skipped-types).
+
+Top-level fields are those listed in [Common fields](#common-fields). The long-standing system-specific fields:
+
+| Field | Type | Semantics |
+|---|---|---|
+| `subtype` | string | Discriminates the kind of system event. Present on every `system` line. Observed values include `"compact_boundary"` (the context-compaction marker — its `compactMetadata`/`logicalParentUuid` payload is documented separately with the conversation-continuity work). |
+| `isMeta` | boolean | `true` for internal/meta events that aren't part of the conversation proper. |
+| `content` | string | Human-readable description of the event, when present. |
+| `durationMs` | number | Duration of the event, for events that measure one (e.g., a registry refresh). |
+
+#### Hook-execution fields
+
+When configured hooks fire, Claude Code records the outcome on a `system` line. This means hook activity **does** leave a JSONL trace — recorded as `system` events — which is the empirical question [Part 6 ("What hooks leave behind," #68)](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/68) was scoped to answer. All fields below are scan-observed (present as a family on the same lines; values not read):
+
+| Field | Type | Semantics |
+|---|---|---|
+| `hookCount` | number | How many hooks matched and ran for the triggering event. |
+| `hookInfos` | array (shape not inspected) | Per-hook execution detail — which hooks ran. |
+| `hookErrors` | array (shape not inspected) | Errors raised by hooks during execution. |
+| `hasOutput` | boolean | Whether any hook produced output. |
+| `preventedContinuation` | boolean | Whether a hook blocked Claude from continuing (a deny/block decision). |
+| `stopReason` | string | Why continuation stopped, when a hook prevented it. |
+| `hookAdditionalContext` | string | The `additionalContext` string a `Stop`/`SubagentStop` hook injected back into context, recorded on disk. Rare. The on-disk trace of the hook **response** contract — see [Hook response schema](#hook-response-schema). |
+
+These lines are frequently accompanied by a top-level `toolUseID` linking the hook run to the tool call that triggered it (for `PreToolUse`/`PostToolUse` hooks); the top-level tool-linkage keys are catalogued separately ([#93](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/93)).
+
+#### API-retry and inline-error fields
+
+A second failure/retry signal, distinct from the *tool-call* retry pairing covered in [Tool invocation pattern](#tool-invocation-pattern) and the shipped retry aside. These record **transport/model-level** API retries (backoff) and inline failures captured by the harness. Scan-observed:
+
+| Field | Type | Semantics |
+|---|---|---|
+| `retryInMs` | number | Backoff delay before the harness retries the API call. |
+| `retryAttempt` | number | Which retry attempt this is. |
+| `maxRetries` | number | Configured maximum number of retry attempts. |
+| `cause` | string | Cause detail for a failure recorded on the line. |
+| `error` | (shape not inspected) | Error detail, when the system event records a failure. |
+
+The companion inline API-error signal on `assistant` lines (`isApiErrorMessage`, `apiError`, `apiErrorStatus`) is documented in the [`assistant`](#assistant) section. Both matter to anyone computing success/failure rates or separating real model turns from error turns.
+
 ---
 
 ## Skipped types
@@ -211,7 +267,7 @@ Several message types appear in session JSONL but are typically ignored by analy
 | `type` value | What it is | Why most parsers ignore it | When you'd want to parse it |
 |---|---|---|---|
 | `file-history-snapshot` | A snapshot of file state at a checkpoint. Top-level `snapshot.trackedFileBackups` field carries the file contents before each edit. **This is the data structure that powers `/rewind`'s "restore code" capability.** | Not relevant to token or tool analysis. | Anything that wants to reproduce or analyze `/rewind` semantics, or audit which files Claude edited and when. |
-| `system` | System events (Claude Code internal). Fields include `subtype`, `durationMs`, `isMeta`, `content`. Records things like model switches, tool registry updates, and other session-internal state. | Not user-visible activity. | Diagnosing internal session behavior; tracking model changes mid-session. |
+| `system` | System events (Claude Code internal): model switches, tool-registry refreshes, compaction boundaries, **hook-execution records**, and **API-retry/error records**. Now documented in its own [`system` section](#system) rather than treated as skippable. | Mostly not user-visible activity. | Reading hook outcomes, API-retry/error records, and compaction boundaries; diagnosing internal session behavior. |
 | `permission-mode` | Records a change in permission mode (e.g., from `"default"` to `"acceptEdits"`). Fields: `permissionMode`, `sessionId`, `type`. | Session-state metadata, not activity. | Auditing permission posture; correlating tool failures with permission state. |
 | `ai-title` | The auto-generated session title shown in the resume picker. Fields: `aiTitle`, `sessionId`, `type`. | Display metadata. | Building a session index outside Claude Code; recovering display names for archived sessions. |
 | `last-prompt` | A pointer to the most recent user prompt in the session, used by the resume picker. Fields: `lastPrompt`, `leafUuid`, `sessionId`, `type`. | Index metadata, not activity. | Rebuilding picker-like UI on top of session files. |
@@ -368,6 +424,7 @@ Token totals are the **raw inputs** to cost computation, not the cost itself. Se
 3. **Subagent token totals are reported twice.** The subagent's tokens appear on each `assistant` line *inside* the subagent trace file AND are rolled up into the parent session's `toolUseResult.usage` field. Naive aggregation that sums both will double-count. Use one or the other, not both.
 4. **Cache fields are zero on the first turn.** A fresh session starts with no cache; `cache_creation_input_tokens` and `cache_read_input_tokens` are zero on the first `assistant` line.
 5. **`service_tier` affects pricing.** Priority tier and other non-standard tiers have different rates; check the field before applying a flat per-model price.
+6. **API-error lines are not real turns.** An `assistant` line flagged `isApiErrorMessage: true` (see [`assistant`](#assistant)) records a failed API call, not a model response. Exclude these from both token aggregation and turn/success-rate counts — naive aggregation that includes them inflates turn counts and can misattribute tokens.
 
 Tools like [AgentFluent](https://github.com/frederick-douglas-pearce/agentfluent) and [CodeFluent](https://github.com/frederick-douglas-pearce/codefluent) handle this properly. For one-off cost estimates, the per-line `usage` object is the data; turning it into dollars requires the model name, the service tier, and an external pricing table.
 
@@ -375,11 +432,13 @@ Tools like [AgentFluent](https://github.com/frederick-douglas-pearce/agentfluent
 
 ## Hook event fields
 
-**Verified against [Claude Code hook documentation](https://code.claude.com/docs/en/hooks) as of 2026-05-26.**
+**Verified against [Claude Code hook documentation](https://code.claude.com/docs/en/hooks) as of 2026-05-26, with the `post-session` event (CHANGELOG v2.1.169) and the `hookSpecificOutput.additionalContext` response key (CHANGELOG v2.1.163) added from the v2.1.170 changelog cross-reference.**
 
 Hook events are an **outbound JSON contract** — Claude Code sends them to hook scripts via stdin when configured events fire. They are NOT session JSONL message lines. The one exception is the `file-history-snapshot` *message type* (see [Skipped types](#skipped-types)), which is a session line, not a hook event, despite sounding hook-related.
 
-This section documents the outbound JSON shape. For configuration syntax, matcher semantics, and the response protocol (allow / block / deny exit codes), see Claude Code's hooks documentation directly.
+(Hook *firings* are nonetheless recorded in the session JSONL — as bookkeeping fields on `system` lines, separate from this outbound contract. See [`system` § Hook-execution fields](#hook-execution-fields).)
+
+This section documents the outbound JSON shape Claude Code sends to hooks, and — newly — the shape hooks can send **back**. For configuration syntax and matcher semantics, see Claude Code's hooks documentation directly.
 
 ### Common fields (all events)
 
@@ -431,6 +490,17 @@ Each row lists the event name, when it fires, and fields **beyond** the common s
 | `ElicitationResult` | User responds to an MCP elicitation | `server`, `form_schema`, `user_response` |
 | `Notification` | Claude Code sends a notification | `notification_type` (`"permission_prompt"`, `"idle_prompt"`, `"auth_success"`, `"elicitation_dialog"`, etc.), `message` |
 | `SessionEnd` | Session terminates | `end_reason` (`"clear"`, `"resume"`, `"logout"`, `"prompt_input_exit"`, etc.) |
+| `post-session` | After a session has fully ended — added in CHANGELOG v2.1.169, fires after `SessionEnd` (intended for post-teardown / async cleanup work) | Event-specific fields not yet documented — changelog-reported, not yet observed in a payload. No companion `pre-session` event was found in the CHANGELOG; session startup remains [`SessionStart`](#event-types-and-event-specific-fields). |
+
+### Hook response schema
+
+Hooks reply to Claude Code on exit. The baseline protocol is the exit-code convention (0 = allow, non-zero = block/deny; see Claude Code's hooks docs). Beyond that, a hook can return a structured JSON payload on stdout carrying a `hookSpecificOutput` object. The first named key documented in that payload:
+
+| Field | Returned by | Semantics |
+|---|---|---|
+| `hookSpecificOutput.additionalContext` | `Stop`, `SubagentStop` | Extra context the hook injects back into the model's context when the turn would otherwise stop (added in CHANGELOG v2.1.163). Lets a `Stop` hook **feed information forward** — e.g., "you still have unfinished tasks" — instead of only allowing or blocking the stop. |
+
+When a hook returns `additionalContext`, the injected string is recorded on the corresponding `system` line as the `hookAdditionalContext` field (see [`system` § Hook-execution fields](#hook-execution-fields)) — the on-disk trace of this response contract. The `additionalContext` key name is changelog-reported; the `hookAdditionalContext` carrier on `system` lines is scan-observed.
 
 ### Version-specific notes
 
