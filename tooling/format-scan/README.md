@@ -37,6 +37,24 @@ python3 scan.py --json --max-files 200
 python3 scan.py --probe-tool-results
 ```
 
+Every `--json` report is stamped with a top-level `scan_version` (semver) and a
+stable `tool` id (`ccs-format-scan`), so a structural profile self-describes
+which scanner build produced it:
+
+```json
+{
+  "scan_version": "0.1.0",
+  "tool": "ccs-format-scan",
+  "summary": { "files_scanned": 0, "lines_scanned": 0 }
+}
+```
+
+These are tool-static, content-free strings (they describe the scanner, not the
+scanned data). They exist because the [Claude Code Data Collective](https://github.com/frederick-douglas-pearce/claude-code-data-collective)
+**attests** structural contributions by `(tool, scan_version)` instead of
+re-deriving them. Bump `scan_version` on any change to the `--json` output —
+see [`CHANGELOG.md`](CHANGELOG.md) for the policy.
+
 The `--baseline` diff reports drift in **both directions**: `new_*` items
 (observed but undocumented — a hard signal) and `removed_*` items (documented in
 the baseline but not seen in this scan — a softer candidate-removal signal, since

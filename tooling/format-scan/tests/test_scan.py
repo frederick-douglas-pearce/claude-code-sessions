@@ -62,6 +62,28 @@ def _build_full_tree(root: Path) -> None:
     )
 
 
+# --- build identity / cross-repo attestation contract (issue #121) -----------
+
+
+def test_build_report_stamps_scan_version_and_tool(tmp_path):
+    """build_report() stamps a content-free scanner build identity into --json.
+
+    The CCDC "structural" contribution tier does not re-derive these profiles; it
+    *attests* them by (tool, scan_version) read straight out of scan.json. The
+    literal field NAMES and the tool VALUE below are therefore a cross-repo
+    contract with CCDC's locked SCHEMA.md — a rename here is a downstream break,
+    so they're pinned literally on purpose, not via the constants.
+    """
+    _build_full_tree(tmp_path)
+    report = scan_mod.build_report(_scan(tmp_path), None)
+
+    assert report["scan_version"] == scan_mod.__version__
+    assert report["tool"] == "ccs-format-scan"
+    # semver-shaped, and not the Claude Code `version` multiset it sits next to.
+    assert report["scan_version"].count(".") == 2
+    assert report["scan_version"] not in report["versions"]
+
+
 # --- functional: taxonomy ----------------------------------------------------
 
 
