@@ -1,6 +1,6 @@
 ---
 layout: post
-title: "What launched this turn?"
+title: "What launched this turn? Subagents, MCP tools, and Skills"
 date: 2026-06-18 00:00:00-0800
 description: "A short aside off Part 3. Every assistant line can carry a record of how it came to exist — which subagent ran it, which MCP tool it routed through, which Skill it ran under. The attribution* fields, what each one records, and the one that is not the sidechain signal it looks like."
 categories: ["foundation"]
@@ -41,7 +41,7 @@ The worked examples below run against the synthetic [`anatomy-subagent-trace.jso
 
 ## `attributionAgent` — which agent ran
 
-This is the one most people reach for first, and the most reliable. Every `assistant` line inside a subagent trace carries `attributionAgent`, set to the subagent type that ran — `"pm"`, `"general-purpose"`, a custom agent name. The value is the same string the parent recorded as `toolUseResult.agentType`, and the same one you passed as `subagent_type` in the `Agent` call. One run, one agent type, stamped on every model turn it took:
+This is the one most people reach for first, and the most reliable. Every `assistant` line inside a subagent trace carries `attributionAgent`, set to the subagent type that ran — `"pm"`, `"general-purpose"`, a custom agent name. The value is the same string the parent recorded as `toolUseResult.agentType`, and the same one you passed as `subagent_type` in the `Agent` call. One run, one agent type, stamped on every model turn it took.
 
 ```bash
 # Which agent produced each assistant turn?
