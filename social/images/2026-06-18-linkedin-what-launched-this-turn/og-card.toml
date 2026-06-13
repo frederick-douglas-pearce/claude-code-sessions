@@ -1,0 +1,50 @@
+slug = "2026-06-18-linkedin-what-launched-this-turn"
+
+# Single line: title is 24 chars, within the ~34 single-line budget.
+title = ["What launched this turn?"]
+
+# Single line, ~37 chars. Mirrors the three provenance kinds and the series'
+# staccato subhead cadence (Part 2: "Two naming styles. One boundary made visible.").
+subhead = "Which agent. Which tool. Which Skill."
+
+# Hero: a single assistant line carries its provenance at the TOP LEVEL —
+# attributionAgent (which subagent), attributionMcpServer/Tool (which MCP tool) —
+# without descending into message.content. Values are the synthetic pm run from
+# fixtures/synthetic/anatomy-subagent-trace.jsonl (the post's worked fixture).
+json_sample = """
+{
+  "type": "assistant",
+  "isSidechain": true,
+  "agentId": "9999…9001",
+  "attributionAgent": "pm",
+  "attributionMcpServer": "github",
+  "attributionMcpTool": "get_issue",
+  "message": {
+    "role": "assistant",
+    "model": "claude-sonnet-4-6"
+  }
+}
+"""
+
+notes = """
+Why this JSON: the post's thesis is that every assistant line can record HOW it
+came to exist — provenance — at the top level of the line, queryable without
+walking into message.content. The hero shows three of the four attribution*
+fields on one real fixture line: attributionAgent ("pm", which subagent ran) and
+the attributionMcpServer/attributionMcpTool pair ("github" / "get_issue", which
+MCP tool the turn routed through). The fourth, attributionSkill, is the prose
+"odd one out" (it also appears in parent sessions) and is deliberately left off
+the card to keep the hero truthful to a single subagent-trace line.
+
+Numbers/values tie to the paired synthetic fixture anatomy-subagent-trace.jsonl:
+agentId 9999…9001 (truncated), attributionAgent pm, and the github/get_issue MCP
+pair are exactly its first assistant line.
+
+Data safety: all values synthetic — the 9999… agentId family from
+fixtures/synthetic, no raw session data, paths, or PII. No credential-shaped
+strings.
+
+Layout: 12 code lines (incl. the wrapping braces), within the 16-line budget;
+the longest line ("attributionMcpServer": "github",) sits ~35 chars at 2-space
+indent, well left of the window right edge.
+"""
