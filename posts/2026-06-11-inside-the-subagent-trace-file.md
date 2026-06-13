@@ -6,7 +6,7 @@ description: "Part 3 of the anatomy series. When Claude Code delegates to a suba
 categories: ["foundation"]
 tags: ["claude-code", "agent-sdk", "jsonl", "sessions", "subagents"]
 og_image: https://frederick-douglas-pearce.github.io/assets/img/inside-the-subagent-trace-file-og.png
-og_card_source: social/images/2026-06-15-linkedin-inside-the-subagent-trace-file/og-card.png
+og_card_source: social/images/2026-06-11-linkedin-inside-the-subagent-trace-file/og-card.png
 featured: false
 claude_code_version_verified: v2.1.150
 ---
