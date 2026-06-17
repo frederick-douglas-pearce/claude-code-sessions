@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 1. **Posts** (`posts/`) — an ongoing blog series for human readers, synced from this repo to a Jekyll-based GitHub Pages site.
 2. **Reference** (`reference/`) — authoritative format documentation; the data dictionary, schema notes, and format-version history that sibling projects link to.
-3. **Tooling** (`tooling/`) — the sanitizer that scrubs raw session data for safe publication, and the validator that gates fixtures.
+3. **Tooling** (`tooling/`) — the sanitizer that scrubs raw session data for safe publication, the format-scan scanner that watches for format drift, the publish/OG helpers that sync posts to the Pages site, and the fixture validator (planned) that gates fixtures.
 
 This repo is **upstream** of [AgentFluent](https://github.com/frederick-douglas-pearce/agentfluent) and [CodeFluent](https://github.com/frederick-douglas-pearce/codefluent). Both link to this repo's reference docs rather than duplicating format documentation.
 
@@ -87,15 +87,16 @@ Scopes:
 
 `main` is always publishable. Now that infrastructure work is underway, changes are split by what they touch:
 
-- **PR required** — anything under `tooling/`, `.claude/hooks/`, `.github/`, or `fixtures/` (including the future `tooling/sanitizer/`). These are the code/infra and data surfaces where a bad change has blast radius.
+- **PR required** — anything under `tooling/`, `.claude/hooks/`, `.github/`, or `fixtures/`. These are the code/infra and data surfaces where a bad change has blast radius.
 - **Direct commit to `main` allowed** — content and docs: `posts/`, `social/`, `reference/`, README/CLAUDE.md copy edits, and typo fixes. (A PR is still welcome for substantial reference rewrites.)
+- **Exception — material doc catch-ups go via issue + PR.** When README, CLAUDE.md, or component docs have drifted *materially* behind shipped state — a multi-file sweep correcting stale status/claims, not a typo or one-line edit — open a tracking issue and land it via PR for posterity (e.g. #127 / #128). Routine doc edits still commit direct.
 
 Workflow for PR-required changes:
 
 - **Branches:** `feature/<issue#>-short-description` or `fix/<issue#>-short-description` (e.g. `feature/12-secret-detection-hooks`).
 - Commit freely on the branch; **squash-merge** to `main` via PR. Every PR references its issue.
 - Open PRs with the sections in [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md): Summary, Test plan, **Security review**, Breaking changes.
-- **CI is being wired incrementally.** Until the validation workflows land (fixture validator, markdown lint, hook tests), PRs are gated by review, not automated checks. Run the relevant local checks first — e.g. `python3 .claude/hooks/tests/test_hooks.py` for hook changes.
+- **CI is being wired incrementally.** Live workflows (`.github/workflows/`): Prettier (posts), OG card guard, and Pages sync. Still pending: the fixture validator and a hook-test runner — until those land, the data-safety and hook gates are review-enforced, not automated. Run the relevant local checks first — e.g. `python3 .claude/hooks/tests/test_hooks.py` for hook changes, and the `pytest` suites under `tooling/sanitizer/` and `tooling/format-scan/` for tooling changes.
 
 ### Security gate (repo-specific)
 
@@ -118,13 +119,13 @@ If you're working on AgentFluent or CodeFluent and find new format details, they
 
 ## Tech stack
 
-- **Posts:** Markdown (Jekyll-compatible frontmatter)
+- **Posts:** Markdown (Jekyll-compatible frontmatter), Prettier-gated
 - **Reference:** Markdown
-- **Sanitizer (planned):** Python — separate design pass before implementation
-- **CI (planned):** GitHub Actions for fixture validation and Pages sync
+- **Tooling:** Python — the sanitizer (`tooling/sanitizer/`, shipped with a `pytest` suite), the format-scan drift scanner (`tooling/format-scan/`), and the publish/OG helpers (`tooling/*.py`). The fixture-validator is still planned.
+- **CI:** GitHub Actions — Prettier, OG card guard, and Pages sync are live; fixture validation is planned.
 
 ## Status
 
-Pre-content scaffolding. The repo structure exists; populated content does not.
+Active. The foundation post series is publishing (several posts live in `posts/`), `reference/` is being filled in section by section, and the sanitizer (`tooling/sanitizer/`) and format-scan scanner (`tooling/format-scan/`) are built and test-covered. The fixture-validator is the main remaining tooling gap.
 
-The initial roadmap lives at [`.claude/specs/roadmap-v0.md`](.claude/specs/roadmap-v0.md) — read it before starting new work. It captures the five work items (W1-W5), their priorities, dependencies, and open questions, and is the intended input for PM-agent-driven issue creation.
+The original roadmap lives at [`.claude/specs/roadmap-v0.md`](.claude/specs/roadmap-v0.md) — it captures the five work items (W1-W5) and is now largely historical, with most of its scope shipped (the first posts, the sanitizer, Pages sync) or in progress. Read the roadmap for original intent; track current work in [GitHub issues](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues).

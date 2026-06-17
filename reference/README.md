@@ -8,10 +8,10 @@ This directory is the **source of truth**. Sibling projects ([AgentFluent](https
 
 | File | Purpose | Status |
 |---|---|---|
-| `data-dictionary.md` | Every field, every message type | Skeleton |
+| `data-dictionary.md` | Every field, every message type | Written; sections verified v2.1.150–v2.1.170 |
 | `format-version-history.md` | Observed format changes over time, tied to Claude Code versions | Not yet started |
-| `subagent-traces.md` | The `subagents/` directory layout, sidechain pattern, `agentId` linking | Not yet started |
-| `tool-invocation.md` | The `Agent` tool, `tool_use` / `tool_result` pairing, `toolUseResult` metadata envelope | Not yet started |
+| `subagent-traces.md` | The `subagents/` directory layout, sidechain pattern, `agentId` linking | Written; sections verified v2.1.150 |
+| `tool-invocation.md` | The `Agent` tool, `tool_use` / `tool_result` pairing, `toolUseResult` metadata envelope | Written; sections verified v2.1.150 |
 
 ## Verification discipline
 

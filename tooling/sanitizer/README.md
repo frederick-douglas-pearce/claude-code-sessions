@@ -2,7 +2,7 @@
 
 CLI tool that scrubs raw Claude Code session JSONL files for safe publication.
 
-**Status:** Scaffold landed; transform logic pending. Track Phase 2 progress in [epic #1](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/1).
+**Status:** Implemented and in use (v0.2.0). All transform layers (path → identifier → secret-pattern, with the statistical-jitter stub) ship behind the `ccs-sanitize` CLI, covered by the `pytest` suite under [`tests/`](tests/). See [`CHANGELOG.md`](CHANGELOG.md) for release history.
 
 **Design:** [`prd-sanitizer.md`](../../.claude/specs/prd-sanitizer.md) is the canonical v0
 design. Where this README's sketches differ from the PRD — notably the [Sidecar format](#sidecar-format)
@@ -18,28 +18,33 @@ this README is a high-level pointer.
 - **Fail-closed** — if any rule errors, the file is not produced. No partial scrubs.
 - **No silent transforms** — the `.scrubbed` sidecar enumerates every substitution made, so a reviewer can audit
 
-## Planned shape
+## Layout
 
 ```
 sanitizer/
-├── pyproject.toml
+├── pyproject.toml          # entry point: ccs-sanitize
+├── CHANGELOG.md
 ├── src/
 │   └── ccs_sanitize/
-│       ├── __init__.py
-│       ├── cli.py
+│       ├── __init__.py     # __version__
+│       ├── cli.py          # argument parsing, --init, --no-check
+│       ├── config.py       # resolve + validate the .ccs-sanitize.yaml rule set
+│       ├── orchestrator.py # fail-closed driver: scrub or produce nothing
+│       ├── pipeline.py     # per-line transform pipeline
+│       ├── residual.py     # post-scrub residual-leak scan
+│       ├── sidecar.py      # emit the .scrubbed audit sidecar
+│       ├── subtable.py     # substitution bookkeeping
 │       ├── rules/
+│       │   ├── _engine.py
 │       │   ├── paths.py
 │       │   ├── identifiers.py
 │       │   ├── secrets.py
-│       │   └── jitter.py
-│       └── sidecar.py
-├── tests/
-│   ├── unit/
-│   └── fixtures/         # known-bad inputs that must be scrubbed correctly
-└── README.md
+│       │   └── jitter.py   # statistical jitter (stub for v0)
+│       └── _templates/     # --init config templates
+└── tests/                  # pytest suite — one module per rule + orchestration
 ```
 
-Likely published as `claude-code-sessions-sanitizer` (or short alias like `ccs-sanitize`) once stable.
+Installed locally as the `ccs-sanitize` console script (see `pyproject.toml`); not yet published to a package index.
 
 ## Rule sources
 
