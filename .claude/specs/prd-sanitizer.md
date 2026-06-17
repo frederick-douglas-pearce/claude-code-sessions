@@ -1,6 +1,6 @@
 # PRD — Session JSONL Sanitizer (`ccs-sanitize`)
 
-**Status:** Design (Phase 1 of W2). Implementation has not started.
+**Status:** v0 implemented and in use (`ccs-sanitize` v0.2.0). This PRD remains the canonical design and is kept current; where it differs from the package READMEs, the PRD wins.
 **Owner:** Fred Pearce
 **Roadmap item:** [W2 — Sanitizer design + v0 implementation](roadmap-v0.md#w2--sanitizer-design--v0-implementation)
 **Tracking issue:** [#1 — Epic: Sanitizer design + v0 implementation](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/1)

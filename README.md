@@ -2,7 +2,7 @@
 
 The canonical public reference for Claude Code's JSONL session data format — what's in those files at `~/.claude/projects/`, what the fields mean, how the format evolves, and how to work with it safely.
 
-**Status:** Early scaffold. Posts and reference docs are not yet populated. See [`.claude/specs/roadmap-v0.md`](.claude/specs/roadmap-v0.md) for the initial work plan.
+**Status:** Active. The foundation post series is publishing (several posts live in [`posts/`](posts/)), `reference/` is being filled in section by section, and the sanitizer ([`tooling/sanitizer/`](tooling/sanitizer/)) and format-drift scanner ([`tooling/format-scan/`](tooling/format-scan/)) are built and test-covered. See [`.claude/specs/roadmap-v0.md`](.claude/specs/roadmap-v0.md) for the original work plan and [open issues](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues) for current work.
 
 ## What this repo contains
 
@@ -13,7 +13,8 @@ The canonical public reference for Claude Code's JSONL session data format — w
 | `fixtures/sanitized/` | Real session data scrubbed by the sanitizer. Every file must have a `.scrubbed` sidecar proving it passed validation. |
 | `fixtures/synthetic/` | Fabricated session data for cases real data can't (or shouldn't) cover. |
 | `tooling/sanitizer/` | CLI that scrubs raw session JSONL for safe publication. Treats secret detection as a security boundary. |
-| `tooling/fixture-validator/` | CI gate that refuses to publish fixtures lacking proof of sanitization. |
+| `tooling/format-scan/` | Local, content-free scanner that reports the *shape* of session data on disk and diffs it against `reference/` to surface undocumented format drift. |
+| `tooling/fixture-validator/` | _(planned)_ CI gate that refuses to publish fixtures lacking proof of sanitization. |
 | `.claude/skills/jsonl-format-watch/` | Skill that tracks upstream changes to the JSONL format and queues them for review. |
 | `.claude/specs/research/jsonl-format-watch.md` | The queue file the skill writes into. |
 

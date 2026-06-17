@@ -45,8 +45,8 @@ pull a transcript's contents into context are blocked.
 
 - the documented inspection workflow (`tail -f ~/.claude/projects/…`,
   `ls`, `jq`) still works, and
-- the planned sanitizer CLI can read a real session over Bash to produce a
-  scrubbed copy.
+- the sanitizer CLI (`ccs-sanitize`) can read a real session over Bash to
+  produce a scrubbed copy.
 
 `Write` is also excluded from the raw-session rule — it overwrites rather than
 surfacing existing content, so it isn't a read-leak vector.
@@ -65,7 +65,7 @@ limits propagation, it does not prevent the on-disk leak. That's why
 ## Relationship to the sanitizer
 
 These hooks guard the **input** side: they stop Claude from reading secrets or
-raw sessions into context during day-to-day work. The planned
+raw sessions into context during day-to-day work. The
 [`tooling/sanitizer/`](../../tooling/sanitizer/) guards the **output** side: it
 scrubs a raw session into a publishable, `fixtures/sanitized/`-ready artifact.
 Per issue #12, these hooks must be in place before any real session data is
