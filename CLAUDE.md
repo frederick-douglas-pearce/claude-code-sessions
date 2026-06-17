@@ -89,6 +89,7 @@ Scopes:
 
 - **PR required** — anything under `tooling/`, `.claude/hooks/`, `.github/`, or `fixtures/`. These are the code/infra and data surfaces where a bad change has blast radius.
 - **Direct commit to `main` allowed** — content and docs: `posts/`, `social/`, `reference/`, README/CLAUDE.md copy edits, and typo fixes. (A PR is still welcome for substantial reference rewrites.)
+- **Exception — material doc catch-ups go via issue + PR.** When README, CLAUDE.md, or component docs have drifted *materially* behind shipped state — a multi-file sweep correcting stale status/claims, not a typo or one-line edit — open a tracking issue and land it via PR for posterity (e.g. #127 / #128). Routine doc edits still commit direct.
 
 Workflow for PR-required changes:
 
