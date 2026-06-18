@@ -11,9 +11,9 @@ featured: false
 claude_code_version_verified: v2.1.150
 ---
 
-[Part 3 of this series](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-11-inside-the-subagent-trace-file.md) opened the subagent trace file and, in passing, named a family of fields it didn't stop to unpack: `attributionAgent`, `attributionMcpServer`, `attributionMcpTool`, `attributionSkill`. It called them markers that tell you you've crossed into a sidechain and moved on — the post's job was the file split, not provenance.
+[Part 3 of this series](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-11-inside-the-subagent-trace-file.md) opened the subagent trace file and, in passing, named a family of fields it didn't stop to unpack: `attributionAgent`, `attributionMcpServer`, `attributionMcpTool`, `attributionSkill`. It called them markers that tell you that you've crossed into a sidechain and moved on. The post's job was the file split, not provenance.
 
-This is the aside that picks them up. It's short and standalone: one field family, what each member records, and the one trap that catches people.
+This is the aside that picks them up. It's short and standalone: one field family, what each member records, and the one trap to look out for.
 
 Here's the whole idea in a sentence. **Every `assistant` line can carry a record of how it came to exist** — which subagent it ran as, which MCP tool it routed through, which Skill it ran under — and that record sits at the top level of the line, queryable without ever descending into `message.content`.
 
@@ -21,7 +21,7 @@ Here's the whole idea in a sentence. **Every `assistant` line can carry a record
 
 ## Provenance, not content
 
-Part 2 made a point of the [`snake_case` / `camelCase` split](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-04-reading-a-claude-code-session-line-by-line.md): `message.content` is Anthropic API payload (`snake_case`), and the fields Claude Code wraps around it are harness bookkeeping (`camelCase`). The `attribution*` family is squarely the second kind. These fields aren't part of what the model said — they're Claude Code's annotation of how this turn was routed, recorded alongside the message rather than inside it.
+Part 2 made a point of the [`snake_case` / `camelCase` split](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-04-reading-a-claude-code-session-line-by-line.md): `message.content` is Anthropic API payload (`snake_case`), and the fields Claude Code wraps around it are harness bookkeeping (`camelCase`). The `attribution*` family is squarely the second kind. These fields aren't part of what the model said. They're Claude Code's annotation of how this turn was routed, recorded alongside the message rather than inside it.
 
 That's a question the content can't answer about itself. A `tool_use` block knows it's calling `mcp__github__get_issue`; it doesn't know it's doing so as the `pm` subagent, three levels removed from your prompt. The attribution fields carry that context at the top level of the line.
 
