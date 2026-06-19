@@ -6,6 +6,7 @@ description: "Part 4 of the anatomy series. The four token kinds, the subagent d
 categories: ["foundation"]
 tags: ["claude-code", "jsonl", "sessions", "tokens", "cost"]
 og_image: https://frederick-douglas-pearce.github.io/assets/img/token-accounting-is-harder-than-it-looks-og.png
+og_card_source: social/images/2026-06-22-linkedin-token-accounting-is-harder-than-it-looks/og-card.png
 featured: false
 claude_code_version_verified: v2.1.150
 ---
