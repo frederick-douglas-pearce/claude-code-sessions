@@ -1,4 +1,4 @@
-# Session-data blog series — outline (Parts 1-7)
+# Session-data blog series — outline (Parts 1-7, plus Part 8 coda)
 
 **Status:** Drafted 2026-06-04. Source of truth for the spine of the session-data series. Parts 1 and 2 are recorded post-hoc from what shipped; Parts 3-7 were produced by the marketer agent from a parent-supplied shortlist (sharpened titles, scope, audience hooks, and bridges).
 
@@ -95,6 +95,20 @@ The capstone closes the series without closing the format — the reference docs
 **Audience hook.** There's a specific failure mode this post names: tools (and people) that measure per-session activity and make performance claims from it. If a session ends because the user hit `Ctrl+C` and resumed the next morning, the "session" is a meaningless unit for most questions. Readers who've built session analytics and suspected this problem will find the explicit naming useful.
 
 **Bridge.** No next-post bridge needed — this is the capstone. The closer is an invitation for readers to apply the conversational frame to their own sessions and surface what they find.
+
+---
+
+## Post 8 (coda) — Same format, different driver: the Agent SDK vs. Claude Code sessions
+
+> **Status:** Planned 2026-06-22. Extends the spine, does not replace it. Blocked on the foundation reference work (this repo's [#132](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/132)) landing first, so the post can cite the new reference rows and the synthetic SDK fixture rather than get ahead of them.
+
+**Why this is a coda, not a renumber.** The original outline deferred Agent SDK targeting "until Fred has hands-on SDK session data (~2026-06-15+)," and Parts 3 and 7 both leave an explicit "Agent SDK verification gap" thread dangling (Part 7's closer: "the Agent SDK verification gap will eventually close"). As of 2026-06-22 that condition is met. AgentFluent's empirical probe (its #518/#522) put real SDK bytes on disk. This post picks up exactly that dangling thread. It is purely additive: Parts 5/6/7 are untouched, and the capstone's "closes the series without closing the format" framing is what makes room for a coda.
+
+**Scope.** The headline is reassuring and the point of the post: **the Agent SDK writes the same JSONL format to the same place** (`~/.claude/projects/<cwd-slug>/<id>.jsonl`), with the same subagent-trace and large-output spill layout the series already documented. So the post is a similarities-and-differences tour, not a new format walkthrough. Similarities: co-located sessions, identical `user`/`assistant` schema, the same `<id>/subagents/agent-<agentId>.jsonl` linkage and `<id>/tool-results/` spill (Parts 2/3/5 already cover these). Differences, all small: `entrypoint == "sdk-py"` as the reliable intrinsic discriminator between an SDK session and an interactive one (with `sdk-ts` inferred for the TS SDK), `promptSource: "sdk"` as a corroborating marker on prompt lines, and `resolvedModel` on the `toolUseResult` rollup (the concrete child model). The honest-gap move (on-voice for the series): one delegation level is verified to match Claude Code; deeper SDK nesting remains the open verification gap Part 3 named, and the post says so rather than overclaiming. Grounded in the new `reference/` rows from #132 and a synthetic SDK fixture.
+
+**Audience hook.** This is the first post in the series that speaks to the Agent SDK reader directly (now justified by hands-on data). The hook is the relief: if you've learned to read Claude Code sessions, you already know how to read SDK sessions. Here is the short list of what changes and the one field (`entrypoint`) that tells the two apart.
+
+**Bridge.** Coda. No next-post bridge. The closer reinforces the capstone's posture: the format keeps evolving (SDK drift is tracked in this repo's [#133](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/133)), and the format-archaeology habit travels across drivers.
 
 ---
 
