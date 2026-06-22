@@ -4,7 +4,7 @@ When the parent session invokes the `Agent` tool, the subagent's complete intern
 
 For the field-level union across all message types, see [`data-dictionary.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md). For the parent-side `Agent` tool walkthrough (the `tool_use`, the `tool_result`, and the `toolUseResult` envelope as the parent sees them), see [`tool-invocation.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/tool-invocation.md). This doc starts where that one leaves off — inside the subagent trace file itself.
 
-**Runtime scope.** Verification in this doc is against the **Claude Code** runtime (v2.1.150). The Agent SDK (Python and TypeScript) writes session files in the same JSONL format but may exercise it differently — most notably, Claude Code restricts subagents from invoking further subagents, while the Agent SDK may permit nested subagent invocations. Several sections below note where this distinction matters. Sections will be updated with Agent SDK verification once representative session files are available to sample.
+**Runtime scope.** Verification in this doc is against the **Claude Code** runtime (v2.1.150). The Agent SDK (Python and TypeScript) writes session files in the same JSONL format but may exercise it differently — most notably, Claude Code restricts subagents from invoking further subagents, while the Agent SDK may permit nested subagent invocations. Several sections below note where this distinction matters. A first Agent SDK probe (Python SDK 0.2.106 / CLI 2.1.185) has now confirmed **single-level** SDK delegation reuses the Claude Code layout and linkage — see [Agent SDK parity](#agent-sdk-parity); deeper nesting and the TypeScript SDK remain unverified.
 
 ---
 
@@ -91,6 +91,35 @@ The **Agent SDK**, which writes session files in the same JSONL format, may perm
 - Some other arrangement,
 
 is **not yet verified in this reference**. Until Agent SDK session files are available for sampling, treat the flat-layout description above as Claude Code-specific. The recommended posture for tooling that needs to handle both runtimes: walk the directory structure rather than assuming a fixed depth, and use `agentId` linkages to reconstruct the call tree from data, not from path shape.
+
+---
+
+## Agent SDK parity
+
+**Verified against Agent SDK `claude-agent-sdk` 0.2.106 / `claude` CLI 2.1.185 (Python), captured 2026-06-22.** One delegation level (parent → subagent); deeper nesting still open (see [Open verification items](#open-verification-items)).
+
+A first empirical Agent SDK probe confirms that **SDK subagent traces match the Claude Code shape.** A forced delegation from a Python SDK agent produced, under the parent session directory, exactly the layout documented above:
+
+```
+<session-id>/subagents/agent-<agentId>.jsonl        # child trace
+<session-id>/subagents/agent-<agentId>.meta.json    # manifest sidecar
+```
+
+What held identically to Claude Code:
+
+- **`isSidechain: true` on every child-trace line**, the same canonical subagent marker (see [The `isSidechain` marker](#the-issidechain-marker)).
+- **Same `user`/`assistant` schema** as the main session — nothing in the child trace's message shape is SDK-specific.
+- **Parent → child linkage holds three ways**, all matching the Claude Code conventions: the parent `tool_use.id` equals the `tool_result.tool_use_id` equals the sidecar's `toolUseId`; and `toolUseResult.agentId` equals the `agent-<agentId>.jsonl` file name.
+
+What is new or SDK-marked:
+
+- **`entrypoint: "sdk-py"`** on the child-trace lines (the Python SDK marker), where a Claude Code child trace carries the interactive value. The marker propagates into the subagent trace, not just the main session.
+- **`resolvedModel` on the parent's `toolUseResult`** — the concrete model the child ran, a new rollup field (see [`data-dictionary.md` § toolUseResult envelope](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#tooluseresult-envelope); tracked as format-watch F-016).
+- **`agentId` was observed as a short hex string** (~17 hex chars) rather than a dashed UUID. The linkage semantics are unchanged — it still names the trace file and matches `toolUseResult.agentId` — only the token *shape* differed in the probe.
+
+This **partially closes** the long-standing open gap on Agent SDK nested invocations: single-level delegation is now confirmed to reuse the Claude Code layout and linkage. The probe used a *pure* SDK agent (no MCP, no inherited settings) over one delegation level, so the attribution-field placement under MCP routing, the set of `type` values in richer runs, `sessionId` sharing, and **multi-level nesting** remain unverified. The recommended posture from [Nesting](#nesting) stands: walk the directory structure and reconstruct the call tree from `agentId` linkages rather than assuming a fixed depth.
+
+The SDK parent-side envelope is shown in [`agent-sdk-invocation.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/agent-sdk-invocation.jsonl); the Claude Code child-trace shape it pairs with is [`anatomy-subagent-trace.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-subagent-trace.jsonl) (the probe confirmed the SDK child trace matches that shape, plus the `entrypoint: "sdk-py"` marker).
 
 ---
 
@@ -302,7 +331,7 @@ The same caveats from [`data-dictionary.md` § Common pitfalls in cost computati
 
 Tracked here in plain view rather than in a separate TODO file, so any reader who hits these gaps can see the same caveats:
 
-1. **Agent SDK subagent file layout, nesting, and field semantics** — Claude Code restricts subagents from invoking further subagents, so this doc's findings are necessarily limited to single-level (parent → subagent) cases produced by the Claude Code runtime. The Agent SDK may exhibit nested invocations and may differ in `sessionId` sharing, attribution-field placement, the set of `type` values, and other details. Re-verify when representative Agent SDK session files are available.
+1. **Agent SDK subagent file layout, nesting, and field semantics** — Claude Code restricts subagents from invoking further subagents, so this doc's Claude Code findings are limited to single-level (parent → subagent) cases. A first Agent SDK probe (Python SDK 0.2.106 / CLI 2.1.185, 2026-06-22) confirmed **single-level** SDK delegation reuses the Claude Code layout and `agentId` linkage (see [Agent SDK parity](#agent-sdk-parity)), so that much is no longer open. Still unverified: **multi-level nesting**, `sessionId` sharing, attribution-field placement under MCP routing, the set of `type` values in richer SDK runs, and the TypeScript SDK. Re-verify as deeper Agent SDK session files become available.
 2. **`attributionMcpServer`/`attributionMcpTool` precise trigger condition** — observed on a subset of assistant lines in MCP-using subagent flows. Whether they appear specifically on the assistant line that emits an MCP `tool_use`, on the line that follows an MCP `tool_result`, or on both, is not yet disambiguated. See [When attributionMcpServer/attributionMcpTool appear](#when-attributionmcpserverattributionmcptool-appear).
 3. **`attributionSkill` precise trigger condition and value space** — confirmed present on both subagent-trace and main-session assistant lines (so it is not a sidechain marker; see [Attribution fields](#attribution-fields)). Which turns within a Skill's execution carry it, and whether its value space is a closed vocabulary, are not yet characterized. The value (a Skill name) was not read by the observational scan.
 4. **`meta.json` `toolUseId` → parent cross-file match** — the manifest key `toolUseId` is documented from its name and the F-002 recon as the spawning parent `Agent` `tool_use` id; the scan confirmed the key's presence and string type but did not read the value (a tool-use id), so the exact cross-file match to the parent line was not machine-verified here. Confirm against a synthetic fixture before treating the linkage as guaranteed.
