@@ -278,9 +278,11 @@ See [Agent](#agent) in the envelope table above. The envelope is the parent's wi
 
 - `agentId` — the link to the trace file at `~/.claude/projects/<slug>/<session-uuid>/subagents/agent-<agentId>.jsonl`.
 - `agentType`, `prompt` — echo of the `tool_use.input` for convenient correlation without re-walking the assistant line.
-- `totalDurationMs`, `totalTokens`, `totalToolUseCount` — bulk rollup numbers.
+- `totalDurationMs`, `totalTokens`, `totalToolUseCount` — bulk rollup numbers. `totalToolUseCount` is the subagent's **own-direct** count, not cumulative across any further subagents it spawned.
 - `usage` — token breakdown in the same shape as `message.usage` (see [Usage and token accounting](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#usage-and-token-accounting)).
 - `toolStats` — a `{tool_name: count}` object summarizing what the subagent did. The single most useful field for "what did this subagent actually do" analytics.
+
+**Multi-level caveat (Agent SDK).** This whole `toolUseResult` rollup is present only on **first-level** subagent results. When a subagent itself delegates (possible in the Agent SDK, not in Claude Code), the deeper `Agent` `tool_result` carries no `toolUseResult` — only an inline `subagent_tokens: <N>` trailer — so a depth-≥2 subagent's rollup numbers must come from its own trace. See [`subagent-traces.md` § Multi-level (nested) delegation](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#multi-level-nested-delegation).
 
 ### The link to the subagent trace file
 

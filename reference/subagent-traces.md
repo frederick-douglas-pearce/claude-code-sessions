@@ -4,7 +4,7 @@ When the parent session invokes the `Agent` tool, the subagent's complete intern
 
 For the field-level union across all message types, see [`data-dictionary.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md). For the parent-side `Agent` tool walkthrough (the `tool_use`, the `tool_result`, and the `toolUseResult` envelope as the parent sees them), see [`tool-invocation.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/tool-invocation.md). This doc starts where that one leaves off — inside the subagent trace file itself.
 
-**Runtime scope.** Verification in this doc is against the **Claude Code** runtime (v2.1.150). The Agent SDK (Python and TypeScript) writes session files in the same JSONL format but may exercise it differently — most notably, Claude Code restricts subagents from invoking further subagents, while the Agent SDK may permit nested subagent invocations. Several sections below note where this distinction matters. A first Agent SDK probe (Python SDK 0.2.106 / CLI 2.1.185) has now confirmed **single-level** SDK delegation reuses the Claude Code layout and linkage — see [Agent SDK parity](#agent-sdk-parity); deeper nesting and the TypeScript SDK remain unverified.
+**Runtime scope.** Verification in this doc is against the **Claude Code** runtime (v2.1.150). The Agent SDK (Python and TypeScript) writes session files in the same JSONL format but may exercise it differently — most notably, Claude Code restricts subagents from invoking further subagents, while the Agent SDK permits nested subagent invocations. Several sections below note where this distinction matters. Agent SDK probes (Python SDK 0.2.106 / CLI 2.1.185) have now confirmed that both **single-level** and **multi-level** SDK delegation reuse the Claude Code layout and linkage, that nested delegation records a **flat** `subagents/` directory (no nested sub-directories), and that the SDK shares one `sessionId` across all nesting levels — see [Agent SDK parity](#agent-sdk-parity). The TypeScript SDK remains unverified.
 
 ---
 
@@ -84,19 +84,23 @@ This is a tool-invocation concern, not a subagent one; it is documented in full 
 
 **Claude Code (v2.1.150) restricts subagents from invoking further subagents.** As a result, every subagent invocation in a Claude Code session originates from the parent session, and every subagent trace file lives directly under `<session-uuid>/subagents/`. The "flat" layout you see in a Claude Code project is therefore a consequence of the runtime restriction, not a layout choice — there is no nesting in Claude Code because there is no nested invocation.
 
-The **Agent SDK**, which writes session files in the same JSONL format, may permit subagents to invoke further subagents — the Claude Code restriction is a property of that runtime, not of the JSONL format itself. Whether nested Agent SDK invocations produce:
+The **Agent SDK**, which writes session files in the same JSONL format, *does* permit subagents to invoke further subagents — the Claude Code restriction is a property of that runtime, not of the JSONL format itself. An Agent SDK probe that forced a two-level chain (`main → delegator → leaf`, Python SDK 0.2.106 / CLI 2.1.185, 2026-06-22) settled what that produces on disk: **a flat layout.** Every subagent, at every depth, is written as a sibling file directly under the single `<session-uuid>/subagents/` directory:
 
-- A flat `subagents/` directory containing every subagent in the call tree (with the tree reconstructed from `agentId` relationships), or
-- A nested layout such as `<session-uuid>/subagents/<agentId>/subagents/<sub-agentId>.jsonl`, or
-- Some other arrangement,
+```
+<session-uuid>/subagents/
+├── agent-<delegatorId>.jsonl        # level 1
+├── agent-<delegatorId>.meta.json
+├── agent-<leafId>.jsonl             # level 2 — SAME directory, not nested
+└── agent-<leafId>.meta.json
+```
 
-is **not yet verified in this reference**. Until Agent SDK session files are available for sampling, treat the flat-layout description above as Claude Code-specific. The recommended posture for tooling that needs to handle both runtimes: walk the directory structure rather than assuming a fixed depth, and use `agentId` linkages to reconstruct the call tree from data, not from path shape.
+There are **no** nested `subagents/<agentId>/subagents/…` directories — a deeper call chain just yields more siblings in the same folder. The directory shape therefore carries **no depth or parent information**: the call tree must be reconstructed from the data (see [Reconstructing a multi-level call tree](#reconstructing-a-multi-level-call-tree)). This confirms the recommended posture for tooling that must handle both runtimes — **walk the flat `subagents/` directory and reconstruct the call tree from `toolUseId`/`agentId` linkages, never from path shape.** The TypeScript SDK is not yet sampled, but the format is shared; treat the flat layout as the expected arrangement until shown otherwise.
 
 ---
 
 ## Agent SDK parity
 
-**Verified against Agent SDK `claude-agent-sdk` 0.2.106 / `claude` CLI 2.1.185 (Python), captured 2026-06-22.** One delegation level (parent → subagent); deeper nesting still open (see [Open verification items](#open-verification-items)).
+**Verified against Agent SDK `claude-agent-sdk` 0.2.106 / `claude` CLI 2.1.185 (Python), captured 2026-06-22.** Covers single-level (parent → subagent) and a forced two-level chain (`main → delegator → leaf`). The TypeScript SDK is still unsampled (see [Open verification items](#open-verification-items)).
 
 A first empirical Agent SDK probe confirms that **SDK subagent traces match the Claude Code shape.** A forced delegation from a Python SDK agent produced, under the parent session directory, exactly the layout documented above:
 
@@ -120,6 +124,33 @@ What is new or SDK-marked:
 This **partially closes** the long-standing open gap on Agent SDK nested invocations: single-level delegation is now confirmed to reuse the Claude Code layout and linkage. The probe used a *pure* SDK agent (no MCP, no inherited settings) over one delegation level, so the attribution-field placement under MCP routing, the set of `type` values in richer runs, `sessionId` sharing, and **multi-level nesting** remain unverified. The recommended posture from [Nesting](#nesting) stands: walk the directory structure and reconstruct the call tree from `agentId` linkages rather than assuming a fixed depth.
 
 The SDK parent-side envelope is shown in [`agent-sdk-invocation.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/agent-sdk-invocation.jsonl); the Claude Code child-trace shape it pairs with is [`anatomy-subagent-trace.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-subagent-trace.jsonl) (the probe confirmed the SDK child trace matches that shape, plus the `entrypoint: "sdk-py"` marker).
+
+### Multi-level (nested) delegation
+
+The Agent SDK lets a subagent invoke its own subagent — a layout **unobservable in Claude Code**, which forbids it. A probe that forced `main → delegator → leaf` pinned down four things beyond the single-level parity above:
+
+1. **The layout is flat (no nested directories).** Every subagent at every depth is a sibling under the one `<session-uuid>/subagents/` directory — see [Nesting](#nesting). `sessionId` is the same across all levels (the SDK shares the main session's id; see the [`sessionId` note](#parent--subagent-linkage) for the contrast with Claude Code), and `entrypoint: "sdk-py"` is carried throughout.
+
+2. **Parent linkage is by-data, not by-path.** Because the directory is flat, the only thing that says which agent spawned which is the `toolUseId` in each subagent's `.meta.json` sidecar — and that id names a `tool_use` block that lives in the *spawning agent's* trace, which at depth ≥ 2 is **another subagent file, not the main session.** See [Reconstructing a multi-level call tree](#reconstructing-a-multi-level-call-tree).
+
+3. **The `toolUseResult` rollup is top-level only.** The rich rollup envelope (`totalTokens`, `totalToolUseCount`, `resolvedModel`, `toolStats`, …) is attached only on the **main session's** `user` line carrying a *level-1* result. At depth ≥ 2 the spawning `Agent` `tool_result` block carries **no** `toolUseResult` sibling — only an inline `subagent_tokens: <N>` text trailer in the result content. Metrics for a depth-≥2 subagent must be derived from that subagent's own trace (or the trailer), not read off a parent envelope the way level-1 metrics can.
+
+   | Spawn | Where its `tool_result` lives | `toolUseResult`? |
+   |---|---|---|
+   | main → delegator (level 1) | main `<session-uuid>.jsonl` | **yes** (full rollup) |
+   | delegator → leaf (level 2) | `agent-<delegatorId>.jsonl` | **no** (only a `subagent_tokens` trailer) |
+
+4. **Counter/token semantics.** `totalToolUseCount` is **own-direct, not cumulative** — a delegator reported only the tool calls it made itself (including its own `Agent` call) and **excluded** the leaf's tool calls. `totalTokens` reads as directionally inclusive of descendants but does **not** equal a raw sum of per-turn `message.usage` (cache accounting differs); settle the exact inclusivity rule against real bytes before summing across levels, or a multi-level aggregator will double-count. `resolvedModel` reports the **child's** resolved model, not the parent's — in a sonnet-parent / haiku-child run it read `claude-haiku-4-5-20251001`.
+
+### Reconstructing a multi-level call tree
+
+The flat directory gives you the *set* of agents but not the *edges*. Build the tree from data:
+
+1. Index every `tool_use.id` → `(containing trace file, that file's agentId)` across **all** files — the main session JSONL **and** every `agent-<id>.jsonl`. (A subagent's own `agentId` is on each of its trace lines and in its file name.)
+2. For each subagent, read `toolUseId` from its `agent-<id>.meta.json` and look it up in that index. The trace that *emitted* that `tool_use` is the parent; its `agentId` (or "main session," if the id resolved there) is the parent agent.
+3. The root subagents are those whose `toolUseId` resolved into the main session JSONL; everything else hangs off another subagent.
+
+What is **not** a cross-file parent link, despite looking like one: `attributionAgent` is the agent's **own** type name (a self-label), and `sourceToolAssistantUUID` / `parentUuid` are **intra-file** message-threading pointers only (see [`sourceToolAssistantUUID` is an internal pairing key](#sourcetoolassistantuuid-is-an-internal-pairing-key--not-a-parent-back-pointer)). Keying a multi-level linker on any of those silently flattens a 3-level tree to 2.
 
 ---
 
@@ -171,9 +202,11 @@ For the parent side, see [`anatomy-agent-invocation.jsonl`](https://github.com/f
 
 There is **no per-line field on subagent trace lines that points at the parent's session UUID or the parent's invoking `assistant` `uuid`.** Within the trace itself, the reverse linkage is reconstructed from the file system: the subagent file lives at `~/.claude/projects/<slug>/<session-uuid>/subagents/agent-<agentId>.jsonl`, and `<session-uuid>` is the parent's sessionId.
 
-The one in-data exception sits *beside* the trace, not inside it: the `agent-<agentId>.meta.json` manifest records the parent `Agent` `tool_use` id as `toolUseId` (see [The `meta.json` manifest](#the-metajson-manifest)). That names the exact parent `tool_use` the run answers — a link the trace lines alone don't carry. So a precise statement is: the trace *lines* carry only the forward `agentId`; the reverse pointer lives in the manifest sidecar and the directory path, not in the trace's line data.
+The one in-data exception sits *beside* the trace, not inside it: the `agent-<agentId>.meta.json` manifest records the parent `Agent` `tool_use` id as `toolUseId` (see [The `meta.json` manifest](#the-metajson-manifest)). That names the exact parent `tool_use` the run answers — a link the trace lines alone don't carry. So a precise statement is: the trace *lines* carry only the forward `agentId`; the reverse pointer lives in the manifest sidecar and the directory path, not in the trace's line data. In a **multi-level** SDK chain, that `toolUseId` may point at a `tool_use` emitted in *another subagent's* trace rather than the main session — so resolving it requires indexing tool-use ids across every file, not just the parent session (see [Reconstructing a multi-level call tree](#reconstructing-a-multi-level-call-tree)).
 
-Importantly, **`sessionId` is NOT shared between parent and subagent in Claude Code.** Each subagent invocation has its **own** sessionId — distinct from the parent's. The subagent files in a parent's `subagents/` subdirectory have their own sessionIds, and the parent's sessionId appears only as the *directory name* containing them. Whether the Agent SDK follows the same convention is not yet verified.
+Importantly, **`sessionId` is NOT shared between parent and subagent in Claude Code.** Each subagent invocation has its **own** sessionId — distinct from the parent's. The subagent files in a parent's `subagents/` subdirectory have their own sessionIds, and the parent's sessionId appears only as the *directory name* containing them.
+
+**The Agent SDK diverges here.** In the nested SDK probe (Python SDK 0.2.106 / CLI 2.1.185), every trace at every level — main, delegator, and leaf — carried the **same** `sessionId` (the main session's), which also matched the `<session-uuid>` directory name. So under the SDK the directory name and the in-line `sessionId` coincide, and `sessionId` cannot tell a level-1 subagent from a level-2 one — use the file's `agentId` and the `toolUseId` join for that. Whether the TypeScript SDK matches, and whether this Python-SDK behavior is stable across versions, is not yet confirmed.
 
 ### `sourceToolAssistantUUID` is an internal pairing key — NOT a parent back-pointer
 
@@ -331,7 +364,7 @@ The same caveats from [`data-dictionary.md` § Common pitfalls in cost computati
 
 Tracked here in plain view rather than in a separate TODO file, so any reader who hits these gaps can see the same caveats:
 
-1. **Agent SDK subagent file layout, nesting, and field semantics** — Claude Code restricts subagents from invoking further subagents, so this doc's Claude Code findings are limited to single-level (parent → subagent) cases. A first Agent SDK probe (Python SDK 0.2.106 / CLI 2.1.185, 2026-06-22) confirmed **single-level** SDK delegation reuses the Claude Code layout and `agentId` linkage (see [Agent SDK parity](#agent-sdk-parity)), so that much is no longer open. Still unverified: **multi-level nesting**, `sessionId` sharing, attribution-field placement under MCP routing, the set of `type` values in richer SDK runs, and the TypeScript SDK. Re-verify as deeper Agent SDK session files become available.
+1. **Agent SDK subagent file layout, nesting, and field semantics** — Claude Code restricts subagents from invoking further subagents, so this doc's Claude Code findings are limited to single-level (parent → subagent) cases. Agent SDK probes (Python SDK 0.2.106 / CLI 2.1.185, 2026-06-22) confirmed both **single-level** and **multi-level** SDK delegation reuse the Claude Code layout and `agentId` linkage, that nested delegation records a **flat** `subagents/` directory, and that the SDK **shares one `sessionId` across all levels** (a divergence from Claude Code) — see [Agent SDK parity](#agent-sdk-parity). Those are no longer open. Still unverified: attribution-field placement under MCP routing, the set of `type` values in richer SDK runs, the exact `totalTokens` cross-level inclusivity rule, and the **TypeScript SDK** throughout. Re-verify as TS-SDK and MCP-bearing session files become available.
 2. **`attributionMcpServer`/`attributionMcpTool` precise trigger condition** — observed on a subset of assistant lines in MCP-using subagent flows. Whether they appear specifically on the assistant line that emits an MCP `tool_use`, on the line that follows an MCP `tool_result`, or on both, is not yet disambiguated. See [When attributionMcpServer/attributionMcpTool appear](#when-attributionmcpserverattributionmcptool-appear).
 3. **`attributionSkill` precise trigger condition and value space** — confirmed present on both subagent-trace and main-session assistant lines (so it is not a sidechain marker; see [Attribution fields](#attribution-fields)). Which turns within a Skill's execution carry it, and whether its value space is a closed vocabulary, are not yet characterized. The value (a Skill name) was not read by the observational scan.
 4. **`meta.json` `toolUseId` → parent cross-file match** — the manifest key `toolUseId` is documented from its name and the F-002 recon as the spawning parent `Agent` `tool_use` id; the scan confirmed the key's presence and string type but did not read the value (a tool-use id), so the exact cross-file match to the parent line was not machine-verified here. Confirm against a synthetic fixture before treating the linkage as guaranteed.
