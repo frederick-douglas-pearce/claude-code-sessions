@@ -84,6 +84,7 @@ Examples:
 
 | Date | URL | Title | Takeaway | Tag | Candidate ref |
 |---|---|---|---|---|---|
+| 2026-06-22 | agentfluent `research/agent-sdk-probe/FINDINGS.md` (#518, #522) | Agent SDK session-data probe | Empirical Python Agent SDK probe (SDK 0.2.106 / CLI 2.1.185): SDK writes the same JSONL to the same place, same subagent/spill layout. Confirms `entrypoint: "sdk-py"` and `promptSource: "sdk"` discriminators; surfaces net-new `resolvedModel` on `toolUseResult`. Facts documented here per the canonical-format rule (#132). | candidate-added | F-016 |
 | 2026-06-09 | https://github.com/anthropics/claude-code/issues/16944 | [DOCS] Document subagent auto-compaction behavior (compactMetadata and preTokens) | Closed issue confirming `system` line with `subtype: "compact_boundary"` carrying `compactMetadata: {trigger, preTokens}` and `isCompactSummary` on subsequent injected summary; observed in v2.1.1+. Corroborates F-005 with specific `compact_boundary` subtype name. | already-covered | F-005 |
 | 2026-06-09 | https://github.com/anthropics/claude-code/issues/23948 | Bug: `<persisted-output>` tool results written to session JSONL at full size | Closed duplicate; confirms `tool-results/<tool-use-id>.txt` sidecar path and `<persisted-output>` text wrapper in `tool_result.content`. Reported v2.1.17; indicates feature predates v2.1.150. F-001 pointer field is plain-text path in content, not a JSON key — needs scanner confirmation. | already-covered | F-001 |
 | 2026-06-09 | https://raw.githubusercontent.com/anthropics/claude-agent-sdk-typescript/main/CHANGELOG.md | Claude Agent SDK TypeScript CHANGELOG | SDK TS v0.2.162 adds `stop_reason: 'refusal'` + `stop_details` on assistant; v0.2.152 adds `MessageDisplay` hook event; v0.2.108 adds `system/status: 'requesting'` message; v0.2.105 adds `system/memory_recall` and `memory_paths` on `system/init`. SDK-only changes; Claude Code parity TBD. | candidate-added | F-015 |
@@ -308,3 +309,17 @@ Examples:
 - **Sibling-project impact:** AgentFluent should handle `stop_reason: 'refusal'` to avoid miscounting error turns as normal completions.
 - **Decision (2026-06-10):** defer — Claude Code parity unconfirmed; verify via scanner before acting
 - **Status:** queued
+
+### F-016: `resolvedModel` on the `toolUseResult` Agent envelope
+
+- **Source:** observed-in-fixture — AgentFluent Agent SDK probe (`research/agent-sdk-probe/FINDINGS.md`, agentfluent #522), Python SDK `claude-agent-sdk` 0.2.106 / `claude` CLI 2.1.185, captured 2026-06-22
+- **Added:** 2026-06-22
+- **Change type:** `field-added`
+- **Affected message types:** `user`/`tool_result` — the parent's top-level `toolUseResult` envelope (Agent tool)
+- **Summary:** The `toolUseResult` envelope on a parent `Agent`-tool line carries a new `resolvedModel` field: the concrete model the subagent actually ran, after alias resolution (e.g., `"claude-haiku-4-5-20251001"`). It sits alongside the documented Agent-tool rollup keys (`agentId`, `agentType`, `totalTokens`, `toolStats`, `usage`, …) and lets a parser read the child's model from the parent envelope without opening the trace file. First observed in the Agent SDK probe; not previously documented in this reference. Claude Code interactive parity (whether CC also emits `resolvedModel`) is not yet confirmed by a local scan — likely present, since the SDK reuses the Claude Code format, but unverified.
+- **Reference impact:** `reference/data-dictionary.md` (`toolUseResult` envelope table); `reference/subagent-traces.md` (Agent SDK parity note).
+- **Post potential:** `format-update` — feeds the Agent SDK coda (outline Part 8) and the token/model-routing thread.
+- **Sibling-project impact:** AgentFluent can read the concrete child model from the parent envelope for model-routing/cost attribution without descending into the trace file.
+- **Decision (2026-06-22):** approve — net-new field; document in reference (data-dictionary + subagent-traces) with the SDK version pin
+- **Promotion (2026-06-22):** approve → documented in `reference/data-dictionary.md` (toolUseResult envelope) and `reference/subagent-traces.md` (Agent SDK parity) via #132; cited `fixtures/synthetic/agent-sdk-invocation.jsonl`. CC interactive parity left as a follow-up scan item.
+- **Status:** promoted

@@ -6,7 +6,7 @@ Reference docs are versioned **per section**, not per document — a single sect
 
 This doc grew out of [AgentFluent's CLAUDE.md "JSONL Data Format" section](https://github.com/frederick-douglas-pearce/agentfluent/blob/main/CLAUDE.md#jsonl-data-format), with additional fields and message types observed during verification against current sessions. Where AgentFluent's notes and observed behavior diverge, observed behavior wins.
 
-**Runtime scope.** Field-level verification in this doc is against the **Claude Code** runtime (v2.1.150). The same JSONL format is produced by the **Agent SDK** (Python and TypeScript), but the two runtimes do not necessarily exercise the format identically — for example, Claude Code restricts subagents from invoking further subagents, while the Agent SDK may not. Where this distinction matters for a specific claim, the section notes it inline. Reference docs will be updated with Agent SDK verification once representative session files are available to sample.
+**Runtime scope.** Field-level verification in this doc is against the **Claude Code** runtime (v2.1.150). The same JSONL format is produced by the **Agent SDK** (Python and TypeScript), but the two runtimes do not necessarily exercise the format identically — for example, Claude Code restricts subagents from invoking further subagents, while the Agent SDK may not. Where this distinction matters for a specific claim, the section notes it inline. A first empirical **Agent SDK probe** (Python SDK `claude-agent-sdk` 0.2.106 / `claude` CLI 2.1.185, captured 2026-06-22) has now confirmed the SDK writes the same format to the same location, with the same subagent/spill overflow layout, through one level of delegation. The SDK-specific findings it pinned down — `entrypoint: "sdk-py"`, `promptSource`, and `toolUseResult.resolvedModel` — are noted inline below with that SDK/CLI version pin (distinct from the v2.1.150 Claude Code baseline). Deeper nesting and the TypeScript SDK remain unverified.
 
 ---
 
@@ -66,12 +66,13 @@ Some fields appear on most or all line types; others are type-specific. The tabl
 | `isSidechain` | boolean | `true` for every line inside a subagent trace file; `false` (or absent) in parent session files. The canonical signal that you're reading a subagent trace, not a parent session. |
 | `cwd` | string | Working directory at the time the line was written. Can change mid-session if the user `cd`s. |
 | `version` | string | Claude Code version (e.g., `"2.1.150"`) at the time the line was written. Can change mid-session if Claude Code is updated. |
-| `entrypoint` | string | How the session was started — observed values include `"claude"` (interactive CLI), but other entrypoints likely exist for the SDK and web modes. Not documented in AgentFluent's notes; added to this reference based on v2.1.150 observation. |
+| `entrypoint` | string | How the session was started. Observed `"claude"` for the interactive CLI (v2.1.150 baseline). The **Python Agent SDK** writes `"sdk-py"` — verified against an Agent SDK probe session (SDK 0.2.106 / CLI 2.1.185), present on every `user`/`assistant` line; this is the intrinsic discriminator separating an SDK session from an interactive one (`userType` is `"external"` for both, so it does not discriminate). The `-py` suffix implies the TypeScript SDK likely emits `"sdk-ts"` — not yet verified. The same probe observed interactive sessions carrying `"cli"` (not `"claude"`) at CLI 2.1.185, suggesting the interactive value may have shifted since the v2.1.150 baseline; re-verify on the next baseline bump. Not documented in AgentFluent's notes; added to this reference based on v2.1.150 observation. |
 | `gitBranch` | string | The git branch active in `cwd` at the time the line was written. Empty string when not in a git repository. Powers the session picker's `Ctrl+B` branch filter. |
 | `requestId` | string | An identifier the client uses to correlate requests with model responses. Present on `assistant` lines and some others. |
 | `userType` | string | Identifies the user/runtime context — observed value `"external"` for normal CLI usage. |
+| `promptSource` | string | How the prompt that this line carries originated. Appears on `user` **prompt** lines (not on tool-result `user` lines). Observed values: `"typed"` (interactively typed prompt), `"sdk"` (a programmatic Agent SDK prompt via `query()` / `ClaudeAgentOptions` — verified against an Agent SDK probe session, SDK 0.2.106 / CLI 2.1.185), and `"synthesized"`-style sources for injected prompts such as compaction summaries (see the compaction work). A corroborating SDK discriminator alongside `entrypoint`, but narrower — it is present only on prompt lines, so key on `entrypoint` for the robust SDK-vs-interactive test. |
 
-Some fields documented in AgentFluent's notes (`isSidechain`, `cwd`, `version`) hold; the four above (`entrypoint`, `gitBranch`, `requestId`, `userType`) are additions observed in v2.1.150 that AgentFluent's notes do not list.
+Some fields documented in AgentFluent's notes (`isSidechain`, `cwd`, `version`) hold; the rest above (`entrypoint`, `gitBranch`, `requestId`, `userType`, `promptSource`) are additions this reference observed beyond those notes — `entrypoint`'s `"sdk-py"` value and `promptSource` were pinned by the Agent SDK probe (SDK 0.2.106 / CLI 2.1.185); the others against v2.1.150.
 
 ---
 
@@ -185,6 +186,7 @@ The shape is **tool-dependent** — different tools populate different keys. A u
 | `usage` | object | Multi-step tools | Token rollup for the tool invocation. Same shape as [`message.usage`](#usage-and-token-accounting). |
 | `agentId` | string | Agent tool | UUID linking to the subagent trace file at `~/.claude/projects/<slug>/<session-uuid>/subagents/agent-<agentId>.jsonl`. |
 | `agentType` | string | Agent tool | The `subagent_type` that ran (matches the `Agent` tool's input). |
+| `resolvedModel` | string | Agent tool | The concrete model the subagent actually ran, after alias resolution (e.g., `"claude-haiku-4-5-20251001"`). Lets a parser read the child's model from the parent envelope without opening the trace file. First observed via the Agent SDK probe (SDK 0.2.106 / CLI 2.1.185); tracked as format-watch F-016. |
 | `prompt` | string | Agent tool | The prompt passed to the subagent. |
 | `totalDurationMs` | number | Agent tool | Wall-clock time the subagent ran. |
 | `totalTokens` | number | Agent tool | Total tokens consumed across the subagent's entire run. |
@@ -209,7 +211,7 @@ The shape is **tool-dependent** — different tools populate different keys. A u
 
 This envelope is one of the highest-information surfaces in the format. The Agent-tool subset (`agentId`, `totalDurationMs`, `totalTokens`, `toolStats`, `agentType`, `prompt`) is the most stable and most analyzed — it's what AgentFluent uses for agent-quality diagnostics. Full per-tool walkthroughs belong in [`tool-invocation.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/tool-invocation.md) (forthcoming).
 
-See [`anatomy-agent-invocation.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-agent-invocation.jsonl) for an end-to-end synthetic Agent invocation including the `toolUseResult` envelope.
+See [`anatomy-agent-invocation.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-agent-invocation.jsonl) for an end-to-end synthetic Agent invocation including the `toolUseResult` envelope. For the **Agent SDK** form of the same envelope — carrying `resolvedModel`, with `entrypoint: "sdk-py"` and `promptSource: "sdk"` on the surrounding lines — see [`agent-sdk-invocation.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/agent-sdk-invocation.jsonl).
 
 ### `system`
 
