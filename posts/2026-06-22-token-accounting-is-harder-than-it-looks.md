@@ -144,7 +144,7 @@ The [reference doc](https://github.com/frederick-douglas-pearce/claude-code-sess
 
 **Pattern B, full breakdown with per-turn subagent detail.** Read the parent session's `assistant` lines for the parent-model cost. For any subagent invocation, read the subagent trace file's per-turn `message.usage` _instead of_ the parent rollup for that subagent. Concretely: include the `toolUseResult.usage` rollups on parent `user` lines, but exclude the one on each subagent-result line, because the subagent's tokens are already covered by summing its trace. This buys per-turn breakdown at the cost of file IO. It also lets you separate Opus cost from Sonnet cost, or pinpoint which turn in the subagent run was expensive.
 
-**Pattern C, just the subagent's cost.** Sum `message.usage` across the subagent trace file's `assistant` lines. Or, equivalently, read `toolUseResult.usage` from the parent's result line for that subagent. Either source gives the same number; they're verified to match in the fixtures and should match in production. Use whichever is more convenient for the question you're asking.
+**Pattern C, just the subagent's tokens.** Sum `message.usage` across the subagent trace file's `assistant` lines. Or, equivalently, read `toolUseResult.usage` from the parent's result line for that subagent. Either source gives the same token counts; they're verified to match in the fixtures and should match in production. For cost, though, the two are not interchangeable: only the trace records the model on each turn, so per-model pricing needs the trace, not the rollup. Reach for the rollup when you want the subagent's token total, the trace when you want its cost.
 
 ## Cache efficiency as a direct read from the JSONL
 
@@ -177,12 +177,15 @@ The same analysis applies to parent-session `assistant` lines. A long coding ses
 Here is a snippet that avoids the double-count and respects the token-type distinction. It produces a per-turn breakdown for a parent session, one row per `assistant` line, with the model and all four token kinds, so you can bring your own pricing table:
 
 ```bash
-# Per-turn token breakdown from the parent session, skipping sidechain lines.
+# Per-turn token breakdown from the parent session, skipping sidechain
+# and failed-call lines (assistant lines flagged isApiErrorMessage: true).
 # Columns: timestamp, model, input, output, cache_creation, cache_read.
 # Needs jq; on Windows see "winget install jqlang.jq".
 cat ~/.claude/projects/<slug>/<session-uuid>.jsonl \
   | jq -r '
-    select(.type? == "assistant" and (.isSidechain? // false) == false)
+    select(.type? == "assistant"
+           and (.isSidechain? // false) == false
+           and (.isApiErrorMessage? // false) == false)
     | [
         .timestamp,
         (.message.model // "unknown"),
@@ -217,6 +220,8 @@ cat ~/.claude/projects/<slug>/<session-uuid>.jsonl \
 ```
 
 Combine the two outputs and you have a complete per-turn register: every parent model turn with its model identity, and every subagent invocation as a single rollup row. Multiply each row's token counts by the per-type, per-model rate for that row's model, and you have an accurate cost estimate.
+
+One caveat about that rollup row: it carries no model. The rollup totals the subagent's tokens, and even its `service_tier`, but never records which model produced them, and per-token rates are per-model. So you can only price that row if you already know the subagent's model. When a subagent runs on a different model than the parent, or on more than one, switch to Pattern B and read the trace, where every turn carries its own `message.model`.
 
 What you should not do: pipe both of those queries _and_ the subagent trace file through a single sum. That's the double-count.
 
