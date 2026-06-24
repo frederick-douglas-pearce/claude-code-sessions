@@ -126,13 +126,15 @@ And here are the per-turn values from the 8 `assistant` lines in the subagent tr
 | 8 (summary)   | 3      | 300       | 1,500          | 27,000      |
 | **Sum**       | **20** | **1,000** | **29,000**     | **150,000** |
 
-The sums match the rollup exactly. And 20 + 1,000 + 29,000 + 150,000 = 180,020, the same `totalTokens` the parent line reports.
+The per-turn sums match the rollup exactly: 20 + 1,000 + 29,000 + 150,000 = 180,020, the same `totalTokens` the parent line reports.
 
-Sum both sources and you report 360,040 tokens for work that consumed 180,020. The inflation is roughly 2x.
+Sum both sources and you report 360,040 tokens for work that consumed 180,020. Exactly double.
 
 If you have never opened a subagent trace file, you don't know the rollup is a re-statement of what's already in the trace. The numbers look plausible. A session that delegated one subagent run quietly doubles its reported token count.
 
 One thing worth stating explicitly. The parent's _own_ assistant turn, the one on `claude-opus-4-7` that emitted the `Agent` call, is separate from all of this. Its usage (`input_tokens` 42, `output_tokens` 89, `cache_creation_input_tokens` 3,450, `cache_read_input_tokens` 8,200) is real parent-session cost, distinct from the subagent work, and it is _not_ part of the double-count. The double-count is specifically the subagent rollup on the parent's `user` line versus the per-turn usage inside the subagent trace. The parent's own model turns are not duplicated anywhere.
+
+The rule: count each subagent's tokens once, from the trace or from the rollup, never both.
 
 ## The three aggregation patterns
 
@@ -143,8 +145,6 @@ The [reference doc](https://github.com/frederick-douglas-pearce/claude-code-sess
 **Pattern B, full breakdown with per-turn subagent detail.** Read the parent session's `assistant` lines for the parent-model cost. For any subagent invocation, read the subagent trace file's per-turn `message.usage` _instead of_ the parent rollup for that subagent. Concretely: include `toolUseResult.usage` on parent `user` lines for non-subagent tool calls, but exclude it for subagent-result lines, because those are already covered by summing the trace. This buys per-turn breakdown at the cost of file IO. It also lets you separate Opus cost from Sonnet cost, or pinpoint which turn in the subagent run was expensive.
 
 **Pattern C, just the subagent's cost.** Sum `message.usage` across the subagent trace file's `assistant` lines. Or, equivalently, read `toolUseResult.usage` from the parent's result line for that subagent. Either source gives the same number; they're verified to match in the fixtures and should match in production. Use whichever is more convenient for the question you're asking.
-
-The discipline that ties all three together: pick one source per subagent, never both.
 
 ## Cache efficiency as a direct read from the JSONL
 
