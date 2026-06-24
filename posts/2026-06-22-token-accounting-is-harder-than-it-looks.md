@@ -32,21 +32,23 @@ Part 2 introduced the `usage` object. Here it is from the subagent trace's first
 }
 ```
 
-Four fields, four distinct billing categories. Treating them as interchangeable, adding them into one pile, gives you a number that has no clean correspondence to what you were actually charged.
+Four fields, four distinct billing categories. Just adding them together gives you a number that can't tell you what you were actually charged.
 
-Here is why each one matters:
+Here is what each one means:
 
-**`input_tokens`** is the fresh prompt tokens: the portion of the context that was not served from cache. This is the baseline. Call it 1x.
+**`input_tokens`** is the fresh prompt tokens: the portion of the context that was not read from cache or written to cache. This is the baseline. Call it 1x.
 
-**`output_tokens`** is what the model generated. Output is priced at several times the input rate. The exact multiplier varies by model, but generating a token costs meaningfully more than reading one in. A turn that produces 300 output tokens costs more in output alone than hundreds of input tokens would.
+**`output_tokens`** is what the model generated. Output is priced at several times the input rate. The exact multiplier varies by model, but generating a token costs meaningfully more than reading one in. A turn that generates just 300 output tokens costs as much as about 1,500 input tokens would.
 
 **`cache_creation_input_tokens`** is the count of tokens written to the prompt cache on this turn. This costs a premium on top of the base input rate, roughly 1.25x. You pay a little extra now so future turns can read cheaply.
 
 **`cache_read_input_tokens`** is the count of tokens served from cache. This is priced at roughly one-tenth the base input rate. Reading 27,000 tokens from cache costs about the same as reading 2,700 fresh tokens.
 
-Now look at the subagent run as a whole. Across 8 model turns, the `pm` agent consumed 20 fresh input tokens, produced 1,000 output tokens, wrote 29,000 tokens to cache, and read 150,000 tokens from cache. The naive sum is 180,020, the same `totalTokens` the parent rollup reports. But the cost picture is nothing like "180,020 tokens at input price."
+These three input fields are not just your new message. Together they account for everything the model reads on that turn: the system prompt, the tool definitions, the entire conversation so far, and whatever you just typed. Every one of those tokens lands in exactly one bucket: read from cache, written to cache, or left as fresh uncached input. That last bucket is usually small. `input_tokens` can be only a few tokens when the turn's full context runs to tens of thousands of tokens. In the `usage` object above, that context was about 13,000 tokens, nearly all written to cache, with just 3 left as fresh input.
 
-The 150,000 cache reads are cheap. The 29,000 cache writes are slightly expensive. The 1,000 output tokens are the expensive line, because output costs several times what input does. The 20 fresh input tokens are nearly negligible. Sum all four kinds into one number and the cache reads dominate the total while being the cheapest tokens in the mix, and the output tokens look like a rounding error in the count while being the most expensive per token. The spread from cheapest to dearest is wide: a cache read runs about a tenth the price of fresh input, an output token several times more, so the least and most expensive tokens in the same session can differ by around 50x.
+Now look at the subagent run as a whole. Across 8 model turns, the `pm` agent consumed 20 fresh input tokens, produced 1,000 output tokens, wrote 29,000 tokens to cache, and read 150,000 tokens from cache. Add the four kinds together and you get 180,020, the same `totalTokens` the parent rollup reports. But the cost picture is nothing like "180,020 tokens at input price."
+
+The 150,000 cache reads are cheap, the 29,000 cache writes a little more, the 1,000 output tokens the costly line, the 20 fresh input tokens negligible. Notice the inversion: the cache reads dominate the count while being the cheapest per token, and the output tokens look like a rounding error in the count while being the most expensive. That is the whole problem with a single total. The cost per token spread runs about 50x: a cache read at roughly a tenth the price of fresh input, an output token several times more.
 
 The payoff of distinguishing the four kinds is concrete: this run is overwhelmingly cache reads, so its real cost is far below what "180K tokens at input price" implies. The JSONL tells you that directly, but only if you read all four fields.
 
@@ -58,7 +60,7 @@ The rule: check `service_tier` before applying any pricing. The JSONL records it
 
 ## The third confounder: per-model pricing
 
-This is where the fixtures become useful, because they involve two different models.
+This is illustrated in the fixtures, because they involve two different models.
 
 The parent's own `assistant` turn, the one that decided to delegate and emitted the `Agent` tool call, ran on `claude-opus-4-7`. Its usage:
 
@@ -128,7 +130,7 @@ The sums match the rollup exactly. And 20 + 1,000 + 29,000 + 150,000 = 180,020, 
 
 Sum both sources and you report 360,040 tokens for work that consumed 180,020. The inflation is roughly 2x.
 
-This is the part that makes the bug persistent: the inflated total does not look obviously wrong. If you have never opened a subagent trace file, you don't know the rollup is a re-statement of what's already in the trace. The numbers look plausible. A session that delegated one subagent run quietly doubles its reported token count.
+If you have never opened a subagent trace file, you don't know the rollup is a re-statement of what's already in the trace. The numbers look plausible. A session that delegated one subagent run quietly doubles its reported token count.
 
 One thing worth stating explicitly. The parent's _own_ assistant turn, the one on `claude-opus-4-7` that emitted the `Agent` call, is separate from all of this. Its usage (`input_tokens` 42, `output_tokens` 89, `cache_creation_input_tokens` 3,450, `cache_read_input_tokens` 8,200) is real parent-session cost, distinct from the subagent work, and it is _not_ part of the double-count. The double-count is specifically the subagent rollup on the parent's `user` line versus the per-turn usage inside the subagent trace. The parent's own model turns are not duplicated anywhere.
 
