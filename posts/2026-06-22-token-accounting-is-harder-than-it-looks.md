@@ -84,7 +84,7 @@ The subagent's eight turns all ran on `claude-sonnet-4-6`. Its cumulative usage,
 }
 ```
 
-Same four fields, different models, different per-token prices. Opus and Sonnet do not cost the same per million tokens, and the gap is large. If you aggregate across both and apply a single rate, you will be wrong, and the direction of the error depends on which model is more expensive for which token type.
+Same four fields, different models, different per-token prices. Opus costs more than Sonnet per million tokens across every token type, and the gap is significant. Aggregate across both and apply a single rate, and you will be wrong. Whether you over- or under-count depends on which model's rate you borrowed and how the tokens split between the two.
 
 The `message.model` field on every `assistant` line is why this is fixable. The JSONL records the model per turn. A cost computation that reads `message.model`, looks up the current per-model rate for each token type, computes per-turn costs, and then sums those will be accurate. One that applies a flat rate will not be.
 
