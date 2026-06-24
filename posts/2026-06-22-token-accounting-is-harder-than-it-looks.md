@@ -54,7 +54,7 @@ The payoff of distinguishing the four kinds is concrete: this run is overwhelmin
 
 ## The second confounder: `service_tier`
 
-The data dictionary documents a `service_tier` field on the `usage` object. It records which billing tier served the request, for example `"standard"` or `"priority"`, and that matters because Claude Code's priority and other non-standard tiers carry different pricing. The minimal fixtures here don't include it (they're synthetic, trimmed to the four token kinds), but in your own sessions it's present, and two turns with identical token counts on different tiers cost different amounts.
+The data dictionary documents a `service_tier` field on the `usage` object. It records which billing tier served the request, usually `"standard"`, sometimes `"priority"` or another non-standard tier. That matters because non-standard tiers are priced differently, so two turns with identical token counts can cost different amounts. The minimal fixtures here don't include the field (they're synthetic, trimmed to the four token kinds), but your own sessions carry it on every turn.
 
 The rule: check `service_tier` before applying any pricing. The JSONL records it per turn. A cost computation that ignores the field will misprice priority-tier usage.
 
