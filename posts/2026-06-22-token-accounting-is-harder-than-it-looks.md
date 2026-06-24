@@ -148,7 +148,7 @@ The [reference doc](https://github.com/frederick-douglas-pearce/claude-code-sess
 
 ## Cache efficiency as a direct read from the JSONL
 
-There's a useful signal buried in the four token kinds that goes beyond cost. The ratio of `cache_read_input_tokens` to `cache_creation_input_tokens` across a session's turns tells you whether the session is amortizing its context cost.
+There's a useful signal buried in the four token kinds that goes beyond cost. The ratio of `cache_read_input_tokens` to `cache_creation_input_tokens` across a session's turns tells you whether the session is reusing cached context or rebuilding it every turn.
 
 In the subagent trace the pattern is visible turn by turn. Turn 1 writes 13,000 tokens and reads 0, because the cache is cold at the start of the run. Turn 2 reads 13,000 and writes 4,000, because the context from turn 1 is now cached. By turn 8 the subagent is reading 27,000 tokens from cache and writing only 1,500. The incremental writes shrink as the run progresses; the reads grow.
 
@@ -168,9 +168,9 @@ cat ~/.claude/projects/<slug>/<session-uuid>/subagents/agent-<agentId>.jsonl \
   '
 ```
 
-For the fixture that prints turn 1 writing 13,000 and reading 0, through turn 8 writing 1,500 and reading 27,000. A subagent that is mostly reading from cache on its later turns is far cheaper per turn than its token volume suggests. A subagent writing heavily on every turn, or showing no reads after the first turn, may have a caching problem worth investigating.
+Run against the fixture, this `jq` snippet reproduces the progression above: a cold cache on turn 1, then mostly cache reads by turn 8. A subagent that is mostly reading from cache on its later turns is far cheaper per turn than its token volume suggests. A subagent writing heavily on every turn, or showing no reads after the first turn, may have a caching problem worth investigating.
 
-The same analysis applies to parent-session `assistant` lines. A long coding session with high `cache_read_input_tokens` across its later turns is working efficiently. A session where every turn carries high `cache_creation_input_tokens` is repeatedly writing context that isn't being reused. The JSONL gives you this without any external tooling.
+The same analysis applies to parent-session `assistant` lines. A long coding session with high `cache_read_input_tokens` across its later turns is working efficiently. A session where every turn carries high `cache_creation_input_tokens` is repeatedly writing context that isn't being reused. Unlike cost, this signal needs no external pricing table. It's right there in the token counts.
 
 ## Putting it together: the right `jq` for session cost
 
