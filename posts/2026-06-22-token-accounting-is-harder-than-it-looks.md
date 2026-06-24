@@ -138,7 +138,7 @@ The rule: count each subagent's tokens once, from the trace or from the rollup, 
 
 ## The three aggregation patterns
 
-The [reference doc](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#token-accounting) names three patterns. In prose:
+The [reference doc](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#token-accounting) names three patterns for honoring that rule, briefly summarized below:
 
 **Pattern A, quick session total, no trace-file IO.** Read only the parent session. Sum `message.usage` on parent `assistant` lines plus every `toolUseResult.usage` rollup on parent `user` lines. This is accurate and fast, and you never open a subagent file. The tradeoff is that you can't break the subagent's cost down by turn; you get its total as one opaque number. For a quick "how much did this session cost?" that's usually fine.
 
