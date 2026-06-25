@@ -221,7 +221,7 @@ cat ~/.claude/projects/<slug>/<session-uuid>.jsonl \
 
 Combine the two outputs and you have a complete per-turn register: every parent model turn with its model identity, and every subagent invocation as a single rollup row. Multiply each row's token counts by the per-type, per-model rate for that row's model, and you have an accurate cost estimate.
 
-One caveat about that rollup row: it carries no model. The rollup totals the subagent's tokens, and even its `service_tier`, but never records which model produced them, and per-token rates are per-model. So you can only price that row if you already know the subagent's model. When a subagent runs on a different model than the parent, or on more than one, switch to Pattern B and read the trace, where every turn carries its own `message.model`.
+One caveat about that rollup row: it carries no model. The rollup adds up the subagent's tokens, and even provides its `service_tier`, but never records which model produced them. Per-token rates are per-model, so you can only price that row if you already know the subagent's model. When a subagent runs on a different model than the parent, or on more than one, switch to Pattern B and read the trace, where every turn carries its own `message.model`.
 
 What you should not do: pipe both of those queries _and_ the subagent trace file through a single sum. That's the double-count.
 
