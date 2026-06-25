@@ -1,0 +1,37 @@
+slug = "2026-06-22-linkedin-token-accounting-is-harder-than-it-looks"
+
+title = ["Token accounting", "is harder than it looks"]
+
+subhead = "Four token kinds. One double-count trap."
+
+json_sample = """
+{
+  "toolUseResult": {
+    "agentType": "pm",
+    "totalTokens": 180020,
+    "usage": {
+      "input_tokens": 20,
+      "output_tokens": 1000,
+      "cache_creation_input_tokens": 29000,
+      "cache_read_input_tokens": 150000
+    }
+  }
+}
+"""
+
+notes = """
+Part 4 hero. The visual makes two of the post's points at once:
+
+1. The four token kinds at radically different magnitudes (20 fresh input vs
+   150,000 cache reads) — summing them as one number, or pricing them at one
+   rate, is the core mistake the post opens on.
+2. It's a toolUseResult.usage rollup, i.e. the subagent-side source of the
+   double-count. Readers who recognize this envelope from Part 3 get the
+   setup for the main event for free.
+
+Numbers are lifted verbatim from fixtures/synthetic/anatomy-agent-invocation.jsonl
+(synthetic, safe to commit). totalTokens 180020 == 20+1000+29000+150000.
+
+Title split at the natural clause break (39 chars, over the 34 single-line
+budget). Subhead 40 chars, under the ~45 limit.
+"""
