@@ -343,7 +343,14 @@ These are the **same tokens, reported twice**. Naive aggregation that sums both 
 |---|---|
 | Total session token consumption (cheap, no subagent-file IO) | Parent session only: sum `message.usage` on parent `assistant` lines + sum `toolUseResult.usage` on parent `user` lines for tool results that carry it. |
 | Total session token consumption (with subagent breakdown) | Parent session lines + each subagent file's per-line `message.usage` — **but exclude** the `toolUseResult.usage` rollup on the parent line for that subagent (to avoid double-counting). |
-| Just the subagent's cost | Each subagent file's per-line `message.usage` summed; OR equivalently, the parent's `toolUseResult.usage` for that subagent. They should match. |
+| Just the subagent's **tokens** | Each subagent file's per-line `message.usage` summed; OR equivalently, the parent's `toolUseResult.usage` for that subagent. They should match. |
+| Just the subagent's **cost** | The subagent trace file only. The parent rollup carries no model, so it cannot be priced on its own — see below. |
+
+### The rollup carries no model — tokens yes, cost no
+
+The parent-side rollup (`toolUseResult.usage`) records the subagent's cumulative token counts and its `service_tier`, but **not the model the subagent ran on**. The rollup's keys are `cache_creation, cache_creation_input_tokens, cache_read_input_tokens, inference_geo, input_tokens, iterations, output_tokens, server_tool_use, service_tier, speed` — every cost-relevant field except the model. The model lives **solely** on the subagent's per-turn `assistant` lines, in `message.model`, inside the trace file.
+
+Per-token rates are per-model, so this makes the rollup **sufficient for token accounting but insufficient for cost.** To price a subagent's tokens you must read `message.model` from the trace file, because a subagent can run on a different model than its parent (per-subagent `model` config — the `anatomy-*` fixtures show an Opus parent delegating to a Sonnet subagent) or on more than one model across its turns. This is why the table above splits the subagent's tokens from its cost: the rollup and the trace yield **equal token counts**, but only the trace yields cost.
 
 The same caveats from [`data-dictionary.md` § Common pitfalls in cost computation](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#common-pitfalls-in-cost-computation) apply: model identity (`message.model`) is needed for cost; `service_tier` affects pricing; cache reads and cache creation are billed differently from regular input tokens.
 
