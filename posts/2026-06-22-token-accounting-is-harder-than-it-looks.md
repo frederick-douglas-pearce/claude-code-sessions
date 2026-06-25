@@ -227,17 +227,17 @@ What you should not do: pipe both of those queries _and_ the subagent trace file
 
 ## What the data gives you, and what it doesn't
 
-The session JSONL is precise on volumes. The fields are there, they're reliable at v2.1.150, and they separate the four token kinds per turn. The `message.model` field names the model per turn. The `service_tier` field names the billing tier.
+The session JSONL is precise on token counts. The fields are there, they're reliable at v2.1.150, and they separate the four token kinds per turn. The `message.model` field names the model per turn. The `service_tier` field names the billing tier.
 
-What's not in the JSONL is prices. There is no dollars-per-million field anywhere in the format. Turning token volumes into dollars needs an external pricing table, and that table changes. The right posture for any tool that computes session costs: read the volumes from JSONL, read the prices from an external source you keep current, and combine them at query time. Hard-coding rates into a parser makes that parser wrong every time Anthropic adjusts pricing.
+What's not in the JSONL is prices. There is no dollars-per-million field anywhere in the format. Turning token counts into dollars needs an external pricing table, and that table changes. The right posture for any tool that computes session costs: read the token counts from JSONL, read the prices from an external source you keep current, and combine them at query time. Hard-coding rates into a parser makes that parser wrong every time Anthropic adjusts pricing.
 
-[AgentFluent](https://github.com/frederick-douglas-pearce/agentfluent) and [CodeFluent](https://github.com/frederick-douglas-pearce/codefluent) both handle the aggregation patterns described here. If you're building your own cost tooling, the [data-dictionary's cost-computation section](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#common-pitfalls-in-cost-computation) is the reference-level treatment; this post is the narrative one.
+[AgentFluent](https://github.com/frederick-douglas-pearce/agentfluent) and [CodeFluent](https://github.com/frederick-douglas-pearce/codefluent) both handle the aggregation patterns described here. If you're building your own cost tooling, the [data-dictionary's cost-computation section](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#common-pitfalls-in-cost-computation) is the reference-level treatment, while this post is the narrative one.
 
 ## What's next
 
 Token accounting answers "how much." The next question, the one every cost total eventually provokes, is "what was all that for?"
 
-The session JSONL records every tool call, every result, every structured output. Tool-use data is where the behavioral signal lives: which tools, how often, in what order, with what inputs and outputs. Part 5 gives the tool call its complete treatment, from the basic `tool_use`/`tool_result` pairing through the full range of what `toolUseResult` carries for different tool types, and what it means when a tool call fails partway.
+The session JSONL records every tool call, every result, every structured output. Tool-use data is where the behavioral signal lives: which tools, how often, in what order, with what inputs and outputs. Part 5 gives the tool call its complete treatment, from the basic `tool_use`/`tool_result` pairing through the full range of what `toolUseResult` carries for different tool types, up to the parallel call: one `assistant` line firing several tools at once, and why that complicates any timing analysis.
 
 The sources behind this post:
 
