@@ -40,7 +40,7 @@ Here is what each one means:
 
 **`output_tokens`** is what the model generated. Output is priced at several times the input rate. The exact multiplier varies by model, but generating a token costs meaningfully more than reading one in. A turn that generates just 300 output tokens costs as much as about 1,500 input tokens would.
 
-**`cache_creation_input_tokens`** is the count of tokens written to the prompt cache on this turn. This costs a premium on top of the base input rate, roughly 1.25x. You pay a little extra now so future turns can read cheaply.
+**`cache_creation_input_tokens`** is the count of tokens written to the prompt cache on this turn. Writing costs a premium over base input, and how big a premium depends on the cache's TTL: roughly 1.25x for a 5-minute entry, roughly 2x for a 1-hour one. The `usage.cache_creation` sub-object breaks the count out by TTL (`ephemeral_5m_input_tokens` and `ephemeral_1h_input_tokens`); this flat field is their sum, so pricing it all at 1.25x under-reports whenever 1-hour writes are in the mix, which in practice they often are. You pay a little extra now so future turns can read cheaply.
 
 **`cache_read_input_tokens`** is the count of tokens served from cache. This is priced at roughly one-tenth the base input rate. Reading 27,000 tokens from cache costs about the same as reading 2,700 fresh tokens.
 
