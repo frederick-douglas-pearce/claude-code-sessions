@@ -112,6 +112,22 @@ The capstone closes the series without closing the format — the reference docs
 
 ---
 
+## Asides
+
+Short, focused posts that deepen one thread from a numbered part without advancing the spine or consuming a series number. Precedent: "What launched this turn?" (shipped 2026-06-18) is an aside off Part 3 on the attribution field family. Asides are recorded here for completeness; they are not part of the Parts 1-8 narrative arc.
+
+### Aside (off Part 4) — Every lever that moves the bill
+
+> **Status:** Outlined 2026-06-26. Aside off Part 4, not a renumber — Parts 5/6/7/8 are untouched and Part 5 (tool-use) remains the next spine step. Reference grounding: [`reference/data-dictionary.md` § Usage and token accounting](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#usage-and-token-accounting) and § Common pitfalls (enriched in [#139](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/139)). Cost-model source audit: AgentFluent `COST_MODEL.md` (candidate to move into `reference/cost-model.md` as the canonical home).
+
+**Scope.** Part 4 named three confounders: token-type distinctions, `service_tier`, and per-model pricing. That was deliberately scoped. The `usage` object carries more, and the gaps matter in practice. This aside works through every additional lever in the session JSONL that moves the effective cost of a turn, as one complete picture. The strongest single addition: `cache_creation_input_tokens` is the sum of two TTLs that price differently, broken out in the `cache_creation` sub-object as `ephemeral_5m_input_tokens` (~1.25x) and `ephemeral_1h_input_tokens` (~2x), with the 1-hour TTL commonly the dominant share in Claude Code sessions, so the naive flat 1.25x understates cache-write cost. The remaining levers each get a short section: fast mode (`usage.speed == "fast"`, premium flat rates), batch tier (`usage.service_tier == "batch"`, ~0.5x), data residency (`usage.inference_geo == "us"`, 1.1x on all token categories), and server-side tool surcharges (`usage.server_tool_use`: web search and code execution, billed outside the per-token rates, with counts in the JSONL and code-execution dollar cost not reconstructable from one session). Two traps that are NOT extra charges round it out: thinking tokens (`output_tokens_details.thinking_tokens`) are already inside `output_tokens`, and the Opus 4.7+ tokenizer change is a count effect already in the numbers, not a rate multiplier. The aside closes on the practical ceiling of any JSONL-derived cost estimate: enterprise and negotiated discounts never appear in session data, and no public dataset of Anthropic pricing (genai-prices included) currently models TTL-split cache writes, fast mode, batch, data residency, or server-tool surcharges, so a session-data cost tool is a list-price lower bound, not a bill. No dollar-per-million tables in the body; the approach throughout is relative multipliers tied to the live pricing page and the reference doc.
+
+**Audience hook.** Part 4 spoke to practitioners who had made at least one of three mistakes. This aside speaks to the ones who thought Part 4 fixed it, then found their numbers still did not match the bill. The three confounders corrupt your count; several more shift your rate, and the most consequential of them (the 1-hour cache TTL) hides inside a field Part 4 used throughout. The framing rides the cost-reckoning news moment (engineers capped at flat dollar amounts because reading true agentic cost is this hard), underplayed rather than leaned on.
+
+**Bridge.** Aside, no spine bridge. It points back to Part 4 for the core accounting and to the reference doc for the full field-level treatment. The next numbered step remains Part 5 (the tool-use walkthrough).
+
+---
+
 ## Cross-post writing rules
 
 - Every reference to a file in the repo (`reference/subagent-traces.md`, `fixtures/synthetic/anatomy-subagent-trace.jsonl`, etc.) must use a full GitHub URL — posts deploy to a separate Pages site and relative paths break. Established pattern in Parts 1 and 2; maintain throughout.
