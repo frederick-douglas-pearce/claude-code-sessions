@@ -404,7 +404,7 @@ The full layout — including how nested subagent invocations are represented, w
 
 **Verified against Claude Code v2.1.150.** Cost semantics (the cache-write TTL split, per-request multipliers, and server-tool surcharges) cross-checked against Anthropic's [pricing page](https://platform.claude.com/docs/en/about-claude/pricing) and a sibling-project (AgentFluent) cost audit on 2026-06-26; rates and multipliers are external and volatile, so re-confirm against the live pricing page before relying on them.
 
-Token accounting lives on `message.usage` (for `assistant` lines) and on `toolUseResult.usage` (for context-bearing tool rollups, including subagent invocations). Both objects share the same shape.
+Token accounting lives on `message.usage` (for `assistant` lines) and on `toolUseResult.usage` (for context-bearing tool rollups, including subagent invocations). Both objects share the same shape. This section is the field index; [`cost-model.md`](cost-model.md) is the full cost reference (the complete lever catalog, per-model rate tables, stacking rules, and a worked example).
 
 | Field | Type | Semantics |
 |---|---|---|
