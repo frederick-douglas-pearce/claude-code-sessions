@@ -402,7 +402,7 @@ The full layout — including how nested subagent invocations are represented, w
 
 ## Usage and token accounting
 
-**Verified against Claude Code v2.1.150.**
+**Verified against Claude Code v2.1.150.** Cost semantics (the cache-write TTL split, per-request multipliers, and server-tool surcharges) cross-checked against Anthropic's [pricing page](https://platform.claude.com/docs/en/about-claude/pricing) and a sibling-project (AgentFluent) cost audit on 2026-06-26; rates and multipliers are external and volatile, so re-confirm against the live pricing page before relying on them.
 
 Token accounting lives on `message.usage` (for `assistant` lines) and on `toolUseResult.usage` (for context-bearing tool rollups, including subagent invocations). Both objects share the same shape.
 
@@ -410,14 +410,15 @@ Token accounting lives on `message.usage` (for `assistant` lines) and on `toolUs
 |---|---|---|
 | `input_tokens` | number | Tokens consumed reading the prompt and prior conversation. |
 | `output_tokens` | number | Tokens generated in the response. |
-| `cache_creation_input_tokens` | number | Tokens written to the prompt cache during this turn. Billed at a **premium** rate vs. regular input tokens. |
-| `cache_read_input_tokens` | number | Tokens read from the prompt cache. Billed at a **fraction** of regular input-token cost. |
-| `cache_creation` | object | Per-TTL breakdown of cache creation. Observed sub-keys include `ephemeral_5m_input_tokens` (5-minute TTL cache writes). |
-| `service_tier` | string | The service tier the request used (e.g., `"standard"`, `"priority"`). Affects pricing. |
-| `server_tool_use` | object | Server-side tool usage tracking. Reserved for tools that execute on Anthropic's side rather than the local Claude Code process. |
-| `inference_geo` | string | Inference region/geography indicator. |
-| `iterations` | number | Internal iteration count metadata. |
-| `speed` | string \| number | Inference speed indicator. |
+| `cache_creation_input_tokens` | number | Tokens written to the prompt cache during this turn. Billed at a **premium** vs. regular input, and the premium depends on the cache TTL (see `cache_creation`). This flat field is the **sum** of the per-TTL counts in `cache_creation`. |
+| `cache_read_input_tokens` | number | Tokens read from the prompt cache. Billed at roughly **0.1×** regular input. |
+| `cache_creation` | object | Per-TTL breakdown of cache writes. Sub-keys: `ephemeral_5m_input_tokens` (5-minute TTL, ~**1.25×** input) and `ephemeral_1h_input_tokens` (1-hour TTL, ~**2×** input). Pricing the flat `cache_creation_input_tokens` at a single 1.25× rate **under-reports** whenever 1-hour writes are present; in Claude Code sessions the 1-hour TTL is commonly the dominant share. When this sub-object is absent (older sessions), treat the full count as 5-minute. |
+| `output_tokens_details` | object | Breakdown of `output_tokens`. Sub-key `thinking_tokens` counts extended-thinking tokens, which are **already included** in `output_tokens` and billed at the output rate — do not add them on top (see pitfall 9). |
+| `service_tier` | string | Billing tier that served the request: `"standard"`, `"priority"` (commitment pricing), or `"batch"` (~**0.5×** input & output). Non-standard tiers are priced differently; check before applying a flat rate. |
+| `speed` | string | Inference speed: `"standard"` or `"fast"`. `"fast"` (fast mode) uses premium flat rates that stack on top of caching and data-residency multipliers. |
+| `inference_geo` | string | Data-residency region: `"global"` (default), `"us"` (**1.1×** on all token categories, Opus 4.6 / Sonnet 4.6 and later), `"not_available"`, or `""`. |
+| `server_tool_use` | object | Counts of server-side tool calls, billed as **separate line items** (not token rates): `web_search_requests` ($10 / 1,000), `web_fetch_requests` (free), and `code_execution_requests` (billed by container-hour against a monthly org-level free tier — the count is here, but the duration and dollar cost are not). |
+| `iterations` | number \| array | Internal iteration metadata. Recorded here historically as a scalar count; a 2026-06-26 sibling-project audit instead observed an `iterations[]` **array** repeating the per-message `usage` fields, with the top-level `usage` as the billable rollup. Treat the shape as unsettled and confirm against a current session before relying on it (tracked in [#140](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/140)). |
 
 ### Common pitfalls in cost computation
 
@@ -430,8 +431,14 @@ Token totals are the **raw inputs** to cost computation, not the cost itself. Se
 5. **Cache fields are zero on the first turn.** A fresh session starts with no cache; `cache_creation_input_tokens` and `cache_read_input_tokens` are zero on the first `assistant` line.
 6. **`service_tier` affects pricing.** Priority tier and other non-standard tiers have different rates; check the field before applying a flat per-model price.
 7. **API-error lines are not real turns.** An `assistant` line flagged `isApiErrorMessage: true` (see [`assistant`](#assistant)) records a failed API call, not a model response. Exclude these from both token aggregation and turn/success-rate counts — naive aggregation that includes them inflates turn counts and can misattribute tokens.
+8. **Cache writes are not a single rate.** `cache_creation_input_tokens` is the sum of two TTLs that price differently: 5-minute (~1.25×) and 1-hour (~2×), broken out in `cache_creation`. The 1-hour TTL is commonly the dominant share in Claude Code sessions, so pricing the flat field at 1.25× under-reports. Use the `cache_creation` sub-object; fall back to treating the full count as 5-minute only when it is absent.
+9. **Thinking tokens are already counted in `output_tokens`.** `output_tokens_details.thinking_tokens` is a subset of `output_tokens`, not an additional charge. Adding it on top double-counts; it is billed at the output rate as part of `output_tokens`.
+10. **The tokenizer changed in Opus 4.7+.** The newer tokenizer can produce up to ~35% more tokens for the same text. This is a **count** effect, already reflected in `usage.*_tokens` — do not apply it as a separate multiplier.
+11. **Per-request multipliers beyond model and tier.** `speed: "fast"` (fast mode, premium flat rates), `inference_geo: "us"` (1.1× on all token categories), and `service_tier: "batch"` (0.5×) each change the effective rate and stack per the [pricing page](https://platform.claude.com/docs/en/about-claude/pricing)'s rules. A cost computation that reads only `model` + `service_tier` misses fast mode and data residency.
+12. **Skip `<synthetic>` model lines before pricing.** `message.model == "<synthetic>"` is a Claude Code sentinel for internal messages, not a real API call. Pricing it against a rate table is meaningless; exclude it.
+13. **Server-side tool calls are separate line items.** `server_tool_use` counts (web search at $10/1,000, code execution by container-hour) are billed outside the per-token rates. The session records the counts; the dollar cost of code execution (a duration against a monthly org-level free tier) is **not** reconstructable from a single session.
 
-Tools like [AgentFluent](https://github.com/frederick-douglas-pearce/agentfluent) and [CodeFluent](https://github.com/frederick-douglas-pearce/codefluent) handle this properly. For one-off cost estimates, the per-line `usage` object is the data; turning it into dollars requires the model name, the service tier, and an external pricing table.
+Tools like [AgentFluent](https://github.com/frederick-douglas-pearce/agentfluent) and [CodeFluent](https://github.com/frederick-douglas-pearce/codefluent) handle this properly. For one-off cost estimates, the per-line `usage` object is the data; turning it into dollars requires the model name, the service tier, the cache-write TTL split, any per-request multipliers (fast mode, data residency, batch), and an external pricing table kept current. The multipliers above are relative and change less often than absolute rates, but confirm both against the live [pricing page](https://platform.claude.com/docs/en/about-claude/pricing) before relying on them.
 
 ---
 
