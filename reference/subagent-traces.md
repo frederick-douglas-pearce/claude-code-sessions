@@ -140,7 +140,7 @@ The Agent SDK lets a subagent invoke its own subagent — a layout **unobservabl
    | main → delegator (level 1) | main `<session-uuid>.jsonl` | **yes** (full rollup) |
    | delegator → leaf (level 2) | `agent-<delegatorId>.jsonl` | **no** (only a `subagent_tokens` trailer) |
 
-4. **Counter/token semantics.** `totalToolUseCount` is **own-direct, not cumulative** — a delegator reported only the tool calls it made itself (including its own `Agent` call) and **excluded** the leaf's tool calls. `totalTokens` reads as directionally inclusive of descendants but does **not** equal a raw sum of per-turn `message.usage` (cache accounting differs); settle the exact inclusivity rule against real bytes before summing across levels, or a multi-level aggregator will double-count. `resolvedModel` reports the **child's** resolved model, not the parent's — in a sonnet-parent / haiku-child run it read `claude-haiku-4-5-20251001`.
+4. **Counter/token semantics.** `totalToolUseCount` is **own-direct, not cumulative** — a delegator reported only the tool calls it made itself (including its own `Agent` call) and **excluded** the leaf's tool calls. `totalTokens` reads as directionally inclusive of descendants but does **not** equal a raw sum of per-turn `message.usage` (cache accounting differs); settle the exact inclusivity rule against real bytes before summing across levels, or a multi-level aggregator will miscount. (For a **single**-level rollup the semantics are now settled: `totalTokens` is one assistant turn's snapshot, not a run sum, per [Token accounting](#token-accounting). The multi-level cross-level inclusivity here is a separate, still-open question.) `resolvedModel` reports the **child's** resolved model, not the parent's — in a sonnet-parent / haiku-child run it read `claude-haiku-4-5-20251001`.
 
 ### Reconstructing a multi-level call tree
 
@@ -172,7 +172,7 @@ This is the **canonical, content-free signal** for distinguishing a subagent tra
 Sidechain lines are *not* main-conversation turns from the user's point of view. Tools should:
 
 - **Skip them** when computing the user-visible turn count or rendering the main conversation thread.
-- **Skip them** when aggregating per-session tokens *if* you are also reading `toolUseResult.usage` from the parent (otherwise you double-count — see [Token accounting](#token-accounting) below).
+- **Include them** when aggregating per-session tokens. The parent's `toolUseResult.usage` rollup is a single-turn snapshot, not a substitute for the subagent's per-turn usage, so dropping the sidechain lines in favor of the rollup **undercounts** (see [Token accounting](#token-accounting) below).
 - **Include them** when auditing tool calls the agent made, debugging subagent behavior, computing per-agent quality metrics, or reconstructing the full action trace.
 
 The data-dictionary lists `isSidechain` as a common field across line types ([§ Common fields](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#common-fields)). This doc adds the operational guidance.
@@ -313,7 +313,7 @@ The same subagent run produces two artifacts, and they record fundamentally diff
 | Aspect | Parent session line (`toolUseResult` envelope) | Subagent trace file |
 |---|---|---|
 | Granularity | **Rollup**: one user line summarizing the whole subagent run | **Step-by-step**: every model turn, every tool call, every result |
-| Token data | `toolUseResult.usage` (cumulative across the subagent run) and `toolUseResult.totalTokens` (single scalar) | Per-`assistant`-line `message.usage` (one object per model turn) |
+| Token data | `toolUseResult.usage` (a **single turn's** snapshot, not a run total) and `toolUseResult.totalTokens` (that snapshot's four-field sum) | Per-`assistant`-line `message.usage` (one object per model turn; **dedupe by `message.id`** before summing) |
 | Tool data | `toolUseResult.toolStats` (per-tool *counts*, e.g., `{"Read": 4, "Bash": 2}`) | Every `tool_use`/`tool_result` pair, with full `input` and `content` |
 | Duration | `toolUseResult.totalDurationMs` (single scalar) | Per-line `timestamp`s; derive durations by diff |
 | Final output | `tool_result.content` — the subagent's final summary as a string | The same final summary appears as the last `assistant` `text` block; the entire reasoning that produced it is also present |
@@ -328,33 +328,74 @@ This is also why most simple parsers stop at the parent envelope and treat the s
 
 ## Token accounting
 
-**Verified against Claude Code v2.1.150.**
+**Verified against Claude Code v2.1.150.** The rollup semantics below were additionally confirmed against a live corpus of **691 linked subagent invocations** (measured 2026-07-18, `claude-agent-sdk` 0.2.106 / CLI 2.1.185). Anthropic states this format is internal and may change on any release, so the identity in [What `totalTokens` actually is](#what-totaltokens-actually-is) is worth **asserting in your own tests** rather than assuming.
 
-Subagent token usage is reported in **two places** for the same activity:
+Subagent token usage appears in **two places**, and they measure **different quantities**. Treating them as interchangeable, or summing them, is the most common cost-accounting error against this format.
 
-1. On each `assistant` line **inside** the subagent trace file, in `message.usage` (one entry per model turn the subagent took).
-2. In the parent session, in `toolUseResult.usage` and `toolUseResult.totalTokens` on the `user` line that carried the subagent's `tool_result` (rolled up across the entire subagent run).
+1. On each `assistant` line **inside** the subagent trace file, `message.usage` records **that one model turn's** usage. One entry per turn.
+2. In the parent session, `toolUseResult.usage` and `toolUseResult.totalTokens` on the `user` line carrying the subagent's `tool_result` record a **single turn's** usage. A snapshot, not a run total.
 
-These are the **same tokens, reported twice**. Naive aggregation that sums both sources will double-count.
+> **Correction (2026-07-18).** Earlier revisions of this section described the parent rollup as *cumulative across the subagent run* and warned that trace plus rollup "double-count." That is inverted. The rollup is one turn; aggregating from it alone **undercounts** processed tokens by a median **5.8x** and dollar cost by roughly 15x. The corpus figures below replace the old guidance.
+
+### What `totalTokens` actually is
+
+The parent's `totalTokens` is exactly the sum of the four fields in the sibling `toolUseResult.usage`:
+
+```
+totalTokens == usage.input_tokens
+             + usage.output_tokens
+             + usage.cache_creation_input_tokens
+             + usage.cache_read_input_tokens
+```
+
+This held **691/691 (100%)** across the corpus, a deterministic identity safe to assert in tests. And that `usage` is **one assistant turn's** usage: it equals the subagent's **final** turn in 582/691 (84.2%) of cases, the residual 16% being runs where the snapshotted turn is not the trace's last assistant line. Either way it is a **single-turn context-size proxy**, neither tokens billed nor tokens processed across the run.
+
+### Why the rollup is not a run total
+
+The Messages API is [stateless](https://platform.claude.com/docs/en/build-with-claude/working-with-messages): the full conversation history is re-sent on every request. So each turn's `usage` re-reports the whole context that turn was given, and `cache_read_input_tokens` recurs turn over turn, growing as the conversation grows. Snapshotting one turn (what `totalTokens` does) yields a *context size*. Summing all turns yields *tokens processed*, the correct basis for cost, because you are genuinely billed each turn for re-read context at the cheaper cache-read rate.
+
+This is also why the error stayed hidden. Summed across a run, the **expensive** components alone (`input + output + cache_creation`, excluding cache reads) come to a median **1.02x** of `totalTokens` (p90 1.21x): each context token is cache-*written* about once per run, so `Σ cache_creation` ≈ final context size ≈ `totalTokens`. The rollup lands within a couple percent of a real, meaningful number, which is exactly why summing it looked right. Include cache reads (what you actually process) and the ratio of real processed tokens to `totalTokens` runs to a median **5.8x**, p90 14.2x, max 79.7x. The direction is **always** understatement.
+
+### Streaming snapshots and `message.id`
+
+A second, independent trap sits inside the trace file. Claude Code writes **multiple `assistant` lines for one logical turn** as a response streams; they share a `message.id`, and each carries a running snapshot of `usage`, not an increment. Across the measured corpus, **986/1,047 files (94%)** contained duplicate `message.id`s, and naively summing every assistant line inflated the total by **1.99x**.
+
+Deduplicate before summing: group `assistant` lines by `message.id`, keep the record with the **greatest `output_tokens`** (the most complete snapshot), and take **all four** usage fields from that same record. Do not take a per-field max across records, which mixes snapshots. Note also that `input_tokens` is often a placeholder on non-final chunks (observed as `1` on 11,133 lines, `2` on 4,019, `3` on 2,300, `0` on 491), so never read it off an arbitrary chunk.
 
 ### Aggregation patterns
 
 | You want… | Use |
 |---|---|
-| Total session token consumption (cheap, no subagent-file IO) | Parent session only: sum `message.usage` on parent `assistant` lines + sum `toolUseResult.usage` on parent `user` lines for tool results that carry it. |
-| Total session token consumption (with subagent breakdown) | Parent session lines + each subagent file's per-line `message.usage` — **but exclude** the `toolUseResult.usage` rollup on the parent line for that subagent (to avoid double-counting). |
-| Just the subagent's **tokens** | Each subagent file's per-line `message.usage` summed; OR equivalently, the parent's `toolUseResult.usage` for that subagent. They should match. |
-| Just the subagent's **cost** | The subagent trace file only. The parent rollup carries no model, so it cannot be priced on its own — see below. |
+| A subagent's **real processed tokens** (the basis for cost) | The subagent trace file: deduplicate `assistant` lines by `message.id` (above), then sum `message.usage` across turns. **Not** the parent rollup. |
+| A subagent's **peak context size** | The trace's **final** deduped turn, summing its input-side buckets (`input_tokens + cache_creation_input_tokens + cache_read_input_tokens`). See [Context size is a trace-only measure](#context-size-is-a-trace-only-measure). `totalTokens` is a rough proxy only, low ~16% of the time. |
+| **Total session** processed tokens | Deduped `message.usage` on parent `assistant` lines **plus** each subagent trace's deduped per-turn sum. Include the sidechain lines; do not substitute the parent rollup for them. |
+| Just the subagent's **cost** | The trace file, priced **per turn at that turn's own `message.model` rate** (see below). The rollup carries no model and is a snapshot, so it cannot be priced. |
 
-### The rollup carries no model — tokens yes, cost no
+Two rules of thumb fall out: **never sum `totalTokens`** (use it only as an explicitly labeled, approximate context-size reading), and **never price `toolUseResult.usage`** (it is one turn). When some invocations have trace files and some do not (see the depth-≥2 no-rollup case under [Multi-level (nested) delegation](#multi-level-nested-delegation)), report coverage alongside the number rather than silently blending real per-turn sums with snapshots.
 
-The parent-side rollup (`toolUseResult.usage`) records the subagent's cumulative token counts and its `service_tier`, but **not the model the subagent ran on**. The rollup's keys are `cache_creation, cache_creation_input_tokens, cache_read_input_tokens, inference_geo, input_tokens, iterations, output_tokens, server_tool_use, service_tier, speed` — every cost-relevant field except the model. The model lives **solely** on the subagent's per-turn `assistant` lines, in `message.model`, inside the trace file.
+### Context size is a trace-only measure
 
-Per-token rates are per-model, so this makes the rollup **sufficient for token accounting but insufficient for cost.** To price a subagent's tokens you must read `message.model` from the trace file, because a subagent can run on a different model than its parent (per-subagent `model` config — the `anatomy-*` fixtures show an Opus parent delegating to a Sonnet subagent) or on more than one model across its turns. This is why the table above splits the subagent's tokens from its cost: the rollup and the trace yield **equal token counts**, but only the trace yields cost.
+Since `totalTokens` is a single turn's usage, it is tempting to read it as "how big did this subagent's context get." That works only when the snapshotted turn is the run's **final** turn, which holds in 582/691 (84.2%) of cases. Because the Messages API re-sends the whole history each turn, context grows monotonically, so the final turn holds the **peak** context. In the other ~16%, `totalTokens` snapshots an **earlier, smaller** turn and therefore **understates** the peak, with no way to correct for it (the mechanism selecting the snapshotted turn is not characterized).
 
-**A single `model` field wouldn't be enough to close the gap.** The rollup's token counts are summed across *every* turn the subagent took, regardless of which model served each turn. If a subagent runs some turns on Sonnet and some on Opus, the rollup fuses both into one `input_tokens`, one `output_tokens`, and so on. Attaching a lone model to that fused sum would not make it costable, it would make it *mis*-costable, because you'd price a cross-model token sum at one model's rate. Cost in the multi-model case needs **per-model token counts in each category** (input, output, cache-read, cache-creation), and only the per-turn trace lines carry model and usage co-located at that granularity. That is the structural reason the rollup stops at token accounting: it discarded the per-turn split when it summed. By contrast `service_tier` survives the rollup as a single scalar because the format treats it as summarizable to one value (an approximation that is exact only if the tier held across every turn). Both of those assumptions (that a Claude Code subagent ever switches model mid-run, and that `service_tier` is invariant across a subagent's turns) are inferred, not fixture-confirmed; see [Open verification items](#open-verification-items).
+For a reliable context-size figure, read the trace directly. Take the final deduped turn and sum its **input-side** buckets:
 
-The same caveats from [`data-dictionary.md` § Common pitfalls in cost computation](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#common-pitfalls-in-cost-computation) apply: model identity (`message.model`) is needed for cost; `service_tier` affects pricing; cache reads and cache creation are billed differently from regular input tokens.
+```
+peak context ≈ last_turn.input_tokens
+             + last_turn.cache_creation_input_tokens
+             + last_turn.cache_read_input_tokens
+```
+
+`output_tokens` is generated, not read, so exclude it if you want "context the model saw"; include it for "final turn total processed" (which is what `totalTokens` approximates). If a run might compact or have its context edited mid-run — rare in short subagent runs — take the **max** input-side sum across all deduped turns rather than assuming the last turn is largest.
+
+### The rollup carries no model — and is a snapshot anyway
+
+Even setting the snapshot problem aside, the parent rollup could not price a subagent on its own: `toolUseResult.usage` records token counts and `service_tier` but **not the model the subagent ran on**. The rollup's keys are `cache_creation, cache_creation_input_tokens, cache_read_input_tokens, inference_geo, input_tokens, iterations, output_tokens, server_tool_use, service_tier, speed` — every cost-relevant field except the model. The model lives **solely** on the subagent's per-turn `assistant` lines, in `message.model`, inside the trace file.
+
+So the rollup fails cost on two independent counts: it is a single turn (undercounts the quantity, per the sections above), **and** it names no model (can't price whatever quantity it does hold). Correct cost is computed **per turn, at each turn's own `message.model` rate**, from the trace, because a subagent can run on a different model than its parent (the `anatomy-*` fixtures show an Opus parent delegating to a Sonnet subagent) or, in principle, on more than one model across its turns.
+
+A blended session rate does not rescue this. It misattributes a cheaper subagent's tokens to the parent's rate, and a rate derived from a cache-inflated token denominator is itself diluted (cache reads cost ~0.1x but count at full token weight). Per-turn, per-model pricing is the only thing that fixes both the quantity and the rate. This is also the structural reason the rollup stops short: a snapshot of one turn never carried the per-turn model-and-usage split that pricing needs. `service_tier` survives as a single scalar only because the format treats it as summarizable to one value, an approximation exact only if the tier held across every turn. Both assumptions (that a Claude Code subagent ever switches model mid-run, and that `service_tier` is invariant across its turns) are inferred, not fixture-confirmed; see [Open verification items](#open-verification-items).
+
+The same caveats from [`data-dictionary.md` § Common pitfalls in cost computation](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#common-pitfalls-in-cost-computation) apply: model identity (`message.model`) is needed for cost; `service_tier` affects pricing; cache reads and cache creation are billed differently from regular input tokens. For an **authoritative** cross-check, the [Usage & Cost Admin API](https://platform.claude.com/docs/en/manage-claude/usage-cost-api) returns real billed spend per workspace; Anthropic states the client-side `costUSD`/`total_cost_usd` figures are estimates. Reconciling a log-derived total against that report is the strongest available validation of any cost figure derived from these files.
 
 ---
 

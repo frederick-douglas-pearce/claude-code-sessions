@@ -1,7 +1,8 @@
 # anatomy-subagent-trace.jsonl — generator notes
 
 **Authored:** 2026-05-26 by hand (Fred Pearce, via Claude Code).
-**Reconciled:** 2026-06-10 — expanded from a 4-line excerpt to the full 16-line / 7-tool-call run so the trace's per-turn token usage sums **exactly** to the parent's `toolUseResult.usage` rollup (issue #98). Regenerated via a small Python builder (see [How to regenerate](#how-to-regenerate)).
+**Reconciled:** 2026-06-10 — expanded from a 4-line excerpt to the full 16-line / 7-tool-call run (issue #98). Regenerated via a small Python builder (see [How to regenerate](#how-to-regenerate)).
+**Corrected:** 2026-07-19 (#144) — the parent rollup was re-cut to model a **single-turn snapshot** (the trace's final turn), not the column-sum of all turns. The trace lines are unchanged; only the paired parent fixture and the reconciliation framing below changed. The trace's per-turn sum is now the *real processed total the rollup understates*, not the rollup itself.
 **Pairs with:** [`anatomy-agent-invocation.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-agent-invocation.jsonl) (the parent-side view).
 **Used by:** [`reference/subagent-traces.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md) (W3 #8) and Part 3 ("Inside the subagent trace file," #65).
 **Verified against Claude Code:** v2.1.150 — line-by-line attribution-field placement verified via jq recon against real Claude Code subagent traces on 2026-05-26. Agent SDK subagent traces may exhibit different patterns; treat the field placement encoded in this fixture as Claude Code-specific until SDK traces are available for sampling.
@@ -34,20 +35,23 @@ The shown post excerpt (Part 3) inlines lines 1, 2, 3, and 16 — a faithful fou
 
 ### Token reconciliation (the load-bearing invariant)
 
-This fixture pair is the worked example behind the "same tokens, counted twice" point in [`subagent-traces.md` § Token accounting](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#token-accounting). The numbers are constructed to reconcile exactly, so the double-count is demonstrable:
+This fixture pair is the worked example behind [`subagent-traces.md` § Token accounting](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#token-accounting). Following the **#144 correction**, the invariant is **not** "the trace sums to the rollup" — the rollup is a **single turn**, not a run total. Two distinct numbers matter, and keeping them straight is the whole lesson:
 
-- The eight `assistant` lines' `message.usage` fields **sum exactly** to the parent's `toolUseResult.usage`:
+- **The rollup is one turn.** The parent's `toolUseResult.usage` equals this trace's **final (8th)** `assistant` turn's `message.usage` exactly: `{input 3, output 300, cache_creation 1500, cache_read 27000}`, `totalTokens` 28,803. That is a context-size snapshot, not the run's spend.
+- **The trace's per-turn sum is the real processed total**, and it is ~6.25x the rollup. Summing all eight turns against the rollup's single-turn snapshot:
 
-  | Field | Sum across trace assistant turns | Parent `toolUseResult.usage` |
+  | Field | Sum across 8 trace turns (real processed) | Parent rollup `usage` (final turn only) |
   |---|---|---|
-  | `input_tokens` | 20 | 20 |
-  | `output_tokens` | 1000 | 1000 |
-  | `cache_creation_input_tokens` | 29000 | 29000 |
-  | `cache_read_input_tokens` | 150000 | 150000 |
+  | `input_tokens` | 20 | 3 |
+  | `output_tokens` | 1000 | 300 |
+  | `cache_creation_input_tokens` | 29000 | 1500 |
+  | `cache_read_input_tokens` | 150000 | 27000 |
+  | **four-field total** | **180020** | **28803** |
 
-- `totalTokens` (180020) is defined here as the **sum of all four `usage` fields** (input + output + cache_creation + cache_read = total token volume across the run). **Note:** Claude Code's exact production formula for `totalTokens` is not pinned in the reference; this fixture adopts the four-field sum as a clear, reader-verifiable definition. If upstream is later confirmed to compute it differently (e.g., excluding cache reads), update this fixture and the note together.
-- `totalToolUseCount` (7) equals the number of `tool_use` blocks in the trace, and `toolStats` (`{Read:4, mcp__github__get_issue:1, mcp__github__add_issue_comment:2}`) equals their per-name tally.
-- `totalDurationMs` (132140, parent-side) is slightly longer than the trace's own first→last timestamp span (~131504 ms), reflecting parent-side spawn/return overhead bracketing the subagent run.
+  The rollup understates the run by 180020 / 28803 ≈ 6.25x. This deflation is the hazard the reference and Part 4 warn about. To get real spend, sum the trace's per-turn usage (deduped by `message.id`), never the rollup.
+- `totalTokens` in the rollup (28803) is the sum of the **final turn's** four `usage` fields. The `totalTokens == sum of the four usage fields` identity is confirmed **691/691** against a live corpus (2026-07-18); it is a single-turn identity, not a run sum.
+- `totalToolUseCount` (7) equals the number of `tool_use` blocks in the trace, and `toolStats` (`{Read:4, mcp__github__get_issue:1, mcp__github__add_issue_comment:2}`) equals their per-name tally. These **are** true run-level counts (unlike the token rollup).
+- `totalDurationMs` (132140, parent-side) is slightly longer than the trace's own first→last timestamp span (~131504 ms), reflecting parent-side spawn/return overhead bracketing the subagent run. Also a true run-level value.
 
 ### The per-turn cache pattern is realistic, not arbitrary (#103)
 
@@ -55,9 +59,9 @@ The per-turn `usage` values are calibrated to how Claude Code prompt caching act
 
 - **`input_tokens` is negligible** (1–3/turn, 20 total) — Claude Code caches almost everything, so the full-price input number is near-zero even across a long run.
 - **`cache_creation` is front-loaded** — 13,000 on turn 1 (system prompt + tools written to cache), tapering to 1,500 by the end.
-- **`cache_read` starts at 0 on turn 1** (fresh cache) and **grows every turn** (13,000 → 27,000), because each turn re-reads the whole accumulated prefix. It dominates: **150,000 of 180,020 tokens (~83%)**.
+- **`cache_read` starts at 0 on turn 1** (fresh cache) and **grows every turn** (13,000 → 27,000), because each turn re-reads the whole accumulated prefix. It dominates the run's real processed total: **150,000 of 180,020 tokens (~83%)**. This growth is exactly why the final-turn snapshot (the rollup) so badly understates the run: the expensive re-reads are counted once per turn in reality but only once, at the final turn, in the rollup.
 
-This is the shape the prior version of this fixture got wrong (it had `cache_read` *smaller* than turn-1 `cache_creation`, off from reality by ~8–160× per category). Only the **column sums** are load-bearing for the #98/#99 reconciliation invariant; the per-turn split now also mirrors real behavior so the example survives Part 4's cost scrutiny. (Note: a truly fresh cache reads 0 on turn 1, as encoded here; real runs often show a non-zero warm-cache read on turn 1 when a prior invocation's cache is still alive within the 5-minute TTL.)
+This is the shape the prior version of this fixture got wrong (it had `cache_read` *smaller* than turn-1 `cache_creation`, off from reality by ~8–160× per category). Two things are load-bearing now (#144): the **final turn** equals the parent rollup, and the **column sum** (180,020) is the real processed total the rollup understates by ~6.25x. The per-turn split mirrors real caching behavior so the example survives Part 4's cost scrutiny. (Note: a truly fresh cache reads 0 on turn 1, as encoded here; real runs often show a non-zero warm-cache read on turn 1 when a prior invocation's cache is still alive within the 5-minute TTL.)
 
 ## Synthetic conventions used
 
@@ -80,4 +84,4 @@ This is the shape the prior version of this fixture got wrong (it had `cache_rea
 
 ## How to regenerate
 
-Regenerated 2026-06-10 via a Python builder that constructs each line as an ordered dict and writes `json.dumps(..., separators=(",", ":"))` per line (one object per line, no trailing whitespace). The builder fixes the eight assistant turns' `usage` so the four columns sum to the chosen rollup, then validates: JSONL parse, `parentUuid` chain, `sourceToolAssistantUUID` pairing, attribution placement, and the cross-fixture token match against `anatomy-agent-invocation.jsonl`. To change the run, edit the per-turn usage/timestamps/tool list in the builder and re-validate; keep the rollup in the parent fixture in sync (the cross-fixture sum check is the gate).
+Regenerated 2026-06-10 via a Python builder that constructs each line as an ordered dict and writes `json.dumps(..., separators=(",", ":"))` per line (one object per line, no trailing whitespace). The builder sets the eight assistant turns' `usage` to model realistic per-turn caching, then validates: JSONL parse, `parentUuid` chain, `sourceToolAssistantUUID` pairing, and attribution placement. **Post-#144 gate:** the parent fixture's `toolUseResult.usage` must equal this trace's **final** assistant turn's `message.usage` (and its `totalTokens` the four-field sum of that turn), NOT the column-sum across turns. To change the run, edit the per-turn usage/timestamps/tool list, then update the parent rollup to match the new final turn and re-validate against that identity.

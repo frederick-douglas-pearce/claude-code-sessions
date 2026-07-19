@@ -226,9 +226,9 @@ The richest envelope. See [The Agent tool](#the-agent-tool) below for the dedica
 | `agentType` | string | The `subagent_type` that ran. |
 | `prompt` | string | The prompt the parent passed to the subagent. |
 | `totalDurationMs` | number | Wall-clock duration of the subagent run. |
-| `totalTokens` | number | Token rollup across the entire subagent run. |
-| `totalToolUseCount` | number | Number of tool invocations inside the subagent. |
-| `usage` | object | Token breakdown (same shape as `message.usage`). |
+| `totalTokens` | number | A **single turn's** snapshot (the subagent's final turn), the four-field sum of `usage`. **Not** a run total — see the [undercount hazard](#undercount-hazard). |
+| `totalToolUseCount` | number | Number of tool invocations inside the subagent (a true run-level count). |
+| `usage` | object | The subagent's **final-turn** token usage (same shape as `message.usage`), not a run total. |
 | `toolStats` | object | Per-tool invocation counts (e.g., `{"Read": 4, "mcp__github__get_issue": 1}`). |
 
 ### MCP tools (`mcp__<server>__<tool>`)
@@ -251,7 +251,7 @@ When `toolUseResult` is absent, the cycle is still valid — `tool_use_id` pairi
 
 The `Agent` tool is structurally identical to every other tool at the parent-session level — it's a `tool_use` followed by a `tool_result` — but it has two unusual properties that make it the most consequential tool for analytics:
 
-1. Its `toolUseResult` envelope carries a **rollup of the entire subagent run** in a single object: total duration, total tokens, per-tool counts.
+1. Its `toolUseResult` envelope carries **run-level rollups** in a single object: total duration and per-tool counts. (Its token fields, `totalTokens` / `usage`, are the exception — a **single-turn snapshot**, not a run total. See the [undercount hazard](#undercount-hazard).)
 2. Its `agentId` links to a **separate JSONL trace file** that contains the subagent's full internal activity.
 
 Claude Code restricts subagents from invoking further subagents, so the Agent tool only appears in parent sessions, not inside subagent traces. The Agent SDK may exhibit nested invocations; see [`subagent-traces.md` § Nesting](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#nesting) for the runtime distinction.
@@ -278,8 +278,8 @@ See [Agent](#agent) in the envelope table above. The envelope is the parent's wi
 
 - `agentId` — the link to the trace file at `~/.claude/projects/<slug>/<session-uuid>/subagents/agent-<agentId>.jsonl`.
 - `agentType`, `prompt` — echo of the `tool_use.input` for convenient correlation without re-walking the assistant line.
-- `totalDurationMs`, `totalTokens`, `totalToolUseCount` — bulk rollup numbers. `totalToolUseCount` is the subagent's **own-direct** count, not cumulative across any further subagents it spawned.
-- `usage` — token breakdown in the same shape as `message.usage` (see [Usage and token accounting](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#usage-and-token-accounting)).
+- `totalDurationMs`, `totalToolUseCount` — true run-level rollups. `totalToolUseCount` is the subagent's **own-direct** count, not cumulative across any further subagents it spawned.
+- `totalTokens`, `usage` — **not** run rollups. Both are a single-turn snapshot (the subagent's final turn); see the [undercount hazard](#undercount-hazard) below and [Usage and token accounting](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#usage-and-token-accounting).
 - `toolStats` — a `{tool_name: count}` object summarizing what the subagent did. The single most useful field for "what did this subagent actually do" analytics.
 
 **Multi-level caveat (Agent SDK).** This whole `toolUseResult` rollup is present only on **first-level** subagent results. When a subagent itself delegates (possible in the Agent SDK, not in Claude Code), the deeper `Agent` `tool_result` carries no `toolUseResult` — only an inline `subagent_tokens: <N>` trailer — so a depth-≥2 subagent's rollup numbers must come from its own trace. See [`subagent-traces.md` § Multi-level (nested) delegation](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#multi-level-nested-delegation).
@@ -296,9 +296,11 @@ contains the complete subagent trace. Every line in that file carries `isSidecha
 
 For the structure of that file — `attributionAgent`, `sourceToolAssistantUUID`, the per-line-type attribution pattern, what fields propagate vs. reset across invocation boundaries — see [`subagent-traces.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md).
 
-### Double-counting hazard
+### Undercount hazard
 
-The subagent's tokens appear in **both** the subagent trace file (on each interior `assistant` line) and the parent session's `toolUseResult.usage`. A naive sum that walks every JSONL file in `~/.claude/projects/<slug>/` will double-count subagent tokens. Use one or the other, not both. The data-dictionary's [cost-computation pitfalls](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#common-pitfalls-in-cost-computation) section covers this; it shows up here because the `toolUseResult` rollup is the surface most likely to trip an aggregator.
+The parent's `toolUseResult.usage` / `totalTokens` is a **single-turn snapshot** (the subagent's final turn), not a run total. The subagent's real spend is the sum of **all** its per-turn `message.usage` inside the trace file, deduplicated by `message.id`. Reading spend off the rollup alone **under**counts by a median ~5.8x. The correct move is the opposite of the intuitive "use one or the other": for spend, always sum the trace's per-turn usage; use the parent rollup only as an explicitly labeled context-size proxy. The data-dictionary's [cost-computation pitfalls](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#common-pitfalls-in-cost-computation) and [per-request usage note](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#usage-is-per-request-context-recurs-every-turn) cover the mechanism; it shows up here because the `toolUseResult` rollup is the surface most likely to trip an aggregator into the undercount.
+
+> **Note (2026-07-19, #144).** Earlier revisions of this section called this a *double-count* hazard and advised summing the trace **or** the rollup. That was backwards: the rollup is one turn, so it can't double the trace — it undercounts it. Corrected above.
 
 ---
 

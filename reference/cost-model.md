@@ -47,7 +47,7 @@ Cost-relevant data is carried on **`type: "assistant"`** records. The shape (fie
 
 `message.usage.iterations[]` repeats the same per-message fields for multi-turn internal iterations; the top-level `usage` is the billable rollup. The `iterations` shape (scalar vs array) is not yet settled in this reference — see [#140](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/140).
 
-The same `usage` shape appears on the subagent rollup (`toolUseResult.usage` on a parent `user` line), with one critical omission: the rollup carries no `model`. Per-token rates are per-model, so a rollup is enough for token accounting but not for cost. See [`subagent-traces.md` § Token accounting](subagent-traces.md#token-accounting) and [`data-dictionary.md` § Common pitfalls](data-dictionary.md#common-pitfalls-in-cost-computation).
+The same `usage` shape appears on the subagent rollup (`toolUseResult.usage` on a parent `user` line), but the rollup has **two** defects, not one. The larger: it is a **single-turn snapshot** (the subagent's final turn), not a run total, so it is insufficient even for *token* accounting — summing it undercounts real processed tokens by a median ~5.8x. The lesser: it carries no `model`, and per-token rates are per-model, so it could not be priced even if the quantity were right. For a subagent's spend, sum the trace's per-turn `message.usage` (deduped by `message.id`) and price each turn at its own `message.model`. See [`subagent-traces.md` § Token accounting](subagent-traces.md#token-accounting) and [`data-dictionary.md` § Common pitfalls](data-dictionary.md#common-pitfalls-in-cost-computation).
 
 ---
 
