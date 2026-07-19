@@ -164,7 +164,7 @@ cat <session>.jsonl | jq 'select(.type=="assistant") | .message.usage'
 
 (`jq` is a command-line JSON processor. If you don't have it, `brew install jq` or `apt-get install jq` will get you there.)
 
-Note that summing `input_tokens + output_tokens` gives you raw usage, not actual cost. Pricing varies by model (Sonnet, Opus, and Haiku are each priced differently), cache reads (`cache_read_input_tokens`) are billed at a fraction of regular input tokens, cache creation (`cache_creation_input_tokens`) is billed at a premium, and subagent token totals are also reported in the parent session via the `toolUseResult` envelope — so naive aggregation can double-count. The next paragraph mentions tooling that handles this properly.
+Note that summing `input_tokens + output_tokens` gives you raw usage, not actual cost. Pricing varies by model (Sonnet, Opus, and Haiku are each priced differently), cache reads (`cache_read_input_tokens`) are billed at a fraction of regular input tokens, cache creation (`cache_creation_input_tokens`) is billed at a premium, and a subagent's `toolUseResult` rollup in the parent session is a single-turn snapshot rather than its run total, so treating it as the subagent's token count undercounts the work. The next paragraph mentions tooling that handles this properly.
 
 You can also see which tools Claude called most often, how long each subagent took, where the model stopped and waited for tool results — all directly from the file.
 

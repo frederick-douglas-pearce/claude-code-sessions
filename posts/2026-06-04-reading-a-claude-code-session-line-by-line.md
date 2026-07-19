@@ -266,16 +266,20 @@ cat <session>.jsonl | jq -r 'select(.type=="assistant")
   | .message.content[]? | select(.type=="tool_use") | .name'
 
 # Every subagent invocation with its rollup:
+# NB: totalTokens is a single-turn context-size snapshot, NOT the run's
+# token total. Don't sum it or price it; see the caveat below and Part 4.
 cat <session>.jsonl | jq 'select(.toolUseResult?.agentType?)
   | {agent: .toolUseResult.agentType,
      agent_id: .toolUseResult.agentId,
      duration_ms: .toolUseResult.totalDurationMs,
-     tokens: .toolUseResult.totalTokens}'
+     context_tokens: .toolUseResult.totalTokens}'
 ```
 
 The `?` operators in the third snippet matter: in real sessions, `toolUseResult` is sometimes an array or a string rather than an object, and without the `?` guards `jq` will raise an indexing error on those lines. With them, non-matching lines are silently skipped.
 
 The first snippet is the fastest way to feel the shape of a session you've never opened before — and the easiest way to discover top-level `type` values this post hasn't catalogued. The second is a one-line agent-trace. The third pulls the rollup of every subagent the parent session delegated to. The `agent_id` value in that rollup is the literal handle that takes you to the subagent's full trace file at `~/.claude/projects/<slug>/<session-uuid>/subagents/agent-<agent_id>.jsonl` — which is where Part 3 picks up. I deliberately omitted `toolStats` from the third snippet because its shape varies by agent type — built-in subagents and the `Explore` agent populate different keys.
+
+One caveat on that `context_tokens` field. `toolUseResult.totalTokens` looks like the subagent's token total, but it is a snapshot of a single assistant turn's context size, not a sum across the run, so it understates what the run actually processed and must not be summed across invocations or priced as cost. That's why the key here is named `context_tokens`, not `tokens`. [Part 4](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-24-token-accounting-is-harder-than-it-looks.md) is the full treatment; for now, read it as a rough context-size figure, and get real token totals by summing the trace file's per-turn `message.usage`.
 
 ---
 
@@ -288,6 +292,10 @@ If you want to look ahead, [`reference/subagent-traces.md`](https://github.com/f
 The synthetic fixtures referenced throughout this post are in [`fixtures/synthetic/`](https://github.com/frederick-douglas-pearce/claude-code-sessions/tree/main/fixtures/synthetic). If you want to run the `jq` snippets without using a real session, those files are valid JSONL by design and contain the structural patterns described here.
 
 If there's a line type or a behavior I didn't cover that you've seen in your own sessions, I'd love to know — that's exactly the kind of thing that updates the reference docs and refines later posts.
+
+---
+
+**Correction (2026-07-19).** The subagent `jq` recipe above originally emitted `tokens: .toolUseResult.totalTokens`, which reads as the subagent's token total. It isn't: `totalTokens` is a single assistant turn's context-size snapshot, not a sum across the run, and using it as a token total undercounts the run (by a median of about 6x on a live corpus of 691 invocations) and can't be priced. The key has been renamed to `context_tokens` with a caveat, and a pointer added to get real token totals from the trace. See [Part 4](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-24-token-accounting-is-harder-than-it-looks.md) and [`reference/subagent-traces.md` — Token accounting](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#token-accounting).
 
 ---
 

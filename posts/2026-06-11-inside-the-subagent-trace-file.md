@@ -151,13 +151,13 @@ Here's what the parent saw for our `pm` invocation — the `toolUseResult` from 
   "agentId": "99999999-9999-9999-9999-999999999001",
   "agentType": "pm",
   "totalDurationMs": 132140,
-  "totalTokens": 180020,
+  "totalTokens": 28803,
   "totalToolUseCount": 7,
   "usage": {
-    "input_tokens": 20,
-    "output_tokens": 1000,
-    "cache_creation_input_tokens": 29000,
-    "cache_read_input_tokens": 150000
+    "input_tokens": 3,
+    "output_tokens": 300,
+    "cache_creation_input_tokens": 1500,
+    "cache_read_input_tokens": 27000
   },
   "toolStats": {
     "Read": 4,
@@ -167,17 +167,17 @@ Here's what the parent saw for our `pm` invocation — the `toolUseResult` from 
 }
 ```
 
-That's genuinely useful — at a glance you know the `pm` agent ran for ~132 seconds, burned ~180K tokens (nearly all cache reads), and made 7 tool calls across `Read`, `get_issue`, and `add_issue_comment`. For a lot of questions, that's enough, and you never have to open the trace file.
+That's genuinely useful. At a glance you know the `pm` agent ran for ~132 seconds and made 7 tool calls across `Read`, `get_issue`, and `add_issue_comment`. For a lot of questions, that's enough, and you never have to open the trace file.
 
-But notice what it can't tell you. It says `Read` was called four times — not _which files_. It says `add_issue_comment` was called twice — not _what the comments said_, or whether the first attempt failed and the second was a retry. It gives one cumulative token number — not which turn was expensive. It records the final summary string — not the reasoning that produced it. `toolStats` is an aggregate; the trace file is the transcript.
+But notice what it can't tell you, and one field that will actively mislead you. It says `Read` was called four times, not _which files_. It says `add_issue_comment` was called twice, not _what the comments said_, or whether the first attempt failed and the second was a retry. It records the final summary string, not the reasoning that produced it. And the token fields are a trap: `totalTokens` and `usage` here snapshot a **single** turn, the subagent's last, not the whole run, so they undercount what the run actually processed and can't tell you which turn was expensive. `toolStats`, `totalToolUseCount`, and `totalDurationMs` are genuine run-level rollups; the token fields are not. Part 4 is where that trap gets its full treatment.
 
-|             | Parent `toolUseResult` (rollup)              | Subagent trace file (evidence)                                  |
-| ----------- | -------------------------------------------- | --------------------------------------------------------------- |
-| Granularity | One line covering the whole run              | Every model turn, every tool call, every result                 |
-| Tokens      | One cumulative `totalTokens` + a `usage` sum | Per-`assistant`-line `message.usage`                            |
-| Tools       | Per-tool **counts** (`{"Read": 4}`)          | Every `tool_use`/`tool_result` pair, full `input` and `content` |
-| Duration    | One `totalDurationMs` scalar                 | Per-line `timestamp`s — diff them yourself                      |
-| Reasoning   | Absent                                       | `thinking` blocks (when extended thinking is on)                |
+|             | Parent `toolUseResult` (rollup)                  | Subagent trace file (evidence)                                  |
+| ----------- | ------------------------------------------------ | --------------------------------------------------------------- |
+| Granularity | One line covering the whole run                  | Every model turn, every tool call, every result                 |
+| Tokens      | A single turn's `totalTokens` + `usage` snapshot | Per-`assistant`-line `message.usage`, summable to the run total |
+| Tools       | Per-tool **counts** (`{"Read": 4}`)              | Every `tool_use`/`tool_result` pair, full `input` and `content` |
+| Duration    | One `totalDurationMs` scalar                     | Per-line `timestamp`s — diff them yourself                      |
+| Reasoning   | Absent                                           | `thinking` blocks (when extended thinking is on)                |
 
 This is exactly why most parsers stop at the parent envelope and treat a subagent as a single opaque tool call. The data is _there_ — it just lives in a different file, and you have to know to go get it. Anything that measures what a subagent actually did, rather than what the parent claims it did, has to read the trace.
 
@@ -201,9 +201,9 @@ I'm naming this as a real gap, not hedging the whole post: for Claude Code, the 
 
 There's a trap baked into the two-file split, and it deserves a flag here even though its full treatment is the next post's job.
 
-A subagent's token usage is reported in **two places for the same work**: on every `assistant` line _inside_ the trace file (`message.usage`, per turn), and in the parent's `toolUseResult.usage` / `totalTokens` (rolled up across the whole run). These are the **same tokens, counted twice**. Sum both sources and your session-cost number is inflated — and inflated in a way that doesn't look obviously wrong, which is what makes it dangerous.
+A subagent's token usage shows up in **two places that measure different things**: on every `assistant` line _inside_ the trace file (`message.usage`, per turn), and in the parent's `toolUseResult.usage` / `totalTokens`. It is tempting to read the parent's number as the run total, but it is a snapshot of a **single** turn, the subagent's last one. Sum the trace and you get what the run processed; read the rollup and you get one turn, which understates it, often several-fold. The two are not interchangeable, and the gap doesn't look obviously wrong, which is what makes it dangerous.
 
-The "right" way depends on which question you're asking: do you need a quick total from the parent alone, the full breakdown that reads trace files but excludes the parent rollup, or just the subagent's cost on its own? And, what about the four token kinds, `service_tier`, and per-model pricing? That's a whole post. [Part 4 — "Token accounting is harder than it looks"](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/.claude/specs/series-outline.md) is where the double-count hazard gets the full treatment. For now, know that the same tokens live in both files, and don't add them together.
+The "right" way depends on which question you're asking: the subagent's real processed tokens (sum the trace), a session total (parent turns plus each subagent's trace sum), or its cost (the trace, priced per turn at each turn's own model). And what about the four token kinds, `service_tier`, and per-model pricing? That's a whole post. [Part 4 — "Token accounting is harder than it looks"](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-24-token-accounting-is-harder-than-it-looks.md) is where the rollup-versus-trace hazard gets the full treatment. For now, know that the parent's number is a single-turn snapshot, not the run total, so don't read it as the subagent's cost.
 
 ## Try it on your own sessions
 
@@ -228,7 +228,7 @@ The first snippet answers "how many turns did this subagent take?" — a number 
 
 We've now seen both halves of a delegation: the parent's rollup (Part 2) and the subagent's full trace (this post). The recurring theme is that the same activity is recorded twice, at two granularities, in two files — and the token gotcha above is the sharpest edge of that fact.
 
-[Part 4](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/.claude/specs/series-outline.md) takes the gotcha seriously. "What did this session actually cost?" sounds like a sum, but between the four token kinds, cache reads priced differently from cache creation, `service_tier`, per-model pricing, and the double-count we just flagged, it's the question this whole series has been circling. Token accounting is harder than it looks — and the data to get it right is all sitting in these files.
+[Part 4](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-24-token-accounting-is-harder-than-it-looks.md) takes the gotcha seriously. "What did this session actually cost?" sounds like a sum, but between the four token kinds, cache reads priced differently from cache creation, `service_tier`, per-model pricing, and the rollup-versus-trace trap we just flagged, it's the question this whole series has been circling. Token accounting is harder than it looks, and the data to get it right is all sitting in these files.
 
 The sources behind this post:
 
@@ -237,6 +237,10 @@ The sources behind this post:
 - **Synthetic fixtures** — valid JSONL, so the `jq` snippets run against them without a real session: the [parent invocation](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-agent-invocation.jsonl) and the [subagent trace](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-subagent-trace.jsonl)
 
 If your own traces show a `type` value, an attribution field, or a nesting layout I haven't described — especially from the Agent SDK — that's exactly the kind of thing that updates the reference docs and sharpens later posts. Please let me know by creating an issue in the `claude-code-sessions` repo linked above.
+
+---
+
+**Correction (2026-07-19).** An earlier version of this post described the parent's `toolUseResult.usage` / `totalTokens` as "rolled up across the whole run" and called the trace and rollup "the same tokens, counted twice," warning that summing both inflates a session total. That was backwards. The token fields in the rollup are a single assistant turn's snapshot (the subagent's last), not a run total, so reading them as the run's cost undercounts it, by a median of about 6x on a live corpus of 691 invocations. The `toolStats`, `totalToolUseCount`, and `totalDurationMs` fields are genuine run-level rollups; the token fields are the exception. The displayed envelope, the comparison table, and the "gotcha" section have been corrected, and the paired fixtures were re-cut to match ([#144](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/144)). The canonical treatment is in [`reference/subagent-traces.md` — Token accounting](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#token-accounting).
 
 ---
 

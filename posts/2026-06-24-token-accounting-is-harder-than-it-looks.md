@@ -2,7 +2,7 @@
 layout: post
 title: "Token accounting is harder than it looks"
 date: 2026-06-24 00:00:00-0800
-description: "Part 4 of the anatomy series. The four token kinds, the subagent double-count trap, and why turning session JSONL into accurate cost figures needs model identity, service_tier, and an external pricing table rather than a single sum."
+description: "Part 4 of the anatomy series. The four token kinds, the subagent rollup undercount trap, and why turning session JSONL into accurate cost figures needs model identity, service_tier, and an external pricing table rather than a single sum."
 categories: ["foundation"]
 tags: ["claude-code", "jsonl", "sessions", "tokens", "cost"]
 og_image: https://frederick-douglas-pearce.github.io/assets/img/token-accounting-is-harder-than-it-looks-og.png
@@ -13,11 +13,11 @@ claude_code_version_verified: v2.1.150
 
 Your last Claude Code session used some number of tokens. You've probably seen it, in `/cost`, in the status line, in a context meter ticking toward full, or maybe even in a session file. That single number hides a wide spread: the cheapest token in a session (cache reads) and the most expensive (output) differ in price by roughly 50x. Add the four kinds of tokens into one total and you learn almost nothing about what the session actually cost.
 
-Getting cost right is harder than it seems. Sum the token counts in this post's subagent fixture the obvious way and you get 360,040. The real figure is 180,020. The naive sum counts the same work twice, because a subagent's tokens show up in its own turns and again in the parent's rollup. That double-count is the first of three traps. The other two are about price, not count: a cache read charged as if it were output, which prices the cheapest token as the most expensive, and a subagent on a cheaper model billed at the caller's rate. The data to avoid all three is sitting in the session file, waiting for the right accounting.
+Getting cost right is harder than it seems. Take this post's subagent fixture. The parent session's rollup reports 28,803 tokens for the subagent run, and it is tempting to read that as what the run cost. It isn't. Sum the subagent's own eight turns and the real figure is 180,020, roughly six times larger. The rollup is a single turn's snapshot, not a total across the run, so leaning on it undercounts the work badly. That undercount is the first of three traps. The other two are about price, not count: a cache read charged as if it were output, which prices the cheapest token as the most expensive, and a subagent on a cheaper model billed at the caller's rate. The data to avoid all three is sitting in the session file, waiting for the right accounting.
 
 This matters even if you are on a Pro or Max subscription and never see a per-token bill. Two reasons. First, the API is what applications and businesses run on, and there you pay by the token. The same four-token accounting is the difference between a predictable bill and a surprising one, and the habits you build reading your own sessions transfer directly to anything you ship. Second, the ratio of cache reads to cache writes is a signal about how a session is structured, not just a billing line. A session that mostly reads from cache is reusing its context efficiently. One that rewrites its context every turn is doing avoidable work. That optimization is worth it, regardless of who is paying.
 
-This is the "how much" post, the one [Part 3](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-11-inside-the-subagent-trace-file.md) was building toward when it flagged the double-count gotcha and said Part 4 is the fix. We're going to work through it with the same two fixtures from Parts 2 and 3: the [parent invocation](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-agent-invocation.jsonl) and the [subagent trace](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-subagent-trace.jsonl). Their numbers check out exactly, which is the point. This is not a hypothetical.
+This is the "how much" post, the one [Part 3](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-11-inside-the-subagent-trace-file.md) was building toward when it flagged the rollup-versus-trace gotcha and said Part 4 is the fix. We're going to work through it with the same two fixtures from Parts 2 and 3: the [parent invocation](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-agent-invocation.jsonl) and the [subagent trace](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-subagent-trace.jsonl). Their numbers check out exactly, which is the point. This is not a hypothetical.
 
 ## The four token kinds, and why the difference matters
 
@@ -46,7 +46,7 @@ Here is what each one means:
 
 These three input fields are not just your new message. Together they account for everything the model reads on that turn: the system prompt, the tool definitions, the entire conversation so far, and whatever you just typed. Every one of those tokens lands in exactly one bucket: read from cache, written to cache, or left as fresh uncached input. That last bucket is usually small. `input_tokens` can be only a few tokens when the turn's full context runs to tens of thousands of tokens. In the `usage` object above, that context was about 13,000 tokens, nearly all written to cache, with just 3 left as fresh input.
 
-Now look at the subagent run as a whole. Across 8 model turns, the `pm` agent consumed 20 fresh input tokens, produced 1,000 output tokens, wrote 29,000 tokens to cache, and read 150,000 tokens from cache. Add the four kinds together and you get 180,020, the same `totalTokens` the parent rollup reports. But the cost picture is nothing like "180,020 tokens at input price."
+Now look at the subagent run as a whole. Across 8 model turns, the `pm` agent consumed 20 fresh input tokens, produced 1,000 output tokens, wrote 29,000 tokens to cache, and read 150,000 tokens from cache. Add the four kinds together and you get 180,020, the tokens the run actually processed, obtained by summing every turn in the trace. (The parent's rollup reports a far smaller 28,803, for a reason that is the main event below.) But the cost picture is nothing like "180,020 tokens at input price."
 
 The 150,000 cache reads are cheap, the 29,000 cache writes a little more, the 1,000 output tokens the costly line, the 20 fresh input tokens negligible. Notice the inversion: the cache reads dominate the count while being the cheapest per token, and the output tokens look like a rounding error in the count while being the most expensive. That is the whole problem with a single total. The cost per token spread runs about 50x: a cache read at roughly a tenth the price of fresh input, an output token several times more.
 
@@ -73,7 +73,7 @@ The parent's own `assistant` turn, the one that decided to delegate and emitted 
 }
 ```
 
-The subagent's eight turns all ran on `claude-sonnet-4-6`. Its cumulative usage, per the rollup and confirmed by summing the trace:
+The subagent's eight turns all ran on `claude-sonnet-4-6`. Here is its usage summed across all eight turns, the run's real processed total (not the rollup, which reports only the final turn):
 
 ```json
 {
@@ -90,29 +90,29 @@ The `message.model` field on every `assistant` line is why this is fixable. The 
 
 I'm not going to print specific dollar-per-million figures here, because pricing is external, it changes, and it differs across model families. What the JSONL gives you is the volumes and the model identities. Turning those into dollars needs an external pricing table. The data is in the file; the prices are not.
 
-## The main event: the double-count
+## The main event: the undercount
 
-Here is the trap Part 3 flagged and deferred.
+Here is the trap Part 3 flagged and deferred. It runs the opposite direction from how it looks.
 
-The `pm` subagent's tokens appear in two places:
+The `pm` subagent's tokens are reported in two places:
 
 1. On each of the 8 `assistant` lines _inside_ `anatomy-subagent-trace.jsonl`, in `message.usage`, one object per turn.
-2. On the parent's `user` line in `anatomy-agent-invocation.jsonl`, in `toolUseResult.usage`, a rollup covering the whole run.
+2. On the parent's `user` line in `anatomy-agent-invocation.jsonl`, in `toolUseResult.usage`, next to a `totalTokens` scalar.
 
-These are the same tokens, reported twice.
+It is natural to read the second as the sum of the first: the parent rolling the whole run up into one number. It isn't. That `toolUseResult.usage` is a snapshot of a single turn, the subagent's last one (usually), not a total across the run.
 
 Here is the parent's `toolUseResult.usage`, exactly as it appears in the fixture:
 
 ```json
 {
-  "input_tokens": 20,
-  "output_tokens": 1000,
-  "cache_creation_input_tokens": 29000,
-  "cache_read_input_tokens": 150000
+  "input_tokens": 3,
+  "output_tokens": 300,
+  "cache_creation_input_tokens": 1500,
+  "cache_read_input_tokens": 27000
 }
 ```
 
-And here are the per-turn values from the 8 `assistant` lines in the subagent trace:
+Those four sum to 28,803, which is exactly the `totalTokens` on that same line. Now put it next to the per-turn values from the 8 `assistant` lines in the subagent trace:
 
 | Turn          | input  | output    | cache_creation | cache_read  |
 | ------------- | ------ | --------- | -------------- | ----------- |
@@ -126,25 +126,27 @@ And here are the per-turn values from the 8 `assistant` lines in the subagent tr
 | 8 (summary)   | 3      | 300       | 1,500          | 27,000      |
 | **Sum**       | **20** | **1,000** | **29,000**     | **150,000** |
 
-The per-turn sums match the rollup exactly: 20 + 1,000 + 29,000 + 150,000 = 180,020, the same `totalTokens` the parent line reports.
+The rollup is turn 8, and only turn 8. It matches the last row of the table, not the column sums. Sum the trace and the run processed 180,020 tokens. The rollup reports 28,803. Read the rollup as the subagent's cost and you undercount by a factor of about six.
 
-Sum both sources and you report 360,040 tokens for work that consumed 180,020. Exactly double.
+Why does one turn land so far below the run total? Because the Messages API is stateless. Every turn re-sends the whole conversation so far, and almost all of it arrives as cache reads. Turn 8 alone reads 27,000 tokens from cache, because it is re-reading everything the earlier turns built up. `totalTokens` captures that one turn's view of the context. It is a context-size reading, not a tally of the work the run did.
 
-If you have never opened a subagent trace file, you don't know the rollup is a re-statement of what's already in the trace. The numbers look plausible. A session that delegated one subagent run quietly doubles its reported token count.
+Here is why the mistake is so easy to make: the snapshot lands close to a real number, just not the one you want. Sum the run's _expensive_ tokens alone (input, output, and cache creation, leaving out the cheap cache reads) and you get 30,020, within a few percent of the 28,803 rollup. Each context token is written to cache about once over a run, so the cache-creation total roughly equals the final context size, which is roughly what the last turn snapshots. The rollup looks like it is in the right ballpark, but it's not. Measured across the live corpus behind the [reference doc](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#token-accounting), reading the rollup in place of summing the trace undercounts processed tokens by a median of 5.8x.
 
-One thing worth stating explicitly. The parent's _own_ assistant turn, the one on `claude-opus-4-7` that emitted the `Agent` call, is separate from all of this. Its usage (`input_tokens` 42, `output_tokens` 89, `cache_creation_input_tokens` 3,450, `cache_read_input_tokens` 8,200) is real parent-session cost, distinct from the subagent work, and it is _not_ part of the double-count. The double-count is specifically the subagent rollup on the parent's `user` line versus the per-turn usage inside the subagent trace. The parent's own model turns are not duplicated anywhere.
+One thing worth stating explicitly. The parent's _own_ assistant turn, the one on `claude-opus-4-7` that emitted the `Agent` call, is separate from all of this. Its usage (`input_tokens` 42, `output_tokens` 89, `cache_creation_input_tokens` 3,450, `cache_read_input_tokens` 8,200) is real parent-session cost, distinct from the subagent work. It is genuine parent usage, counted once in the parent session, and none of the undercount above touches it.
 
-The rule: count each subagent's tokens once, from the trace or from the rollup, never both.
+The rule: to count a subagent's tokens, sum its trace turn by turn. The parent rollup is a single-turn context-size proxy, not a substitute for that sum, and it understates the run several-fold.
 
-## The three aggregation patterns
+## Getting the number you actually want
 
-The [reference doc](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#token-accounting) names three patterns for honoring that rule, briefly summarized below:
+The [reference doc](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#token-accounting) lays out which source answers which question. The three questions people actually ask:
 
-**Pattern A, quick session total, no trace-file IO.** Read only the parent session. Sum `message.usage` on parent `assistant` lines plus every `toolUseResult.usage` rollup on parent `user` lines. This is accurate and fast, and you never open a subagent file. The tradeoff is that you can't break the subagent's cost down by turn; you get its total as one opaque number. For a quick "how much did this session cost?" that's usually fine.
+**A subagent's real processed tokens, the basis for its cost.** Sum `message.usage` across the subagent trace file's `assistant` lines, turn by turn. Not the rollup, which is one turn and understates the run. On a real trace, first deduplicate the `assistant` lines by `message.id`: a streaming response writes several lines for one logical turn, each a running snapshot rather than an increment, so summing all of them over-counts. (The synthetic trace here has one line per turn and sidesteps that; your own traces won't. The [reference doc](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#streaming-snapshots-and-messageid) has the dedup recipe.)
 
-**Pattern B, full breakdown with per-turn subagent detail.** Read the parent session's `assistant` lines for the parent-model cost. For any subagent invocation, read the subagent trace file's per-turn `message.usage` _instead of_ the parent rollup for that subagent. Concretely: include the `toolUseResult.usage` rollups on parent `user` lines, but exclude the one on each subagent-result line, because the subagent's tokens are already covered by summing its trace. This buys per-turn breakdown at the cost of file IO. It also lets you separate Opus cost from Sonnet cost, or pinpoint which turn in the subagent run was expensive.
+**Total session tokens.** Sum `message.usage` on the parent's own `assistant` lines, then add each subagent's per-turn trace sum. Include the sidechain trace tokens. Don't substitute the parent rollup for them, or you fold the roughly 6x undercount into your session total.
 
-**Pattern C, just the subagent's tokens.** Sum `message.usage` across the subagent trace file's `assistant` lines. Or, equivalently, read `toolUseResult.usage` from the parent's result line for that subagent. Either source gives the same token counts; they're verified to match in the fixtures and should match in production. For cost, though, the two are not interchangeable: only the trace records the model on each turn, so per-model pricing needs the trace, not the rollup. Reach for the rollup when you want the subagent's token total, the trace when you want its cost.
+**A subagent's cost.** Its processed tokens from the trace, priced per turn at that turn's own `message.model` rate. Only the trace records the model per turn; the rollup names no model at all. So cost, like the token total, comes from the trace, never the rollup.
+
+The one thing the rollup is genuinely good for is a quick, approximate read on how large the subagent's context grew, since `totalTokens` snapshots the final turn's context size. Label it as that. Never sum `totalTokens` across invocations, and never price `toolUseResult.usage`.
 
 ## Cache efficiency as a direct read from the JSONL
 
@@ -174,7 +176,7 @@ The same analysis applies to parent-session `assistant` lines. A long coding ses
 
 ## Putting it together: the right `jq` for session cost
 
-Here is a snippet that avoids the double-count and respects the token-type distinction. It produces a per-turn breakdown for a parent session, one row per `assistant` line, with the model and all four token kinds, so you can bring your own pricing table:
+Here is a snippet that avoids the undercount and respects the token-type distinction. It produces a per-turn breakdown for a parent session, one row per `assistant` line, with the model and all four token kinds, so you can bring your own pricing table:
 
 ```bash
 # Per-turn token breakdown from the parent session, skipping sidechain
@@ -198,18 +200,19 @@ cat ~/.claude/projects/<slug>/<session-uuid>.jsonl \
   '
 ```
 
-That gives you the parent's own model turns. To get the session total including subagent work (Pattern A above), add:
+That gives you the parent's own model turns. It does not yet include the subagent work, and this is exactly where the undercount creeps in. The tempting move is to pull the subagent rollups off the parent's `user` lines and add them:
 
 ```bash
-# Subagent rollup totals from parent user lines.
-# These are the rolled-up subagent costs: use these OR the trace file, not both.
+# Subagent rollups from parent user lines.
+# WARNING: each row is a single-turn snapshot, not the run total.
+# Fine as an approximate context-size read; wrong for cost.
 cat ~/.claude/projects/<slug>/<session-uuid>.jsonl \
   | jq -r '
     select(.type? == "user" and (.isSidechain? // false) == false)
     | select(.toolUseResult?.usage != null)
     | [
         .timestamp,
-        "subagent-rollup",
+        "subagent-rollup-snapshot",
         (.toolUseResult.usage.input_tokens // 0),
         (.toolUseResult.usage.output_tokens // 0),
         (.toolUseResult.usage.cache_creation_input_tokens // 0),
@@ -219,11 +222,31 @@ cat ~/.claude/projects/<slug>/<session-uuid>.jsonl \
   '
 ```
 
-Combine the two outputs and you have a complete per-turn register: every parent model turn with its model identity, and every subagent invocation as a single rollup row. Multiply each row's token counts by the per-type, per-model rate for that row's model, and you have an accurate cost estimate.
+Those rows are single-turn snapshots. Sum them into a session total and you undercount every subagent's real work, by a median of about 6x on the corpus behind the reference doc. To get a subagent's real processed tokens you have to open its trace file and sum `message.usage` across its turns:
 
-One caveat about that rollup row: it carries no model. The rollup adds up the subagent's tokens, and even provides its `service_tier`, but never records which model produced them. Per-token rates are per-model, so you can only price that row if you already know the subagent's model. When a subagent runs on a different model than the parent, or on more than one, switch to Pattern B and read the trace, where every turn carries its own `message.model`.
+```bash
+# A subagent's real processed tokens: sum every turn in its trace.
+# On a real trace, dedupe streaming lines by message.id first (see the reference doc).
+cat ~/.claude/projects/<slug>/<session-uuid>/subagents/agent-<agentId>.jsonl \
+  | jq -s '
+    [ .[] | select(.type? == "assistant") | .message.usage ]
+    | reduce .[] as $u (
+        { input: 0, output: 0, cache_creation: 0, cache_read: 0 };
+        {
+          input:          (.input          + ($u.input_tokens // 0)),
+          output:         (.output         + ($u.output_tokens // 0)),
+          cache_creation: (.cache_creation + ($u.cache_creation_input_tokens // 0)),
+          cache_read:     (.cache_read     + ($u.cache_read_input_tokens // 0))
+        }
+      )
+  '
+```
 
-What you should not do: pipe both of those queries _and_ the subagent trace file through a single sum. That's the double-count.
+Run that against the subagent fixture and it returns the run's real totals: 20 input, 1,000 output, 29,000 cache creation, 150,000 cache read. That is the 180,020 the rollup's 28,803 was hiding.
+
+One more thing the rollup can't do: it carries no model. It sums a turn's tokens and even records `service_tier`, but never says which model produced them. Per-token rates are per-model, so a rollup row is unpriceable on its own. The trace is where each turn carries its `message.model`, which is the other reason cost has to come from the trace.
+
+What you should not do: read the rollup and call it the subagent's cost. It is one turn, it names no model, and it understates the run several-fold.
 
 ## What the data gives you, and what it doesn't
 
@@ -247,6 +270,10 @@ The sources behind this post:
 - **Synthetic fixtures** — the `jq` snippets above run against these without a real session: the [parent invocation](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-agent-invocation.jsonl) and the [subagent trace](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-subagent-trace.jsonl)
 
 If you find a token field, a `service_tier` value, or a usage pattern I haven't described here, the [reference docs](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md) are the right place to track it, and a `claude-code-sessions` issue is the right way to surface it.
+
+---
+
+**Correction (2026-07-19).** An earlier version of this post framed the subagent rollup as a double-count: it claimed the parent's `toolUseResult.usage` and the subagent trace's per-turn usage were the same tokens counted twice, inflating the total by exactly 2x. That was backwards. The rollup is a single assistant turn's snapshot, not a run total, so reading it as the subagent's cost undercounts the run, by a median of about 6x on a live corpus of 691 invocations. The worked example, the aggregation guidance, and the `jq` recipes above have been rewritten to the corrected semantics, and the paired fixtures were re-cut to match ([#144](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/144)). The canonical treatment now lives in [`reference/subagent-traces.md` — Token accounting](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#token-accounting). Thanks to the downstream AgentFluent audit that caught it.
 
 ---
 
