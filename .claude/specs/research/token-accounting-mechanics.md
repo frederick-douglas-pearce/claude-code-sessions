@@ -4,6 +4,8 @@
 
 **Status:** Research / analysis. May graduate into `reference/` (data-dictionary § Usage and token accounting) once Part 4 formalizes it.
 
+> **CORRECTION (2026-07-19).** An earlier version of this doc described the parent rollup as **double-counting** the subagent's tokens (the same work summed in both the trace and the rollup, ~2× inflation). That was backwards. The parent's `toolUseResult.usage` is a **single assistant turn's snapshot** (the subagent's last turn), not a run total, so reading it in place of summing the trace **under**counts processed tokens by a median of ~5.8×. The paired fixtures were re-cut to match ([#144](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/144)): the rollup is now `3/300/1500/27000` = 28,803 (turn 8 only), while the trace sums to `20/1000/29000/150000` = 180,020. The canonical treatment is [`reference/subagent-traces.md` § Token accounting](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#token-accounting). The two bullets below have been corrected in place.
+
 **Provenance:**
 
 - **Documented mechanics** — Anthropic prompt-caching docs (via the `claude-api` skill, cached 2026-05-26) + [`reference/data-dictionary.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md) § Usage and token accounting.
@@ -76,7 +78,7 @@ Ranges are wide — `cache_read` per run spans ~41K (p10) to ~2.1M (p90) — bec
 
 ### Anatomy fixtures ([#103](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/103))
 
-The post-#98/#99 anatomy fixture used `input 6,000 / output 2,000 / cache_creation 12,000 / cache_read 16,000` — off from reality by **~8–160× per category**, and with `cache_read` *smaller* than `cache_creation` (backwards). The realistic 8-turn model (scaled to the fixture's 7-tool-call run) preserves the real shape: tiny `input`, front-loaded `cache_creation`, growing-and-dominant `cache_read`. Proposed numbers tracked in #103; whatever lands must still satisfy the #98/#99 invariants (trace per-turn `usage` sums to the parent rollup; `totalTokens` = sum of the four fields).
+The post-#98/#99 anatomy fixture used `input 6,000 / output 2,000 / cache_creation 12,000 / cache_read 16,000` — off from reality by **~8–160× per category**, and with `cache_read` *smaller* than `cache_creation` (backwards). The realistic 8-turn model (scaled to the fixture's 7-tool-call run) preserves the real shape: tiny `input`, front-loaded `cache_creation`, growing-and-dominant `cache_read`. Proposed numbers tracked in #103; whatever lands must satisfy the corrected invariants (the parent rollup equals the subagent's **final** turn, not the trace sum; `totalTokens` = sum of that turn's four fields). The original #98/#99 "trace sums to the rollup" invariant embodied the double-count bug and was retired when the fixtures were re-cut under #144.
 
 ### Part 4 — "Token accounting is harder than it looks"
 
@@ -84,7 +86,7 @@ This is the empirical backbone for Part 4. Data-supported headline points:
 
 - A run's reported `input_tokens` can be **~20** while it processes **hundreds of thousands** of tokens — almost all cache reads.
 - **Cost ≠ token count:** the four kinds price at 1× / 1.25× / 0.1× / output-rate. A cache-read-dominated run is cheap per token.
-- The parent rollup **double-counts** the subagent's tokens (see Part 3 / [`reference/subagent-traces.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md) § Token accounting); reconciling session cost means picking one source, not summing both.
+- The parent rollup is a **single-turn snapshot**, not the run total, so reading it as the subagent's cost **under**counts by a median of ~5.8× (see Part 3 / [`reference/subagent-traces.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md) § Token accounting); a subagent's real processed tokens come from summing its trace turn by turn, never from the rollup.
 
 ---
 

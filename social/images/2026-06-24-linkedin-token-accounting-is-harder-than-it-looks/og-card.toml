@@ -1,37 +1,37 @@
-slug = "2026-06-22-linkedin-token-accounting-is-harder-than-it-looks"
+slug = "2026-06-24-linkedin-token-accounting-is-harder-than-it-looks"
 
 title = ["Token accounting", "is harder than it looks"]
 
-subhead = "Four token kinds. One double-count trap."
+subhead = "Four token kinds, priced ~50x apart."
 
 json_sample = """
 {
-  "toolUseResult": {
-    "agentType": "pm",
+  "subagent trace, summed": {
     "totalTokens": 180020,
-    "usage": {
-      "input_tokens": 20,
-      "output_tokens": 1000,
-      "cache_creation_input_tokens": 29000,
-      "cache_read_input_tokens": 150000
-    }
+    "input_tokens": 20,
+    "output_tokens": 1000,
+    "cache_creation_input_tokens": 29000,
+    "cache_read_input_tokens": 150000
   }
 }
 """
 
 notes = """
-Part 4 hero. The visual makes two of the post's points at once:
+Part 4 hero. The visual makes the post's opening point: the four token kinds
+land at radically different magnitudes (20 fresh input vs 150,000 cache reads)
+and price ~50x apart, so summing them into one number, or pricing them at one
+rate, is the core mistake the post opens on.
 
-1. The four token kinds at radically different magnitudes (20 fresh input vs
-   150,000 cache reads) — summing them as one number, or pricing them at one
-   rate, is the core mistake the post opens on.
-2. It's a toolUseResult.usage rollup, i.e. the subagent-side source of the
-   double-count. Readers who recognize this envelope from Part 3 get the
-   setup for the main event for free.
+The sample is the subagent's per-turn usage SUMMED across its trace turns (the
+run's real processed total), explicitly labeled as a trace sum — NOT the
+parent's toolUseResult rollup. The rollup is a single-turn snapshot (28,803 in
+the re-cut fixture) and is deliberately kept off the card to avoid re-teaching
+the retired "double-count" framing (see #144/#145/#146; the rollup undercounts
+the run by a median ~5.8x).
 
-Numbers are lifted verbatim from fixtures/synthetic/anatomy-agent-invocation.jsonl
+Numbers are lifted from fixtures/synthetic/anatomy-subagent-trace.jsonl
 (synthetic, safe to commit). totalTokens 180020 == 20+1000+29000+150000.
 
 Title split at the natural clause break (39 chars, over the 34 single-line
-budget). Subhead 40 chars, under the ~45 limit.
+budget). Subhead 36 chars, under the ~45 limit.
 """
