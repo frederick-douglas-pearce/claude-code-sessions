@@ -130,6 +130,41 @@ Short, focused posts that deepen one thread from a numbered part without advanci
 
 ---
 
+## Standalone posts
+
+Posts that stand outside the Parts 1-8 anatomy arc. The series answers "what is in the file." A standalone answers a question the file alone cannot settle, and is free to draw on sources beyond session data.
+
+### Standalone — What should a better leaderboard have measured?
+
+> **Status:** Outlined 2026-07-20. Standalone, outside the numbered series and outside the Asides set. No renumber; Part 5 (tool-use) remains the next spine step. **Depends on** Part 4 (shipped) and the cost-levers aside (outlined, undrafted) landing first, because both establish the denominator this post takes as given.
+
+**Premise.** In 2026, Meta, Amazon, and Uber each stood up dashboards ranking engineers by AI token consumption. Engineers optimized the metric ("tokenmaxxing"), spend spiked, and all three retracted within months. The standard reading is that this was a measurement failure. It was not. None of these companies were blind to cost: Uber knew its per-engineer monthly spend well enough to cap it. They ranked tokens because they were incentivizing **adoption**, and volume was the only unit on hand. The metric worked exactly as designed. What was missing was not a better denominator. It was any numerator at all.
+
+**Scope.** The post asks what the numerator should be, and is disciplined about the answer being partial. Structure:
+
+1. **The framing.** Value per unit cost is not a new idea, it is ordinary business thinking that got skipped in the rush to adopt. Tokenmaxxing is what happens when a proxy is incentivized without anyone asking what it proxies for.
+2. **The denominator is now tractable.** Short, links out rather than re-explaining: Part 4 for the four token kinds and the rollup undercount, the cost-levers aside for TTL-split cache writes, fast mode, batch, residency, and server-tool surcharges. Closes on the same honest ceiling the aside sets, that this is a list-price lower bound, not a bill.
+3. **The numerator is not derivable from session data.** Stated plainly and early. Shipped features, defect rates, review burden, and whether the code survived six months are all absent from `~/.claude/projects/`. Any post claiming otherwise is selling something.
+4. **What session data *can* support (proxies, not value).** Cache reuse trajectory (reads climbing while writes shrink = context amortized rather than rebuilt). Model-to-task fit (top-tier model on a trivial task is a cost signal with no value story). Retry and error density across tool calls. Delegation shape, with the Part 4 caveat that subagent totals must come from the trace, never the rollup.
+5. **What git/GitHub adds (the rework half).** The strongest available proxy for "did this work hold up." Churn on recently-touched lines, revert rate, PR review iteration counts, time-to-merge, defect linkage. **The join is the interesting technical problem and it is grounded in fields this repo already documents:** `cwd`, `gitBranch`, and `timestamp` are per-line in the session file (see [`reference/data-dictionary.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md)), which makes attributing a commit to a session feasible in principle. Treat the accuracy of that join as an open engineering question, not a solved one; branch plus time window is a heuristic, not an identity.
+6. **The limits, explicitly.** A section, not a disclaimer. Proxies are gameable once measured (the tokenmaxxing lesson applies recursively to anything proposed here). Rework signals conflate healthy iteration with waste. Attribution to a single engineer is neither reliable nor advisable. And the honest close: no thresholds are offered, because defensible baselines need a corpus plus longitudinal outcome data that does not yet exist publicly.
+
+**Deliberate non-goals.** No scoring formula. No "here is the metric" claim. No per-engineer ranking scheme, which would reproduce the failure the post is diagnosing. Team- and repo-level framing throughout.
+
+**Positioning note (settled 2026-07-20).** Publishing the framework is marketing, not giveaway; frameworks get reinvented constantly. The scarce asset is the **normative baseline** (what a *good* rework rate or cache-reuse curve actually looks like), which requires a corpus plus outcome data. Give the framework away freely and name the thresholds as open questions. This is simultaneously the honest position and the one that protects what is durable, and it composes with CCDC: a public corpus makes baselines possible without handing over the interpretation. AgentFluent and CodeFluent are referenced as tools that *inform* the question, explicitly not as the answer.
+
+**Audience hook.** Two readers, and the post should work for both. The executive who just killed a leaderboard and still has to answer "so what do we measure instead." The practitioner who read Part 4, can now compute cost correctly, and has noticed that an accurate denominator over no numerator is still not a decision. Broader reach than any post in the numbered series, which is the argument for standalone placement.
+
+**Bridge.** None. Standalone. Points back to Part 4 and the cost-levers aside for the cost side, and out to git/GitHub signals as the half the session file cannot cover.
+
+**Open questions to settle before drafting.**
+
+- How much of the git/GitHub join is demonstrated versus described? A worked example is far stronger, but needs a repo whose history can be shown publicly.
+- Does the cost-levers aside ship first as planned, or does this post absorb a compressed version of it if the aside stalls?
+- Is there a defensible way to show *any* baseline, even a single-corpus one clearly labeled as such, or does that undercut the "no thresholds" discipline?
+
+---
+
 ## Cross-post writing rules
 
 - Every reference to a file in the repo (`reference/subagent-traces.md`, `fixtures/synthetic/anatomy-subagent-trace.jsonl`, etc.) must use a full GitHub URL — posts deploy to a separate Pages site and relative paths break. Established pattern in Parts 1 and 2; maintain throughout.
