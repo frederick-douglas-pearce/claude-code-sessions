@@ -107,7 +107,7 @@ Worth naming explicitly, because both produce counting errors when mishandled.
 
 ## The honest ceiling
 
-Even a cost tool that handles the cache-write TTL split correctly, reads `speed` and `inference_geo` and `server_tool_use`, and applies the right per-model rate to every turn is still computing a list-price estimate. It is not computing your bill.
+Even a cost tool that handles the cache-write TTL split correctly, reads `speed` and `inference_geo` and `server_tool_use`, and applies the right per-model rate to every turn is still computing a list-price estimate. It is not necessarily computing your bill.
 
 Enterprise and negotiated discounts are applied at the billing layer. They never appear in session JSONL. A session-data cost tool cannot know about them.
 
@@ -115,7 +115,7 @@ Those billed dollars do exist, just not in the session file. Anthropic exposes t
 
 The Pro and Max subscription usage caps add a different kind of opacity. Anthropic documents the caps as "usage" limits, but does not publish the unit: whether the cap is measured in tokens, in cost-equivalents, or in messages. The JSONL exposes no mapping from `usage.*_tokens` to whatever that unit is. A session-data tool cannot say how a given session counted against a subscription cap.
 
-So the right framing for any JSONL-derived cost estimate is: this is list-price, assuming no discounts, and it will match your actual spend only if you are paying list prices on a non-subscription plan. For most individual users that is close enough. For enterprise accounts or anyone on a subscription cap, it is a lower bound on list price and an unknown relationship to actual spend.
+So the right framing for any JSONL-derived cost estimate is this. It is a list-price figure, and specifically a _lower bound_ on list price: the one surcharge even a complete tool can't reconstruct, code-execution container-hours, only ever adds to the total, so the true list price sits at or above your estimate. Its relationship to your _actual_ spend runs the other way and has no fixed direction. A negotiated discount pushes actual spend below list; an unrecorded surcharge pushes it above. The two gaps point in opposite directions, so the net is genuinely unknown. For an individual paying list prices, the estimate is close enough to trust. For an enterprise account it is a principled base rather than a final number: apply your own contracted discount to the list-price figure and you close most of the gap yourself, leaving only the handful of unrecordable surcharges out of reach. For anyone on a Pro or Max cap, how a session counts against the cap stays unknown, because the JSONL exposes no mapping to whatever unit the cap uses.
 
 There is a version of this problem that ends with a blunt dollar cap enforced from outside: engineering teams getting monthly budgets and stopping when they hit the ceiling, because reading true agentic cost is genuinely this hard. The alternative, reading it from the JSONL with the right lever catalog, is why this post exists. The ceiling is real; it is not a reason to stop short of it.
 
