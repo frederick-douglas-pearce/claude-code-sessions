@@ -200,4 +200,4 @@ cache rd:0      × $0.50  / 1e6 = $0.0000000
                          total = $0.2131000
 ```
 
-Pricing the 19,117 cache-write tokens at the 5m rate ($6.25) instead would report $0.1936, a **$0.072 (-25% on cache-write cost)** under-report on this one request.
+Pricing the 19,117 cache-write tokens at the 5m rate ($6.25) instead would report a $0.1414 total, a **$0.072 (-37.5% on cache-write cost)** under-report on this one request.
