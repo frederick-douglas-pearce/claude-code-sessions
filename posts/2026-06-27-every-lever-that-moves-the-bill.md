@@ -83,9 +83,9 @@ Beyond the cache-write TTL split, the `usage` object carries several more fields
 
 **Fast mode** (`usage.speed == "fast"`). A research-preview, Opus-only premium: fast requests bill at a flat per-model rate across the whole request, and that rate is not a single multiple of standard. Opus 4.8 fast is 2x base input and output ($10 / $50 per MTok against $5 / $25), while the older, now-deprecated Opus 4.7 fast is 6x ($30 / $150). Opus 4.6 does not support fast mode, so `speed: "fast"` there bills at the standard rate. The premium therefore runs 2x to 6x depending on which Opus produced the turn. It stacks with caching and data residency, and is unavailable with Batch or Priority tier. The `speed` field is on every `assistant` line that uses it; a cost tool that reads only `model` + `service_tier` misses this entirely.
 
-**Batch API** (`usage.service_tier == "batch"`). Roughly 0.5x on input and output. Worth noting if you're building anything that runs offline or asynchronous work through the API.
+**Batch API** (`usage.service_tier == "batch"`). The Batch API takes requests that don't need an immediate answer and processes them asynchronously, returning results within 24 hours in exchange for roughly 0.5x on both input and output. Worth noting if you're building anything that runs offline or asynchronous work through the API.
 
-**Priority tier** (`usage.service_tier == "priority"`). Commitment pricing, different from both standard and batch. The `service_tier` field distinguishes all three.
+**Priority tier** (`usage.service_tier == "priority"`). Priority tier prioritizes your requests to minimize "overloaded" errors during peak demand, buying availability and consistent access rather than the faster inference that fast mode provides; it is sold as a pre-purchased capacity commitment, which is why its pricing differs from both standard and batch. The `service_tier` field distinguishes all three.
 
 **Data residency** (`usage.inference_geo == "us"`). A 1.1x multiplier on _all_ token categories, including cache writes and cache reads. Applies on Opus 4.6 / Sonnet 4.6 and later. The `inference_geo` field records `"global"` (default), `"us"`, `"not_available"`, or `""`. A cost tool that applies per-model rates and stops there under-reports by 10% for any US-residency request.
 
