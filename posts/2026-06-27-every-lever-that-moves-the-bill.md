@@ -81,7 +81,7 @@ One additional data point that pins the stakes: the two TTLs _price_ at 2x vs. 1
 
 Beyond the cache-write TTL split, the `usage` object carries several more fields that shift the effective rate. The full catalog is in [`reference/cost-model.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/cost-model.md); here is the short version.
 
-**Fast mode** (`usage.speed == "fast"`). Premium flat rates that apply to the full request. As of the cost-model verification, Opus 4.6 / 4.7 cost 6x input and 6x output versus standard; Opus 4.8 rates are lower. Fast mode stacks with caching and data residency, and is not available with Batch. The `speed` field is on every `assistant` line that uses it; a cost tool that reads only `model` + `service_tier` misses this entirely.
+**Fast mode** (`usage.speed == "fast"`). A research-preview, Opus-only premium: fast requests bill at a flat per-model rate across the whole request, and that rate is not a single multiple of standard. Opus 4.8 fast is 2x base input and output ($10 / $50 per MTok against $5 / $25), while the older, now-deprecated Opus 4.7 fast is 6x ($30 / $150). Opus 4.6 does not support fast mode, so `speed: "fast"` there bills at the standard rate. The premium therefore runs 2x to 6x depending on which Opus produced the turn. It stacks with caching and data residency, and is unavailable with Batch or Priority tier. The `speed` field is on every `assistant` line that uses it; a cost tool that reads only `model` + `service_tier` misses this entirely.
 
 **Batch API** (`usage.service_tier == "batch"`). Roughly 0.5x on input and output. Worth noting if you're building anything that runs offline or asynchronous work through the API.
 

@@ -105,7 +105,7 @@ Aliases (`opus`, `…[1m]` suffixes, dated variants like `claude-opus-4-5-202511
 
 Stacking rules (per pricing page):
 
-- Fast mode applies across the full context window (incl. >200K) and **stacks with** prompt-caching multipliers and data residency; **not available with** Batch.
+- Fast mode applies across the full context window (incl. >200K) and **stacks with** prompt-caching multipliers and data residency; **not available with** Batch or Priority tier.
 - Batch and prompt-caching discounts combine.
 - Data residency 1.1× applies to input, output, cache writes, and cache reads (Opus 4.6 / Sonnet 4.6 and later only; earlier models reject the `inference_geo` param).
 
@@ -113,10 +113,14 @@ Stacking rules (per pricing page):
 
 ### Fast-mode rates (USD per 1M tokens)
 
-| Model | Input | Output |
-|---|---|---|
-| Opus 4.6 / 4.7 | 30 | 150 |
-| Opus 4.8 | 10 | 50 |
+Fast mode is a research preview and **Opus-only**; the premium is per-model.
+
+| Model | Input | Output | vs standard |
+|---|---|---|---|
+| Opus 4.8 | 10 | 50 | 2× |
+| Opus 4.7 *(fast deprecated, removal 2026-07-24)* | 30 | 150 | 6× |
+
+**Availability note (fast-mode section re-verified 2026-07-21, later than this doc's 2026-06-26 base date).** Opus 4.6 **no longer supports fast mode** as of 2026-06-29: `speed: "fast"` on `claude-opus-4-6` runs at standard speed, bills at standard rates, and reports `usage.speed: "standard"`. Opus 4.7 fast mode is deprecated with removal on 2026-07-24; after that, Opus 4.8 (2×) is the only fast-mode model. So the observed fast-mode premium ranges 2× (Opus 4.8) to 6× (Opus 4.7).
 
 (Prompt-caching multipliers and data residency apply on top of fast-mode rates.)
 
