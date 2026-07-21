@@ -27,14 +27,14 @@ Part 4 used `cache_creation_input_tokens` throughout. It noted the 1.25x premium
 {
   "cache_creation": {
     "ephemeral_5m_input_tokens": 0,
-    "ephemeral_1h_input_tokens": 19117
+    "ephemeral_1h_input_tokens": 19227
   }
 }
 ```
 
 Those two TTLs price differently. The 5-minute write is roughly 1.25x base input. The 1-hour write is roughly 2x. Pricing the flat `cache_creation_input_tokens` field at a single 1.25x rate under-reports whenever 1-hour writes are in the mix.
 
-In Claude Code sessions, the 1-hour TTL is commonly the dominant share by token volume. One observed corpus had roughly two-thirds of all cache-write tokens landing in the 1-hour bucket. The worked example in `cost-model.md` is concrete: a single Opus 4.7 request with 19,117 tokens in the 1-hour bucket costs $0.213 priced correctly and $0.141 priced at the 5-minute rate. That $0.072 gap per request compounds quickly across a session with heavy caching.
+In Claude Code sessions, the 1-hour TTL is commonly the dominant share by token volume. One observed corpus had roughly two-thirds of all cache-write tokens landing in the 1-hour bucket. The worked example in `cost-model.md` is concrete: a single Opus 4.7 request with 19,227 tokens in the 1-hour bucket costs $0.214 priced correctly and $0.142 priced at the 5-minute rate. That $0.072 gap per request compounds quickly across a session with heavy caching.
 
 The `cache_creation` sub-object is the fix. It's already in your sessions. The question is whether your cost tool reads it.
 

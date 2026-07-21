@@ -17,10 +17,10 @@
 <text x="328" y="306"><tspan fill="#2698ba">"input_tokens"</tspan><tspan fill="#8a8a99">: </tspan><tspan fill="#efcc00">2741</tspan><tspan fill="#8a8a99">,</tspan></text>
 <text x="328" y="328"><tspan fill="#2698ba">"output_tokens"</tspan><tspan fill="#8a8a99">: </tspan><tspan fill="#efcc00">329</tspan><tspan fill="#8a8a99">,</tspan></text>
 <text x="328" y="350"><tspan fill="#2698ba">"cache_read_input_tokens"</tspan><tspan fill="#8a8a99">: </tspan><tspan fill="#efcc00">0</tspan><tspan fill="#8a8a99">,</tspan></text>
-<text x="328" y="372"><tspan fill="#2698ba">"cache_creation_input_tokens"</tspan><tspan fill="#8a8a99">: </tspan><tspan fill="#efcc00">19117</tspan><tspan fill="#8a8a99">,</tspan></text>
+<text x="328" y="372"><tspan fill="#2698ba">"cache_creation_input_tokens"</tspan><tspan fill="#8a8a99">: </tspan><tspan fill="#efcc00">19227</tspan><tspan fill="#8a8a99">,</tspan></text>
 <text x="328" y="394"><tspan fill="#2698ba">"cache_creation"</tspan><tspan fill="#8a8a99">: {</tspan></text>
 <text x="352" y="416"><tspan fill="#2698ba">"ephemeral_5m_input_tokens"</tspan><tspan fill="#8a8a99">: </tspan><tspan fill="#efcc00">0</tspan><tspan fill="#8a8a99">,</tspan></text>
-<text x="352" y="438"><tspan fill="#2698ba">"ephemeral_1h_input_tokens"</tspan><tspan fill="#8a8a99">: </tspan><tspan fill="#efcc00">19117</tspan></text>
+<text x="352" y="438"><tspan fill="#2698ba">"ephemeral_1h_input_tokens"</tspan><tspan fill="#8a8a99">: </tspan><tspan fill="#efcc00">19227</tspan></text>
 <text x="328" y="460"><tspan fill="#8a8a99">}</tspan></text>
 <text x="304" y="482"><tspan fill="#8a8a99">}</tspan></text>
 <text x="280" y="504"><tspan fill="#8a8a99">}</tspan></text>

@@ -24,10 +24,10 @@ Cost-relevant data is carried on **`type: "assistant"`** records. The shape (fie
       "input_tokens": 2741,                // (A) base input
       "output_tokens": 329,                // (A) output (incl. thinking tokens)
       "cache_read_input_tokens": 0,        // (A) cache hit, 0.1x
-      "cache_creation_input_tokens": 19117,// (A) SUM of the two TTLs below
+      "cache_creation_input_tokens": 19227,// (A) SUM of the two TTLs below
       "cache_creation": {                  // (A) the TTL split — REQUIRED to price cache writes correctly
         "ephemeral_5m_input_tokens": 0,    //     5-minute write, 1.25x
-        "ephemeral_1h_input_tokens": 19117 //     1-hour write, 2x
+        "ephemeral_1h_input_tokens": 19227 //     1-hour write, 2x
       },
       "output_tokens_details": {           // (F) thinking-token breakdown (subset of output_tokens)
         "thinking_tokens": 0
@@ -188,16 +188,16 @@ Out-of-scope ([E](#e-out-of-scope-but-real-no-first-party-jsonl-signal)) and cou
 
 ## Worked example (correct cache-write handling)
 
-A single Opus 4.7 request: `input_tokens=2741`, `output_tokens=329`, `cache_read_input_tokens=0`, `cache_creation.ephemeral_5m_input_tokens=0`, `cache_creation.ephemeral_1h_input_tokens=19117`, `speed=standard`, `service_tier=standard`, `inference_geo` not US.
+A single Opus 4.7 request: `input_tokens=2741`, `output_tokens=329`, `cache_read_input_tokens=0`, `cache_creation.ephemeral_5m_input_tokens=0`, `cache_creation.ephemeral_1h_input_tokens=19227`, `speed=standard`, `service_tier=standard`, `inference_geo` not US.
 
 ```
 input  : 2741   × $5.00  / 1e6 = $0.0137050
 output : 329    × $25.00 / 1e6 = $0.0082250
-1h write:19117  × $10.00 / 1e6 = $0.1911700   ← priced at 2× base, NOT 1.25×
+1h write:19227  × $10.00 / 1e6 = $0.1922700   ← priced at 2× base, NOT 1.25×
 5m write:0      × $6.25  / 1e6 = $0.0000000
 cache rd:0      × $0.50  / 1e6 = $0.0000000
                                -----------
-                         total = $0.2131000
+                         total = $0.2142000
 ```
 
-Pricing the 19,117 cache-write tokens at the 5m rate ($6.25) instead would report a $0.1414 total, a **$0.072 (-37.5% on cache-write cost)** under-report on this one request.
+Pricing the 19,227 cache-write tokens at the 5m rate ($6.25) instead would report a $0.1421 total, a **$0.072 (-37.5% on cache-write cost)** under-report on this one request.
