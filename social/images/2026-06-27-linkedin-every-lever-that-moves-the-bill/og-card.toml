@@ -1,0 +1,35 @@
+slug = "2026-06-27-linkedin-every-lever-that-moves-the-bill"
+
+title = ["Every lever that", "moves the bill"]
+
+subhead = "One flat field, two cache TTLs, two prices."
+
+json_sample = """
+{
+  "model": "claude-opus-4-7",
+  "usage": {
+    "input_tokens": 2741,
+    "output_tokens": 329,
+    "cache_read_input_tokens": 0,
+    "cache_creation_input_tokens": 19227,
+    "cache_creation": {
+      "ephemeral_5m_input_tokens": 0,
+      "ephemeral_1h_input_tokens": 19227
+    }
+  }
+}
+"""
+
+notes = """
+Hero is the cache_creation split: the flat cache_creation_input_tokens (19227)
+is the SUM of the two TTL sub-keys below it. All 19227 landed in the 1-hour
+bucket, which prices at 2x base input vs the 5-minute bucket's 1.25x. That is
+the post's central reveal (the gap Part 4 left open).
+
+Numbers are the cost-model.md worked example (Opus 4.7 request), which is
+reference/synthetic, not a real session line. Safe to commit.
+
+Title wrapped at a natural break ("Every lever that" / "moves the bill") since
+the full 31-char string at 56px risks crowding the canvas; a two-line title
+also balances against the 13-line JSON window.
+"""
