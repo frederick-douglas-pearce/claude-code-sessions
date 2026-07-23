@@ -153,15 +153,17 @@ Posts that stand outside the Parts 1-8 anatomy arc. The series answers "what is 
 
 **Positioning note (settled 2026-07-20).** Publishing the framework is marketing, not giveaway; frameworks get reinvented constantly. The scarce asset is the **normative baseline** (what a *good* rework rate or cache-reuse curve actually looks like), which requires a corpus plus outcome data. Give the framework away freely and name the thresholds as open questions. This is simultaneously the honest position and the one that protects what is durable, and it composes with CCDC: a public corpus makes baselines possible without handing over the interpretation. AgentFluent and CodeFluent are referenced as tools that *inform* the question, explicitly not as the answer.
 
+**Sibling-tool weave (added 2026-07-22).** This post is a good opportunity to surface that AgentFluent and CodeFluent are *already* walking some of these roads — the git/GitHub integration in section 5 (the rework half) is the clearest hook, since that work is underway rather than hypothetical. The value is credibility: the framework isn't armchair theory, tools are being built against it. The constraint is delicacy — reference them as tools *starting down* these roads, never as having solved the numerator (which would undercut the whole "no numerator / no thresholds" discipline). This weave is expected to take **several iteration passes** to land at the right register; the first marketer draft should place a light, honest mention (not a pitch) that later passes tune. Do not let the sibling-tool mention grow into a product plug — the post's authority comes from naming what is *not* yet solved.
+
 **Audience hook.** Two readers, and the post should work for both. The executive who just killed a leaderboard and still has to answer "so what do we measure instead." The practitioner who read Part 4, can now compute cost correctly, and has noticed that an accurate denominator over no numerator is still not a decision. Broader reach than any post in the numbered series, which is the argument for standalone placement.
 
 **Bridge.** None. Standalone. Points back to Part 4 and the cost-levers aside for the cost side, and out to git/GitHub signals as the half the session file cannot cover.
 
-**Open questions to settle before drafting.**
+**Open questions — settled 2026-07-22 before drafting.**
 
-- How much of the git/GitHub join is demonstrated versus described? A worked example is far stronger, but needs a repo whose history can be shown publicly.
-- Does the cost-levers aside ship first as planned, or does this post absorb a compressed version of it if the aside stalls?
-- Is there a defensible way to show *any* baseline, even a single-corpus one clearly labeled as such, or does that undercut the "no thresholds" discipline?
+- **Git/GitHub join: describe, don't demonstrate.** Name `cwd` + `gitBranch` + `timestamp` as the join keys, cite the data-dictionary rows, and treat join accuracy as an explicitly open engineering question (branch + time window is a heuristic, not an identity). No worked example, no session fixture, no sanitization lift — ships inside the timing window opened by the cost-levers aside going live on LinkedIn 2026-07-22.
+- **Cost-levers aside ships first: resolved.** The aside shipped 2026-06-27 (`posts/2026-06-27-every-lever-that-moves-the-bill.md`), so this post links out to it rather than absorbing a compressed version. No dependency risk remains.
+- **Baselines: hold the "no thresholds" line.** No baseline numbers. Every threshold is named as an open question requiring a corpus + longitudinal outcome data that does not yet exist publicly. Consistent with the 2026-07-20 positioning note (the normative baseline is the scarce asset; the framework is the giveaway) and composes with CCDC.
 
 ---
 
