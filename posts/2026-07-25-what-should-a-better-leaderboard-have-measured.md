@@ -2,84 +2,106 @@
 layout: post
 title: "What should a better leaderboard have measured?"
 date: 2026-07-25 00:00:00-0800
-description: "Meta, Amazon, and Uber each learned what happens when you rank engineers by tokens. The failure wasn't the metric. It was that nobody had a numerator. What session data can and can't supply for the question that's left."
+description: "Meta, Amazon, and Uber each learned what happens when you rank engineers by tokens. Session data records everything up to the moment work is handed off and nothing after it. What that boundary actually permits, and why the missing numerator was never the tool's to supply."
 categories: ["foundation"]
 tags: ["claude-code", "jsonl", "sessions", "cost", "metrics"]
 og_image: https://frederick-douglas-pearce.github.io/assets/img/what-should-a-better-leaderboard-have-measured-og.png
 og_card_source: social/images/2026-07-25-linkedin-what-should-a-better-leaderboard-have-measured/og-card.png
 featured: false
-claude_code_version_verified: v2.1.150
+claude_code_version_verified: v2.1.158
 ---
 
-In the spring of 2026, three companies ran the same experiment within weeks of each other. Meta stood up an internal dashboard, nicknamed "Claudeonomics," that ranked its heaviest AI users, the top 250 out of roughly 85,000 employees, by token consumption. Engineers competed for the top spots, some by leaving idle agents running to pad their numbers, and Meta pulled the dashboard in April as the projected annual cost climbed toward the billions. Amazon built a version called KiroRank on its internal Kiro platform, watched employees game it the same way, and shut it down at the end of May, with a senior VP telling staff not to "use AI just for the sake of using AI." Uber never ran a public ranking, but it knew its per-engineer spend well enough to exhaust its entire 2026 budget for these tools in four months and respond with a hard ceiling: a $1,500 monthly cap per tool.
+In the spring of 2026, three companies ran the same experiment within weeks of each other. Meta stood up an internal dashboard nicknamed "Claudeonomics" that ranked its heaviest AI users, the top 250 of roughly 85,000 employees, by token consumption. Engineers competed for the top spots, some by leaving idle agents running to pad their numbers, and Meta pulled it in April as projected annual cost climbed toward the billions. Amazon built KiroRank on its internal Kiro platform, watched employees game it the same way, and shut it down at the end of May, a senior VP telling staff not to "use AI just for the sake of using AI." Uber never ran a public ranking, but exhausted its entire 2026 budget for these tools in four months and responded with a hard ceiling: $1,500 per tool per month.
 
-The standard read on all three is a measurement failure. Bad metric, predictable gaming, chastened correction. I don't think that's right. None of these companies were blind to cost. Uber's cap proves it, a company that can price a monthly ceiling per engineer has already solved the arithmetic. Meta and Amazon ranked tokens because they were solving a different problem, getting engineers to adopt the tools at all, and volume was the only unit anyone had on hand to reward that. The metric worked exactly as designed. Tokenmaxxing wasn't a bug in the measurement. It was the correct response to the incentive as built.
+The standard read is a measurement failure. Bad metric, predictable gaming, chastened correction. I don't think that's right. None of these companies were blind to cost, and Uber's cap proves it: a company that can price a monthly ceiling per engineer has already solved the arithmetic. Meta and Amazon ranked tokens because they were solving a different problem, getting engineers to adopt the tools at all, and volume was the most straightforward unit to reward. Tokenmaxxing wasn't a bug in the measurement. It was the correct response to the incentive as built.
 
-Nobody was measuring what the tokens bought.
+Nobody was measuring, at least publicly, what the tokens bought.
 
-## Value per unit cost isn't a new idea
+## The tell is in how the story ended
 
-Companies don't rank factory floors by raw material consumed. They ask what the material became. AI coding tools got a pass on that question for a year, because adoption was the actual goal and volume was the only legible signal anyone had while everything downstream of it stayed hard to see. Strip the AI framing off and this is ordinary business thinking, value per unit cost, that got skipped in the rush to get people using the tools. Tokenmaxxing is what happens when you incentivize a proxy without anyone asking what it's a proxy for.
+Companies don't rank factory floors by raw material consumed. They ask what the material became. AI coding tools got a pass on that question for a year because adoption was the goal and there was real resistance to overcome, particularly from senior engineers. Strip the AI framing off and this is ordinary value-per-unit-cost thinking, skipped in the rush to get people using the tools.
 
-There's a tell in how the story ended. When Amazon retired KiroRank, it replaced the metric with something it called "normalized deployments," an attempt to measure whether the AI-generated code actually did something rather than how many tokens it burned. That's the whole problem in miniature: the moment you stop counting the input and try to count the output, you discover the output is much harder to see.
+Watch what Amazon reached for when it retired KiroRank: "normalized deployments," an attempt to count whether the AI-generated code did something. That's the problem in miniature, though not for the obvious reason. Deployments aren't a measure of value. They're activity one step further downstream. Amazon reached for them because a deployment count already existed in a system somewhere. Availability, not validity. Hold onto that, it comes back at the end.
 
-Cost is the denominator of that fraction. This post is mostly about the numerator, but the denominator deserves one honest paragraph before we move past it.
+## The denominator is solved
 
-## The denominator isn't the hard part anymore
+[Part 4](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-24-token-accounting-is-harder-than-it-looks.md) worked through why naive token summation produces the wrong cost proxy: four token kinds priced roughly 50x apart, and a subagent rollup that undercounts real processed tokens by a median of about 6x if you read the parent's snapshot instead of the subagent's own trace. [The follow-up aside](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-27-every-lever-that-moves-the-bill.md) went further, splitting the cache-write field into two TTLs priced at 1.25x and 2x, then adding fast mode, batch pricing, data residency, and server-side tool surcharges. All of it computable per turn, from fields the JSONL already carries.
 
-[Part 4](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-24-token-accounting-is-harder-than-it-looks.md) worked through why naive token summation produces the wrong number: four token kinds priced roughly 50x apart, and a subagent rollup that undercounts real processed tokens by a median of about 5.8x if you read the parent's snapshot instead of summing the subagent's own trace. [The follow-up aside](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-27-every-lever-that-moves-the-bill.md) went further: the cache-write field splits into two TTLs that price at 1.25x and 2x, and fast mode, batch pricing, data residency, and server-side tool surcharges each shift the rate again. All of it is computable, per turn, directly from fields the session JSONL already carries.
+Both posts land on the same ceiling. Even done correctly, a session-data cost figure is a list-price estimate, not a bill: enterprise discounts never appear in the JSONL, and neither does the dollar cost of code execution container-hours. Accurate and incomplete at once, which is fine as long as you say so. "What did this cost" is solved for anyone willing to do it right. That's the floor this post stands on, not new ground it breaks.
 
-Both posts land on the same honest ceiling, and it's worth restating here rather than assuming it. Even done correctly, a session-data cost figure is a list-price lower bound, not a bill. Enterprise discounts never show up in the JSONL, and neither does the dollar cost of code execution container-hours. What you get is accurate and incomplete at the same time, and that's fine, as long as you say so.
+## Production, not reception
 
-The point of restating this: the engineering problem of "what did this cost" is basically solved for anyone willing to do it right. That's not new ground this post is breaking. It's the foundation the rest of the post assumes.
+The work itself is in the file. The diffs are there. The code that got committed is there. The defects Claude found while reading the codebase are there, along with the tests it wrote and the refactors it proposed. Session JSONL is a remarkably complete record of production.
 
-## The numerator isn't in the file
+What isn't there is anything that happened after the work left the session. Whether the feature got used. Whether the defect Claude flagged was load-bearing or cosmetic. Whether the code survived six months in production, or six days. Whether the thing was worth building at all. The file is complete up to the moment of handoff and empty after it.
 
-Say it plainly, early, and without qualification, because the temptation to fudge this is strong. Whatever engineers actually shipped isn't in `~/.claude/projects/`. Shipped features aren't there. Defect rates aren't there. Review burden isn't there. Whether the code survived six months in production isn't there. Session JSONL is a record of what happened during a conversation with Claude Code, not a record of what happened after the conversation ended.
+Session data isn't missing the artifact. It's missing the artifact's reception. Every proxy below describes how work was produced, never how it landed.
 
-Any post claiming otherwise is selling something.
+## What's actually in the file
 
-That's a hard boundary, not a caveat to be softened in the next paragraph. It shapes everything that follows: session data can support proxies for effort and efficiency. It cannot supply the value side of the fraction. Anyone building a "better leaderboard" needs to know exactly where that line sits before they draw one number past it.
+Sorted by what each is a proxy for, because they aren't the same kind of signal and flattening them is part of how you end up with a leaderboard.
 
-## What session data can support
+**Efficiency.** Cache reuse trajectory, reads climbing while writes shrink, the pattern Part 4 walked through turn by turn. It says a session is reusing context rather than rebuilding it. Clean signal, narrow meaning: a well-run session that produces nothing and a well-run session that ships a fix show the identical curve.
 
-None of the following is value. All four are readable, directly, from fields the series has already documented, and each one is a proxy for effort or efficiency rather than for whether the effort was worth having.
+**Friction.** Repeated tool calls, `is_error` results, edits re-issued after a failed attempt, all legible from the `toolUseResult` envelope. High retry density says something isn't going smoothly. It can't distinguish a hard problem handled patiently from a session flailing at the wrong approach.
 
-1. **Cache reuse trajectory.** Reads climbing while writes shrink, the pattern Part 4 walked through turn by turn, says a session or subagent run is reusing its context rather than rebuilding it. That's an efficiency signal. A well-run session that produces nothing useful and a well-run session that ships a fix can show the identical curve.
+**Calibration.** The interesting category, and where most of what I'd left out belongs. It asks one question in several forms: did the escalation match the difficulty?
 
-2. **Model-to-task fit.** A top-tier model doing work a smaller one could have handled shows up as `message.model` mismatched against the shape of the task, which the cost-levers aside's per-model rate spread makes expensive to miss. It's a cost signal with no value story attached on its own.
+- A top-tier model doing work a smaller one could have handled, visible as `message.model` against the shape of the task.
+- Plan mode entered on a one-line change, or never entered on a forty-file refactor. `ExitPlanMode` shows up as an ordinary tool call, and session lines carry a `mode` marker alongside the documented `permission-mode` records. A plan abandoned rather than exited won't leave the same trace.
+- Subagents spawned for work the main loop could have done, or never spawned on a sweep that needed fan-out, readable from `Agent` tool-use counts and their `toolStats`. The Part 4 caveat holds without exception: any subagent total has to come from its trace file, never the parent's rollup.
+- Verification order, the most concrete signal here. Whether a `Read` or `Grep` follows an `Edit`. Whether a test command runs before a commit. Pure tool sequence, no external data, and it turns "does this person check the work" into a countable rate. CodeFluent ships it as `test_before_commit_rate` and `review_before_accept_rate`.
+- Conventions re-explained every session instead of written into a `CLAUDE.md`, a skill, or a slash command. Skills leave `attributionSkill` on the turns they run under, slash commands arrive as `<command-name>` blocks in user message content, and hook firings land on `system` lines carrying `hookCount`, `hookErrors`, and `preventedContinuation`. The sharpest version is the enforcement gap CodeFluent's config scan looks for: a `CLAUDE.md` that states a rule with no hook enforcing it.
 
-3. **Retry and error density.** Repeated tool calls, `is_error` results, edits re-issued after a failed attempt, all legible from the `toolUseResult` envelope. High retry density suggests friction. It doesn't distinguish a hard problem handled patiently from a session flailing at the wrong approach.
+None of these mean anything alone, and nobody can tell you whether planning was worth it for one task. That objection kills calibration if you read it session by session, so don't. The measurable thing is the correlation across many sessions: does plan-mode usage rise with task size, does model tier track difficulty? Difficulty has its own noisy proxies in the file, files touched, turn count, distinct tools, retry density. The correlation between two noisy signals beats either one alone.
 
-4. **Delegation shape.** How much work moves to subagents, how often, how deep, readable from `Agent` tool-use counts and their `toolStats`. The Part 4 caveat applies without exception here: any total drawn from a subagent has to come from its trace file, never the parent's rollup, or the delegation-shape number inherits the same undercount that corrupts a naive cost figure.
+## The one axis that touches both sides
 
-Each of these is worth watching. None of them, alone or combined, tells you whether the work was good.
+Time is the one axis coupled to both sides of the fraction: shipping sooner is worth more, and taking longer usually costs more. The instrumentation is better than I expected. `system` lines carry a `turn_duration` subtype with `durationMs` and `messageCount`, so per-turn wall-clock and turn density are first-class rather than reconstructed from `timestamp` arithmetic, and subagent runs report `totalDurationMs` on the parent envelope.
 
-## What git and GitHub add
+The hard part is deciding what one unit of work is. A session file isn't one: a file can span days of intermittent use, and a focused stretch of work can span several files. CodeFluent's answer is the most convincing I've seen. Pool a project's messages, sort by timestamp, and cut a new conversation wherever the gap between user prompts exceeds a threshold, sixty minutes by default, aligned to the unit Anthropic's fluency research scored. That bounds the idle problem without pretending to solve it: a ninety-minute gap becomes a boundary rather than duration. What's left doesn't go away. Inside a segment you can't separate a long productive think from a distraction, and speed is partly double-counted against the denominator anyway. Measurable, boundable, still not clean. Worth tracking, not worth ranking.
 
-This is the strongest proxy available for the question session data can't answer: did the work hold up. Churn on recently touched lines, revert rate, PR review iteration counts, time to merge, defects that link back to a commit. None of it lives in `~/.claude/projects/`. All of it lives in the repository and the platform hosting it.
+## The join, and what its failure tells you
 
-The join between the two is a real, and genuinely open, engineering problem. The session file records enough to attribute a commit to a session in principle. `cwd` and `gitBranch` are per-line fields, `gitBranch` recording the git branch active in `cwd` at the time the line was written, and `timestamp` gives every line an ISO 8601 moment (see [`reference/data-dictionary.md` § Common fields](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#common-fields) for the exact field semantics). Put those three together with the commit history on the matching branch in the matching window and you have a candidate commit for a session.
+The proxies for did-the-work-hold-up mostly live outside the session, and they sort by how much friction the data costs to get. [AgentFluent](https://github.com/frederick-douglas-pearce/agentfluent) organizes them in three tiers, which beats treating "git stuff" as one bucket. Tier 1 needs nothing new: within-session rework, the same file edited repeatedly after the work was declared done, plus user mid-flight corrections. Tier 2 reads local `git log`: `feat:` commits followed within a window by `fix:` commits on the same files, revert rate, how many sessions a file absorbs before its edits settle. Tier 3 is opt-in GitHub, richest signal and highest friction: CI failure on first push, the cleanest of the lot because it's a direct quality miss that's hard to fake, and PR review comment density normalized per line changed.
 
-A candidate, not a certainty. Branch plus time window is a heuristic, not an identity. Multiple sessions can touch the same branch inside the same window. A branch can span far more commits than any single session accounts for. Nothing about `cwd` or `gitBranch` guarantees a clean one-to-one mapping between a session and the commit it produced, and I'm not aware of anyone who has published a validated accuracy figure for this join. That's the honest state of it.
+Which leaves the join. I assumed it was uniformly a heuristic. It's more interesting than that.
 
-It's a direction under active work, not an armchair proposal. [AgentFluent](https://github.com/frederick-douglas-pearce/agentfluent) and [CodeFluent](https://github.com/frederick-douglas-pearce/codefluent) are both early into exactly this join, reading `gitBranch` and commit timestamps to connect a session to what it produced. Neither has solved it, and the point here isn't that they have. It's that the road is being walked, carefully, by people who know the join is a heuristic.
+Session lines carry `cwd`, `gitBranch`, and `timestamp` (see [`reference/data-dictionary.md` § Common fields](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#common-fields) for exact semantics). Put those against commit history on the matching branch in the matching window and you get a candidate commit. A candidate, not an identity: multiple sessions can touch one branch inside one window, and a branch can span more commits than any session accounts for.
 
-## The limits, not a disclaimer
+But Claude Code also writes `pr-link` lines when a pull request is opened from inside a session, carrying `prNumber`, `prUrl`, and `prRepository`. That isn't a heuristic. It's an exact session-to-PR identity recorded on disk, and from a PR number every Tier 3 signal becomes a direct lookup instead of an inference. (It isn't in the data dictionary yet. It's visible in this repo's sanitized fixtures, and it's going in.)
 
-Everything above is a section, not a footnote, because it changes what any of this is fit for.
+That sharpens the process argument rather than undermining it. The exact path exists, and whether you get it depends on how you work. Open your PRs from inside the session and attribution is free and exact. Open them by hand in a browser tab afterward and you're back to guessing from branch and timestamp. Same all the way down: short-lived branches, one workstream at a time, conventional commit prefixes that make `feat:` to `fix:` proximity computable at all.
 
-Proxies are gameable once measured, and the lesson applies recursively to everything proposed here. Rank a team on cache-reuse ratio and expect padded cache writes to appear. Rank on rework rate and expect fewer, larger, riskier commits that dodge revert counting without actually reducing rework. Rework signals themselves conflate healthy iteration with waste: a pull request that goes through six review rounds might be careful craftsmanship on something that mattered, or it might be a mess. Git history alone can't tell you which.
+So the accuracy of the measurement is a function of process discipline, which inverts into the most useful thing here. **Where the measurement fails, the failure is itself the finding.** You wanted to know whether the work held up and learned instead that the team's process makes the question unanswerable. Worth knowing, and cheaper to discover. A dashboard that quietly favors attributable work is favoring process hygiene, and the circularity is fine, because process hygiene is a thing you want anyway.
 
-Attribution to a single engineer is neither reliable, given the join is a heuristic to begin with, nor advisable, since individual attribution is exactly the failure mode that started this post. Everything above should be read at the team and repo level. That's a deliberate choice, not an oversight.
+Attribution also fails for legitimate reasons: deliberate long-lived feature branches, squash merges that collapse the timeline, monorepos where `cwd` doesn't discriminate. And none of this is armchair. AgentFluent shipped those three tiers across v0.6, v0.7, and v0.8, and [CodeFluent](https://github.com/frederick-douglas-pearce/codefluent) is landing verification-behavior and config-maturity signals on the same data. Neither has closed the loop to outcomes, which is the next section.
 
-And the honest close: no thresholds are offered here. I'm not going to tell you what a good cache-reuse curve looks like or what rework rate should worry you, because a defensible baseline needs a corpus of session data paired with real, longitudinal outcomes, and that doesn't exist publicly yet. Anyone who hands you a number today is guessing, confidently.
+## Every proxy here is gameable
+
+The lesson from Meta and Amazon applies recursively to everything above, and pretending otherwise would repeat their mistake with better vocabulary. Rank a team on cache-reuse ratio and expect padded cache writes. Rank on rework and expect fewer, larger, riskier commits that dodge revert counting without reducing rework. Rework signals conflate healthy iteration with waste on their own: a PR with six review rounds might be careful craftsmanship or a mess, and git history can't tell you which.
+
+Calibration holds up best, which is a low bar but a real distinction. Padding cache writes is cheap. Faking calibration means faking the difficulty signal too, and difficulty signals cost real tokens and touch real files. Gameable at a price, and the price leaves a trace.
+
+Attribution to an individual engineer is neither reliable, since the exact path depends on a workflow not everyone follows, nor advisable, since individual ranking is the failure mode that started this post. Read all of it at team and repo level.
+
+And no thresholds. I won't tell you what a good cache-reuse curve looks like or what rework rate should worry you, because a defensible baseline needs a corpus of session data paired with real longitudinal outcomes, and that doesn't exist publicly yet. Anyone who hands you a number today is guessing, confidently.
 
 ## Where this leaves you
 
-If you're the executive who just killed a leaderboard and still owes someone an answer for what replaces it: cost, computed correctly, read alongside cache efficiency, model fit, retry density, delegation shape, and rework signals from git and GitHub, at the team and repo level, with no ranking and no threshold pretending to be a verdict. That's not a scoreboard. It's a dashboard you have to actually read.
+If you killed a leaderboard and still owe someone an answer: cost computed correctly, read alongside efficiency, friction, calibration, and rework signals from git, at team and repo level, with no ranking and no threshold pretending to be a verdict. That's not a scoreboard. It's a dashboard someone has to actually read. And if you already fixed your denominator, that was necessary, not sufficient. An accurate cost figure is a fact, not a decision.
 
-If you're the practitioner who already fixed your denominator: that was necessary, not sufficient. An accurate cost figure is a fact. It isn't a decision. The numerator is still missing, and no post, including this one, gets to hand it to you for free.
+## The numerator was never the tool's to supply
+
+Back to Amazon reaching for deployment counts. They didn't pick that metric because deployments measure value. They picked it because a deployment count already existed, the closest thing to an outcome sitting in a system they could query.
+
+That isn't a session-data problem. Most organizations cannot answer "what was this feature worth" at feature granularity for _any_ feature, AI-assisted or not. Product analytics tie revenue to surfaces and funnels, not to commits. Roadmaps rank features by expected value before they're built, and almost nobody scores the estimate against what shipped. The numerator isn't missing from the JSONL. It's missing from the company.
+
+There's a small piece of evidence for that in my own backlog. CodeFluent has an epic for outcome metrics, deferred to v2.0, sitting behind fluency scoring, config-maturity assessment, verification-behavior detection, and agent trace analytics. Every one of those is harder engineering, and none needs anything the tool can't already read off disk. Outcomes aren't deferred because they're difficult. They're deferred because the data to validate them against isn't on the machine, and usually isn't anywhere else either.
+
+Which is the one genuinely optimistic thing here. If an organization did carry feature-level value attribution, even roughly, even just "we thought this was worth X and here's what it returned," session data stops being a pile of effort proxies and becomes the other half of a real ratio. You could ask which working patterns delivered the high-value items fastest, and answer it. The cost-side instrumentation is ready. It's waiting on a numerator most teams never built, for reasons that have nothing to do with AI.
+
+That's the leaderboard worth wanting. Nobody killed it in the spring of 2026, because nobody had built it.
 
 ## Sources
 
@@ -93,4 +115,4 @@ The cost-side grounding lives in this series: [Part 4 — Token accounting is ha
 
 ---
 
-_Drafted with Claude Code (verified against v2.1.150). The ideas, claims, and any errors are mine._
+_Drafted with Claude Code (verified against v2.1.158). The ideas, claims, and any errors are mine._
