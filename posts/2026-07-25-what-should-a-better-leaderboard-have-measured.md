@@ -45,7 +45,7 @@ Sorted by what each is a proxy for, because they aren't the same kind of signal 
 
 **Friction.** Repeated tool calls, `is_error` results, edits re-issued after a failed attempt, all legible from the `toolUseResult` envelope. High retry density says something isn't going smoothly. It can't distinguish a hard problem handled patiently from a session flailing at the wrong approach.
 
-**Calibration.** The interesting category, and where most of what I'd left out belongs. It asks one question in several forms: did the escalation match the difficulty?
+**Calibration.** The interesting category. It asks one question in several forms: did the escalation match the difficulty?
 
 - A top-tier model doing work a smaller one could have handled, visible as `message.model` against the shape of the task.
 - Plan mode entered on a one-line change, or never entered on a forty-file refactor. `ExitPlanMode` shows up as an ordinary tool call, and session lines carry a `mode` marker alongside the documented `permission-mode` records. A plan abandoned rather than exited won't leave the same trace.
@@ -75,21 +75,19 @@ That sharpens the process argument rather than undermining it. The exact path ex
 
 So the accuracy of the measurement is a function of process discipline, which inverts into the most useful thing here. **Where the measurement fails, the failure is itself the finding.** You wanted to know whether the work held up and learned instead that the team's process makes the question unanswerable. Worth knowing, and cheaper to discover. A dashboard that quietly favors attributable work is favoring process hygiene, and the circularity is fine, because process hygiene is a thing you want anyway.
 
-Attribution also fails for legitimate reasons: deliberate long-lived feature branches, squash merges that collapse the timeline, monorepos where `cwd` doesn't discriminate. And none of this is armchair. AgentFluent shipped those three tiers across v0.6, v0.7, and v0.8, and [CodeFluent](https://github.com/frederick-douglas-pearce/codefluent) is landing verification-behavior and config-maturity signals on the same data. Neither has closed the loop to outcomes, which is the next section.
+Attribution does fail for legitimate reasons too, from deliberate long-lived feature branches to squash merges that collapse the timeline. And none of this is armchair. AgentFluent shipped those three tiers across v0.6, v0.7, and v0.8, and [CodeFluent](https://github.com/frederick-douglas-pearce/codefluent) is landing verification-behavior and config-maturity signals on the same data. Neither has closed the loop to outcomes, which is the next section.
 
 ## Every proxy here is gameable
 
 The lesson from Meta and Amazon applies recursively to everything above, and pretending otherwise would repeat their mistake with better vocabulary. Rank a team on cache-reuse ratio and expect padded cache writes. Rank on rework and expect fewer, larger, riskier commits that dodge revert counting without reducing rework. Rework signals conflate healthy iteration with waste on their own: a PR with six review rounds might be careful craftsmanship or a mess, and git history can't tell you which.
 
-Calibration holds up best, which is a low bar but a real distinction. Padding cache writes is cheap. Faking calibration means faking the difficulty signal too, and difficulty signals cost real tokens and touch real files. Gameable at a price, and the price leaves a trace.
-
-Attribution to an individual engineer is neither reliable, since the exact path depends on a workflow not everyone follows, nor advisable, since individual ranking is the failure mode that started this post. Read all of it at team and repo level.
+Calibration holds up best, which is a low bar but a real distinction. Padding cache writes is cheap. Faking calibration means faking the difficulty signal too, and difficulty signals cost real tokens and touch real files. Gameable at a price, and the price leaves a trace. Attribution to an individual engineer is a different matter: neither reliable, since the exact path depends on a workflow not everyone follows, nor advisable, since individual ranking is the failure mode that started this post. Read all of it at team and repo level.
 
 And no thresholds. I won't tell you what a good cache-reuse curve looks like or what rework rate should worry you, because a defensible baseline needs a corpus of session data paired with real longitudinal outcomes, and that doesn't exist publicly yet. Anyone who hands you a number today is guessing, confidently.
 
 ## Where this leaves you
 
-If you killed a leaderboard and still owe someone an answer: cost computed correctly, read alongside efficiency, friction, calibration, and rework signals from git, at team and repo level, with no ranking and no threshold pretending to be a verdict. That's not a scoreboard. It's a dashboard someone has to actually read. And if you already fixed your denominator, that was necessary, not sufficient. An accurate cost figure is a fact, not a decision.
+If you killed a leaderboard and still owe someone an answer: cost computed correctly, read alongside efficiency, friction, calibration, and rework signals from git, at team and repo level, with no ranking and no threshold pretending to be a verdict. That's not a scoreboard. It's a dashboard someone has to actually read. And if you already fixed your denominator, that was necessary, not sufficient. A cost figure is a fact, not a decision.
 
 ## The numerator was never the tool's to supply
 
