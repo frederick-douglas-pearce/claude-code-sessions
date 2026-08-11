@@ -26,7 +26,7 @@ This fixture is also the gateway to the subagent-traces story (`~/.claude/projec
   - `agentType` — which subagent ran (matches `subagent_type` from the input)
   - `totalDurationMs`, `totalToolUseCount` — true run-level rollups (whole-run duration and tool-call count)
   - `totalTokens`, `usage` — a **single-turn snapshot**, NOT a run total. `usage` is the subagent's *final* assistant turn's `message.usage`, and `totalTokens` is the sum of its four fields. This is the single most misread part of the envelope; see the reconciliation section below.
-  - `toolStats` — per-tool invocation counts inside the subagent (a true run-level count)
+  - `toolStats` — tool-activity counters for the subagent, keyed by **category** (`readCount`, `searchCount`, `bashCount`, `editFileCount`, `otherToolCount`) plus edit magnitude (`linesAdded`, `linesRemoved`)
 - The subagent took ~132 seconds (`totalDurationMs`, a real run total) and made 7 tool calls (`totalToolUseCount`). But `totalTokens` (28,803) is **not** what the run processed — it is one turn's context snapshot. The run actually processed ~180k tokens across its 8 turns (see the trace fixture); the rollup understates that by ~6.25x. The parent session sees only these envelope values, never the subagent's individual turns — those live in the subagent trace file. Part 4 unpacks why the snapshot is not the spend.
 
 ### Rollup numbers reconcile with the paired trace
@@ -46,7 +46,7 @@ The cross-fixture invariant is now: **parent `toolUseResult.usage` == the trace'
 - `agentId`: `99999999-9999-9999-9999-999999999001` — the prefix `9999` marks subagent IDs in our synthetic family
 - `tool_use.id`: `toolu_synthetic_002` (continues from fixture 2's `001`)
 - Model: `claude-opus-4-7` for the parent (matches the model named in the post's verification context)
-- `toolStats` includes synthetic MCP tool names (`mcp__github__get_issue`, `mcp__github__add_issue_comment`) to illustrate that tool names in `toolStats` are exact strings as they appear in the JSONL
+- `toolStats` rolls the subagent's two MCP calls into `otherToolCount` alongside one non-read tool. Real sessions carry no per-tool-name breakdown here, so an MCP call is indistinguishable from any other non-read, non-search, non-bash, non-edit invocation. Per-tool detail requires the subagent's own trace file. (This fixture previously used tool-name keys, a shape never observed in a real session; corrected under [#56](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/56).)
 
 ## Deliberate omissions
 

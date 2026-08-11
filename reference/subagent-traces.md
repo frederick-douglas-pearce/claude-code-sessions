@@ -314,7 +314,7 @@ The same subagent run produces two artifacts, and they record fundamentally diff
 |---|---|---|
 | Granularity | **Rollup**: one user line summarizing the whole subagent run | **Step-by-step**: every model turn, every tool call, every result |
 | Token data | `toolUseResult.usage` (a **single turn's** snapshot, not a run total) and `toolUseResult.totalTokens` (that snapshot's four-field sum) | Per-`assistant`-line `message.usage` (one object per model turn; **dedupe by `message.id`** before summing) |
-| Tool data | `toolUseResult.toolStats` (per-tool *counts*, e.g., `{"Read": 4, "Bash": 2}`) | Every `tool_use`/`tool_result` pair, with full `input` and `content` |
+| Tool data | `toolUseResult.toolStats` — *category* counters only (`readCount`, `searchCount`, `bashCount`, `editFileCount`, `otherToolCount`), with no per-tool-name breakdown. See [`data-dictionary.md` § `toolStats` shape](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#toolstats-shape). | Every `tool_use`/`tool_result` pair, with full `input` and `content` |
 | Duration | `toolUseResult.totalDurationMs` (single scalar) | Per-line `timestamp`s; derive durations by diff |
 | Final output | `tool_result.content` — the subagent's final summary as a string | The same final summary appears as the last `assistant` `text` block; the entire reasoning that produced it is also present |
 | Reasoning | Not present | `thinking` blocks on `assistant` lines (when extended thinking is enabled) |

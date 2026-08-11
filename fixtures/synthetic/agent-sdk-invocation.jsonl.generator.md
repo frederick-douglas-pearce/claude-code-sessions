@@ -29,7 +29,7 @@ Three lines, mirroring the parent-side `Agent` pattern:
 ### Internal invariants (validated)
 
 - `toolUseResult.totalTokens` (39408) == sum of the four `usage` fields (8 + 400 + 9000 + 30000).
-- `toolUseResult.totalToolUseCount` (3) == sum of `toolStats` (`Read` 2 + `Grep` 1).
+- `toolUseResult.totalToolUseCount` (3) == sum of the `toolStats` invocation counters (`readCount` 2 + `searchCount` 1). Note the sum covers only the `*Count` keys; `linesAdded`/`linesRemoved` are edit magnitude, not invocations.
 - `parentUuid` chains: line 1 root (`null`) → line 2 → line 3.
 - `tool_use.id` (`toolu_synthetic_sdk_001`) == the `tool_result.tool_use_id` on line 3.
 
@@ -57,4 +57,4 @@ The SDK's runtime `SystemMessage(init)` event advertises the delegation tool as 
 
 ## How to regenerate
 
-Authored by hand, then validated as JSONL with the invariant checks above (`totalTokens` == `usage` sum, `totalToolUseCount` == `toolStats` sum, `parentUuid` chain, `tool_use` ↔ `tool_result` pairing). To change the run, substitute the UUIDs (preserving the `5…` family), the agent type/prompt, the rollup numbers, and timestamps, then re-validate. Keep `entrypoint: "sdk-py"`, `promptSource: "sdk"` (prompt line only), and `toolUseResult.resolvedModel` — those three are the reason this fixture exists.
+Authored by hand, then validated as JSONL with the invariant checks above (`totalTokens` == `usage` sum, `totalToolUseCount` == sum of the `toolStats` `*Count` keys, `parentUuid` chain, `tool_use` ↔ `tool_result` pairing). To change the run, substitute the UUIDs (preserving the `5…` family), the agent type/prompt, the rollup numbers, and timestamps, then re-validate. Keep `entrypoint: "sdk-py"`, `promptSource: "sdk"` (prompt line only), and `toolUseResult.resolvedModel` — those three are the reason this fixture exists.

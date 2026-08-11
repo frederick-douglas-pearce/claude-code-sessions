@@ -78,7 +78,7 @@ The structural surprise for readers is that **tool results live inside `user` me
 
 **Verified against Claude Code v2.1.150 (built-in tools); MCP pattern verified against the documented `mcp__<server>__<tool>` convention.**
 
-Tool names are exact strings as they appear in `message.content[].name` on `assistant` `tool_use` blocks (and as keys in `toolStats` inside the `Agent` envelope). The set is **extensible** — plugins and MCP servers add tools at runtime, and new built-ins are added across Claude Code releases — so this table is descriptive, not exhaustive.
+Tool names are exact strings as they appear in `message.content[].name` on `assistant` `tool_use` blocks. (They do **not** appear as keys in `toolStats` inside the `Agent` envelope, which is keyed by category — see [`data-dictionary.md` § `toolStats` shape](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#toolstats-shape).) The set is **extensible** — plugins and MCP servers add tools at runtime, and new built-ins are added across Claude Code releases — so this table is descriptive, not exhaustive.
 
 The **Agent SDK** exposes a different built-in tool surface; tools listed here are Claude Code's. SDK-specific tools (and the SDK's own subagent invocation pattern) are out of scope for this section until session files are available to verify.
 
@@ -104,7 +104,7 @@ The **Agent SDK** exposes a different built-in tool surface; tools listed here a
 | `TaskCreate` / `TaskUpdate` / `TaskList` / `TaskGet` / `TaskOutput` / `TaskStop` | Manage the session's task list. |
 | `ScheduleWakeup` | Schedule a delayed wake-up in `/loop` dynamic mode. |
 
-The above list reflects tools observable in v2.1.150 Claude Code sessions and matches the names used in the `toolStats` synthetic example at [`anatomy-agent-invocation.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-agent-invocation.jsonl). Tools that ship with specific harness modes (SDK, web) or that are added by future Claude Code releases will not appear here until re-verification.
+The above list reflects tools observable in v2.1.150 Claude Code sessions, as they appear in `tool_use.name`. Tools that ship with specific harness modes (SDK, web) or that are added by future Claude Code releases will not appear here until re-verification.
 
 ### MCP tools
 
@@ -229,7 +229,7 @@ The richest envelope. See [The Agent tool](#the-agent-tool) below for the dedica
 | `totalTokens` | number | A **single turn's** snapshot (the subagent's final turn), the four-field sum of `usage`. **Not** a run total — see the [undercount hazard](#undercount-hazard). |
 | `totalToolUseCount` | number | Number of tool invocations inside the subagent (a true run-level count). |
 | `usage` | object | The subagent's **final-turn** token usage (same shape as `message.usage`), not a run total. |
-| `toolStats` | object | Per-tool invocation counts (e.g., `{"Read": 4, "mcp__github__get_issue": 1}`). |
+| `toolStats` | object | Tool-activity counters keyed by **category**, not tool name (`readCount`, `searchCount`, `bashCount`, `editFileCount`, `otherToolCount`, `linesAdded`, `linesRemoved`). See [`data-dictionary.md` § `toolStats` shape](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#toolstats-shape). |
 
 ### MCP tools (`mcp__<server>__<tool>`)
 
@@ -280,7 +280,7 @@ See [Agent](#agent) in the envelope table above. The envelope is the parent's wi
 - `agentType`, `prompt` — echo of the `tool_use.input` for convenient correlation without re-walking the assistant line.
 - `totalDurationMs`, `totalToolUseCount` — true run-level rollups. `totalToolUseCount` is the subagent's **own-direct** count, not cumulative across any further subagents it spawned.
 - `totalTokens`, `usage` — **not** run rollups. Both are a single-turn snapshot (the subagent's final turn); see the [undercount hazard](#undercount-hazard) below and [Usage and token accounting](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#usage-and-token-accounting).
-- `toolStats` — a `{tool_name: count}` object summarizing what the subagent did. The single most useful field for "what did this subagent actually do" analytics.
+- `toolStats` — category counters (`readCount`, `searchCount`, `bashCount`, `editFileCount`, `otherToolCount`) plus edit magnitude (`linesAdded`, `linesRemoved`). Useful for a coarse "what shape of work was this" read; it does **not** name individual tools.
 
 **Multi-level caveat (Agent SDK).** This whole `toolUseResult` rollup is present only on **first-level** subagent results. When a subagent itself delegates (possible in the Agent SDK, not in Claude Code), the deeper `Agent` `tool_result` carries no `toolUseResult` — only an inline `subagent_tokens: <N>` trailer — so a depth-≥2 subagent's rollup numbers must come from its own trace. See [`subagent-traces.md` § Multi-level (nested) delegation](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#multi-level-nested-delegation).
 
@@ -349,7 +349,7 @@ length(.message.content | map(select(.type == "tool_use")))
 
 Any value greater than 1 is a parallel turn.
 
-Parallel invocations matter for analytics because **per-tool durations are not strictly comparable across parallel and serial tools**. A serial sequence of three `Read` calls takes ~3× as long as one. A parallel batch of three `Read` calls takes ~1× as long. Either case shows up as `toolStats: {"Read": 3}` inside a subagent envelope. If you care about wall-clock characterization, you have to distinguish them by walking the assistant content arrays.
+Parallel invocations matter for analytics because **per-tool durations are not strictly comparable across parallel and serial tools**. A serial sequence of three `Read` calls takes ~3× as long as one. A parallel batch of three `Read` calls takes ~1× as long. Either case shows up as the same `readCount: 3` inside a subagent envelope. If you care about wall-clock characterization, you have to distinguish them by walking the assistant content arrays.
 
 ---
 
@@ -360,9 +360,9 @@ Parallel invocations matter for analytics because **per-tool durations are not s
 Two fields are load-bearing for any analytics that wants to characterize what a session did:
 
 - **`tool_use.name`** — the tool name string on each invocation. Aggregating these (e.g., counting per name across an entire session) tells you what the agent reached for.
-- **`toolUseResult.toolStats`** — pre-computed per-tool counts inside `Agent` invocations. Saves you from re-walking the subagent's trace file just to characterize what it did. The single most useful field for subagent-fluency analytics.
+- **`toolUseResult.toolStats`** — pre-computed **category** counters inside `Agent` invocations. Saves you from re-walking the subagent's trace file when a coarse characterization will do.
 
-Both fields use the same exact-string tool names (`Read`, `Bash`, `mcp__github__get_issue`, etc.). They join cleanly: if you keep a per-session tool-name histogram and want to differentiate "the main agent did this" from "a subagent did this," compare `tool_use.name` aggregation in the parent file against `toolStats` rollups inside Agent envelopes.
+**These two do not join on tool name.** `tool_use.name` is an exact tool string; `toolStats` is keyed by category and never names a tool. So a per-session tool-name histogram cannot be reconciled against subagent `toolStats` at tool granularity — to separate "the main agent did this" from "a subagent did this" by tool, you must open the subagent's trace file and aggregate its own `tool_use.name` blocks.
 
 A simple jq idiom for the parent-session histogram:
 
@@ -370,11 +370,13 @@ A simple jq idiom for the parent-session histogram:
 jq -r 'select(.type == "assistant") | .message.content[]? | select(.type == "tool_use") | .name' "$F" | sort | uniq -c | sort -rn
 ```
 
-For subagent rollups (per-Agent-call):
+For subagent rollups (per-Agent-call) — note this returns category counters, not a tool histogram:
 
 ```bash
 jq 'select(.toolUseResult.toolStats) | .toolUseResult.toolStats' "$F"
 ```
+
+To get a real tool histogram for a subagent, run the first idiom against that subagent's trace file (`subagents/agent-<agentId>.jsonl`) rather than the parent session.
 
 Sibling project [AgentFluent](https://github.com/frederick-douglas-pearce/agentfluent) uses both shapes for its agent-quality diagnostics.
 

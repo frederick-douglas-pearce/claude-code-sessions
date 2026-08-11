@@ -58,7 +58,7 @@ Some fields appear on most or all line types; others are type-specific. The tabl
 
 | Field | Type | Semantics |
 |---|---|---|
-| `type` | string | Discriminator for the line's shape. Values include `assistant`, `user`, `system`, `file-history-snapshot`, `attachment`, `permission-mode`, `ai-title`, `last-prompt`, `queue-operation`, and others. See [Message types](#message-types) and [Skipped types](#skipped-types). |
+| `type` | string | Discriminator for the line's shape. Values include `assistant`, `user`, `system`, `pr-link`, `file-history-snapshot`, `attachment`, `permission-mode`, `ai-title`, `last-prompt`, `queue-operation`, and others. See [Message types](#message-types), [`pr-link`](#pr-link), and [Skipped types](#skipped-types). |
 | `timestamp` | string (ISO 8601 UTC) | When the line was written. Present on most line types except some metadata types (e.g., `ai-title`, `last-prompt`). |
 | `uuid` | string (UUID) | Per-line identifier. Unique within a session. |
 | `parentUuid` | string (UUID) or `null` | Links this line to its predecessor in the conversation graph. `null` on the first line of a session. Used to reconstruct linear vs forked conversation flow. |
@@ -191,7 +191,7 @@ The shape is **tool-dependent** — different tools populate different keys. A u
 | `totalDurationMs` | number | Agent tool | Wall-clock time the subagent ran. |
 | `totalTokens` | number | Agent tool | A **single assistant turn's** token total (the subagent's *final* turn), equal to the sum of the four `usage` fields on this envelope. **Not** cumulative across the run — aggregating it alone undercounts real spend by a median ~5.8x. The four-field-sum identity is confirmed 691/691 against a live corpus. See [`subagent-traces.md` § Token accounting](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#token-accounting). |
 | `totalToolUseCount` | number | Agent tool | Number of tool invocations the subagent made **itself** — own-direct, not cumulative. In a multi-level SDK chain it excludes tool calls made by any further subagents that subagent spawned (its own `Agent` call counts, the grandchild's tool calls do not). |
-| `toolStats` | object | Agent tool | Per-tool invocation counts inside the subagent (e.g., `{"Read": 4, "Bash": 2}`). |
+| `toolStats` | object | Agent tool | Tool-activity counters for work the subagent did itself. Every instance observed in real sessions uses **category counters**, not per-tool-name keys — see [`toolStats` shape](#toolstats-shape) below. |
 | `durationMs`, `durationSeconds` | number | Many tools | Tool-specific timing. |
 | `stdout`, `stderr` | string | `Bash` | Captured command output streams. |
 | `code` | number | `Bash` | Exit code. |
@@ -210,6 +210,33 @@ The shape is **tool-dependent** — different tools populate different keys. A u
 | `codeText` | string | Code-bearing tools | Code content returned by the tool. |
 
 This envelope is one of the highest-information surfaces in the format. The Agent-tool subset (`agentId`, `totalDurationMs`, `totalTokens`, `toolStats`, `agentType`, `prompt`) is the most stable and most analyzed — it's what AgentFluent uses for agent-quality diagnostics. Full per-tool walkthroughs belong in [`tool-invocation.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/tool-invocation.md) (forthcoming).
+
+#### `toolStats` shape
+
+**Verified against Claude Code v2.1.150.**
+
+`toolStats` is keyed by **tool category**, not by tool name. Every instance observed in real sessions carries exactly these seven keys:
+
+```json
+{
+  "readCount": 12,
+  "searchCount": 4,
+  "bashCount": 7,
+  "editFileCount": 3,
+  "linesAdded": 118,
+  "linesRemoved": 24,
+  "otherToolCount": 2
+}
+```
+
+Two consequences for parsers:
+
+- **There is no per-tool breakdown.** You can tell how many reads a subagent did; you cannot tell how many of those were `Read` versus `Glob`, and MCP tool calls fall into `otherToolCount` without naming the server. For per-tool detail, read the subagent's own trace file (see [Subagent traces](#subagent-traces)).
+- **`linesAdded` / `linesRemoved` are not invocation counts.** They are edit magnitude, mixed into the same object as the counters. Summing all values in `toolStats` to get "tool calls" therefore produces a number dominated by line counts. Use `totalToolUseCount` for the invocation total.
+
+An earlier version of this reference documented `toolStats` as keyed by tool name (`{"Read": 4, "Bash": 2}`) and two synthetic fixtures were authored to match. That shape has **not** been observed in any real session. The tool-name form was a documentation error rather than a variant, and the fixtures have been corrected. Issue [#56](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/56) originally hypothesized that the shape varied by `agentType`; the fixture evidence does not support that, since `pm` appears with the category-counter shape in real sessions and the tool-name shape only in the synthetic fixture.
+
+Evidence is thin in absolute terms: three real-session instances across two agent types (`architect`, `pm`). That is enough to retire the tool-name claim, not enough to promise the seven keys are exhaustive across every agent type or every version. Parsers should read keys defensively rather than assuming the set above is closed.
 
 **Multi-level note (Agent SDK).** This whole `toolUseResult` envelope is attached only on the line carrying a **first-level** subagent result. When a subagent itself spawns a further subagent (possible in the Agent SDK, not in Claude Code), the deeper `Agent` `tool_result` carries **no** `toolUseResult` — only an inline `subagent_tokens: <N>` text trailer in `tool_result.content`. So metrics for a depth-≥2 subagent must be read from that subagent's own trace, not from a parent envelope. See [`subagent-traces.md` § Multi-level (nested) delegation](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#multi-level-nested-delegation).
 
@@ -259,6 +286,41 @@ A second failure/retry signal, distinct from the *tool-call* retry pairing cover
 | `error` | (shape not inspected) | Error detail, when the system event records a failure. |
 
 The companion inline API-error signal on `assistant` lines (`isApiErrorMessage`, `apiError`, `apiErrorStatus`) is documented in the [`assistant`](#assistant) section. Both matter to anyone computing success/failure rates or separating real model turns from error turns.
+
+---
+
+### `pr-link`
+
+**Verified against Claude Code v2.1.150–v2.1.152.** The `pr-link` line itself carries no `version` field; the range is that of the sessions the observed lines appeared in.
+
+Associates a session with a GitHub pull request. Documented here rather than under [Skipped types](#skipped-types) because it is the only field family in the format that records an **exact** session-to-outcome identity. Every other route from a session to what it produced (matching `cwd` + `gitBranch` + `timestamp` against commit history) is a branch-and-time-window heuristic that yields a candidate, not an identity.
+
+```json
+{
+  "type": "pr-link",
+  "sessionId": "0f2c8b1e-...",
+  "prNumber": 128,
+  "prUrl": "https://github.com/<owner>/<repo>/pull/128",
+  "prRepository": "<owner>/<repo>",
+  "timestamp": "2026-06-08T17:42:11.903Z"
+}
+```
+
+| Field | Type | Semantics |
+|---|---|---|
+| `sessionId` | string | The session this PR is associated with. |
+| `prNumber` | number | PR number within `prRepository`. |
+| `prUrl` | string | Full URL to the pull request. |
+| `prRepository` | string | `owner/repo` slug. |
+| `timestamp` | string (ISO 8601 UTC) | When the line was written. |
+
+Notes for parsers:
+
+- **The line is minimal.** It carries no `uuid`, `parentUuid`, `cwd`, `gitBranch`, `version`, or `userType` — none of the [Common fields](#common-fields) except `sessionId`, `timestamp`, and `type`. Code that assumes the common envelope on every line will fault here.
+- **Multiple lines per session per PR are expected.** Observed sessions carry several `pr-link` lines with the same `prNumber` at different `timestamp`s. Deduplicate on `prNumber` before counting; do not treat the line count as a PR count.
+- **Trigger is partially confirmed.** The observed instances come from sessions that *opened* a PR during the session. Whether `claude --from-pr <n>` also emits the line on entry has not been confirmed against a fixture, so treat "written whenever a session opens a PR" as verified and "written on `--from-pr` entry" as unverified.
+
+Why it matters: from a `prNumber` the whole GitHub surface — reviews, CI status, merge outcome, post-merge issue references — becomes a direct lookup rather than an inference. Its **absence** is also informative, since a session that opened its PR outside the tool leaves only the heuristic path.
 
 ---
 
