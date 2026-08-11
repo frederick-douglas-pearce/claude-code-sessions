@@ -59,9 +59,13 @@ None of these mean anything alone, and nobody can tell you whether planning was 
 
 ## The one axis that touches both sides
 
-Time is the one axis coupled to both sides of the fraction: shipping sooner is worth more, and taking longer usually costs more. The instrumentation is better than I expected. `system` lines carry a `turn_duration` subtype with `durationMs` and `messageCount`, so per-turn wall-clock and turn density are first-class rather than reconstructed from `timestamp` arithmetic, and subagent runs report `totalDurationMs` on the parent envelope.
+Time is the one axis coupled to both sides of the fraction: shipping sooner is worth more, and taking longer usually costs more. The instrumentation is there. `system` lines carry a `turn_duration` subtype with `durationMs` and `messageCount`, so per-turn wall-clock and turn density are first-class rather than reconstructed from `timestamp` arithmetic, and subagent runs report `totalDurationMs` on the parent envelope.
 
-The hard part is deciding what one unit of work is. A session file isn't one: a file can span days of intermittent use, and a focused stretch of work can span several files. CodeFluent's answer is the most convincing I've seen. Pool a project's messages, sort by timestamp, and cut a new conversation wherever the gap between user prompts exceeds a threshold, sixty minutes by default, aligned to the unit Anthropic's fluency research scored. That bounds the idle problem without pretending to solve it: a ninety-minute gap becomes a boundary rather than duration. What's left doesn't go away. Inside a segment you can't separate a long productive think from a distraction, and speed is partly double-counted against the denominator anyway. Measurable, boundable, still not clean. Worth tracking, not worth ranking.
+The hard part is deciding what one unit of work is. A session file isn't one: a file can span days of intermittent use, and a focused stretch of work can span several files. CodeFluent segments it this way. Pool a project's messages, sort by timestamp, and cut a new conversation wherever the gap between user prompts exceeds a threshold, sixty minutes by default, aligned to the unit Anthropic's fluency research scored. That bounds the idle problem without pretending to solve it: a ninety-minute gap becomes a boundary rather than duration.
+
+That boundary is also a cost boundary, which is where time stops being an abstraction. Sixty minutes is the extended cache TTL, so a gap wide enough to cut a segment is wide enough to have expired the cache behind it, and the next turn pays a full cache write to rebuild context that a moment earlier was costing a tenth as much to read. On a large context that is a real cost lever.
+
+What's left doesn't go away. Inside a segment you can't separate a long productive think from a distraction, and speed is partly double-counted against the denominator anyway. Measurable, boundable, still not clean. Worth tracking, not worth ranking.
 
 ## The join, and what its failure tells you
 
