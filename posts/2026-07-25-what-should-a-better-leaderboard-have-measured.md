@@ -8,7 +8,7 @@ tags: ["claude-code", "jsonl", "sessions", "cost", "metrics"]
 og_image: https://frederick-douglas-pearce.github.io/assets/img/what-should-a-better-leaderboard-have-measured-og.png
 og_card_source: social/images/2026-07-25-linkedin-what-should-a-better-leaderboard-have-measured/og-card.png
 featured: false
-claude_code_version_verified: v2.1.158
+claude_code_version_verified: v2.1.152
 ---
 
 In the spring of 2026, three companies ran the same experiment within weeks of each other. Meta stood up an internal dashboard nicknamed "Claudeonomics" that ranked its heaviest AI users, the top 250 of roughly 85,000 employees, by token consumption. Engineers competed for the top spots, some by leaving idle agents running to pad their numbers, and Meta pulled it in April as projected annual cost climbed toward the billions. Amazon built KiroRank on its internal Kiro platform, watched employees game it the same way, and shut it down at the end of May, with a senior VP telling staff not to "use AI just for the sake of using AI." Uber never ran a public ranking, but exhausted its entire 2026 budget for these tools in four months and responded with a hard ceiling: $1,500 per tool per month.
@@ -121,4 +121,4 @@ The cost-side grounding lives in this series: [Part 4 — Token accounting is ha
 
 ---
 
-_Drafted with Claude Code (verified against v2.1.158). The ideas, claims, and any errors are mine._
+_Drafted with Claude Code (verified against v2.1.152). The ideas, claims, and any errors are mine._
