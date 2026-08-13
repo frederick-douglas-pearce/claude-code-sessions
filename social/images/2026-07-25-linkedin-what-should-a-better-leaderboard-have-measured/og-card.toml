@@ -1,0 +1,52 @@
+slug = "2026-07-25-linkedin-what-should-a-better-leaderboard-have-measured"
+
+title = ["What should a better", "leaderboard have measured?"]
+
+subhead = "The cost is on disk. The value never was."
+
+json_sample = """
+{
+  "the denominator, on disk": {
+    "model": "claude-opus-4-7",
+    "input_tokens": 2741,
+    "output_tokens": 329,
+    "cache_creation_input_tokens": 19227,
+    "cache_read_input_tokens": 150000
+  },
+  "the numerator, not on disk": {
+    "did_the_work_hold_up": null
+  }
+}
+"""
+
+notes = """
+Standalone post, not a numbered part. Hero is the post's whole thesis in one
+frame: every field the cost side needs is present and priced, and the one field
+the value side needs does not exist. The leaderboards in the intro (Meta,
+Amazon, Uber) ranked the top block and called it a score.
+
+The visual does the work the prose can't. All five cost fields render as bright
+yellow numbers or a green string; `null` tokenizes to punctuation gray
+(COLOR_PUNCT, render.py line 99), so the missing numerator literally reads dim
+against the populated block above it. That contrast is the point, and it is why
+`null` is used rather than a prose string value.
+
+`did_the_work_hold_up` is the post's own coinage, not an invented field -- the
+join section calls these "the proxies for did-the-work-hold-up," which live
+outside the session by construction. The wrapper keys mark this as an annotated
+composite rather than a literal session line, following the convention the Part
+4 card set ("subagent trace, summed").
+
+Numbers are a composite of two reference/synthetic sources, both already used on
+earlier cards in the series and both safe to commit: 2741 / 329 / 19227 from the
+cost-model.md worked example (Part 6's card), 150000 cache reads from
+fixtures/synthetic/anatomy-subagent-trace.jsonl (Part 4's card). Reusing them
+keeps the series numerically consistent. No single fixture line carries all
+five at once, which is fine here because the wrapper key already frames the
+block as assembled rather than quoted.
+
+Title is 45 chars, over the 34 single-line budget, split before "leaderboard"
+at the natural article break. Subhead is 40 chars, under the ~45 limit. JSON is
+12 lines, inside the ~16-line window budget, and the widest line
+(cache_creation_input_tokens at 41 chars) clears the 58-char overrun threshold.
+"""
