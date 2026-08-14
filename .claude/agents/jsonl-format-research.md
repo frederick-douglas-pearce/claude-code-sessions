@@ -79,7 +79,7 @@ to a Claude Code version and confirm whether the change was announced or silent.
 ## Sources to survey each run
 
 Required:
-- https://docs.claude.com/en/release-notes/claude-code — Claude Code release notes
+- https://raw.githubusercontent.com/anthropics/claude-code/refs/heads/main/CHANGELOG.md — Claude Code release notes. Fetch this raw URL directly. The documented `docs.claude.com/en/release-notes/claude-code` address is a two-hop redirect (301 to `platform.claude.com`, then 307 to this same file), so going through it burns two WebFetch calls for nothing.
 - https://raw.githubusercontent.com/anthropics/claude-agent-sdk-python/main/CHANGELOG.md — Agent SDK (Python)
 - https://raw.githubusercontent.com/anthropics/claude-agent-sdk-typescript/main/CHANGELOG.md — Agent SDK (TypeScript)
 - https://www.anthropic.com/engineering — engineering blog (last 30 days)
@@ -89,6 +89,43 @@ Conditional (only if a required source mentions them):
 - Specific feature docs linked from the above (e.g., a hooks, subagents, or
   session-storage doc page)
 - One targeted WebSearch per major theme that surfaced (max 3 searches/run)
+
+## Recovering trimmed changelog history
+
+The published Claude Code CHANGELOG is a **rolling window**. It holds only the
+most recent ~35 versions, and older entries are dropped from the file on `main`.
+The docs release-notes page redirects to that same file, so there is no deeper
+published source. A version range that was never surveyed can therefore fall out
+of the live changelog before you reach it.
+
+Older ranges are still recoverable, because the file is tag-pinned:
+
+```
+https://raw.githubusercontent.com/anthropics/claude-code/refs/tags/v<VERSION>/CHANGELOG.md
+```
+
+That returns the changelog as it stood at `v<VERSION>`, covering roughly 55
+versions back from there. Verified 2026-08-14:
+`refs/tags/v2.1.198/CHANGELOG.md` spans v2.1.198 down to v2.1.143.
+
+Procedure each run:
+
+1. Note the oldest version present in the live changelog.
+2. Note the oldest Claude Code version in the corpus. The local scan report
+   lists observed `version` values. With no fresh scan available, use the oldest
+   version referenced in the queue.
+3. If the corpus reaches further back than the live changelog floor, fetch the
+   tag-pinned changelog at the version just below that floor, then repeat until
+   coverage meets the corpus floor or you near the WebFetch cap.
+4. Log each tag-pinned fetch as its own Reviewed Sources row, naming the version
+   span it covered.
+
+Each hop costs one WebFetch and buys roughly 55 versions, so this is cheap
+relative to your budget. If you stop early because of the cap, say so and name
+the range still uncovered. **Do not report an unsurveyed range as "unverifiable"
+or "not available from any source" without trying the tag-pinned fetch first.**
+The changelog being trimmed is itself worth noting: it means format archaeology
+has a shelf life, and unsurveyed ranges get harder to recover over time.
 
 ## Budget per run (hard caps)
 
