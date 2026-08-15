@@ -24,8 +24,12 @@ jobs:
           node-version: 20
           cache: npm
 
-      # Pinned via package-lock.json (prettier@3 + @shopify/prettier-plugin-liquid),
-      # mirroring the Pages site's formatter so source == deployed.
+      # Pinned to the Pages site's EXACT formatter versions (prettier 3.9.5 +
+      # @shopify/prettier-plugin-liquid 1.11.0), not caret ranges, so source ==
+      # deployed. Caret ranges are how this drifted: the site pinned 3.9.5 while
+      # this repo's lockfile sat on 3.8.3, which would let a post pass here and
+      # still fail the site's own `prettier . --check` — the exact failure this
+      # gate exists to prevent. When the site bumps its pin, bump this to match.
       - run: npm ci
 
       - run: npm run format:check
