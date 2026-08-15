@@ -330,7 +330,7 @@ Filed 2026-08-15 under the new epic label **`epic:sanitizer-pypi`**.
 | F | [#161](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/161) | SECURITY.md + limitation notice | high | Must |
 | B1 | [#162](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/162) | Python test matrix + build/twine-check | high | Must |
 | B2 | [#163](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/163) | Trusted-Publishing release workflow | high | Must (performs the upload) |
-| D | [#164](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/164) | stale exit-3 message | low | fast-follow |
+| D | [#164](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/164) | stale exit-3 message | high | **Must** (promoted 2026-08-15, see §9) |
 | G | [#165](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/165) | record the dedup deferral | low | fast-follow |
 | H | [#166](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/166) | reserve `ccs-sanitize` on PyPI | low | fast-follow |
 
@@ -514,11 +514,57 @@ A (mandate / PRD amendment)
 
 **Can land after the first publish (fast-follow):**
 
-- **D** — ship v1 with a documented "first run without a clone" caveat if the UX change
-  is not trivial; refine in a point release.
 - **G** — a paperwork decision; close it whenever, not on the critical path.
-- **Defensive `ccs-sanitize` name reservation** — anytime.
+- **H** — defensive `ccs-sanitize` name reservation, anytime after B2.
 
-**Do not publish until:** A is merged, C + E are merged, B1 is green on the release ref,
-and B2 is wired with Trusted Publishing. F should be merged too; treat a missing
-SECURITY.md as a release blocker in practice even though it is nominally "Should."
+**Do not publish until:** A, C, E, F, and D are merged, B1 is green on the release ref,
+and B2 is wired with Trusted Publishing.
+
+---
+
+## 9. Architecture review (2026-08-15)
+
+Reviewed by the architect agent before implementation began. Verdict: **no structural
+objections.** Sequencing is correct, declared dependencies match reality, and the
+supply-chain framing was judged proportionate rather than inflated. The over-engineering
+check came back clean, with one note: the `pypi` environment's required reviewer on a
+solo-maintainer repo is a human checkpoint rather than peer review, and should be
+documented as such rather than trimmed.
+
+Findings applied to the issues:
+
+| Finding | Applied to |
+|---|---|
+| Cross-interpreter byte-identity is untested. All existing determinism tests run twice on one interpreter; nothing asserts 3.11/3.12/3.13 agree. Needs a committed golden fixture asserted in every matrix cell. | #162, #160 |
+| **#164 was scheduled on the wrong axis.** Promoted to a first-release blocker. | #164 |
+| README sidecar example contradicts PRD §10 (`input_hash` vs `input_sha256`, wrong storage claim); README inverts the provenance of the secret-pattern floor; "not yet published" goes stale on upload. | #159 |
+| Version-lifecycle policy was split across two issues. SECURITY.md owns lifecycle; README owns the determinism contract. | #160, #161 |
+| `config_source` basename-safety was reasoned against this repo's naming. A custom `-c acme-prod.yaml` lands verbatim in a supposedly-safe-to-commit sidecar. Document, do not engineer around it. | #161 |
+| Sanitized fixtures pin to their scrub-time version. The future fixture-validator's "recognized version" must mean a maintained allowlist. | #160 |
+
+### Why #164 moved
+
+I scheduled it as a fast-follow because it changes no output bytes and needs no version
+bump. That is the correct test for the CHANGELOG policy and the wrong test for a security
+tool's first public release. Both the exit-3 message and the `--no-check` help advertise
+a flag that disables the gitignore guard, to a user who has just hit an error they do not
+yet understand. The question that should have decided it is whether shipped text steers a
+stranger toward turning off a safety control.
+
+### Forward compatibility
+
+Publishing `0.3.0` does not constrain the deferred PRD §17 work. Jitter evolves the
+sidecar's `jitter` scalar into a structured value, which the schema-version decision
+below is the clean seam for. Session-bundle mode (`--session-dir`) is additive to the CLI
+and MINOR under the stated policy. Q8 (CLI-only contract, modules private) was affirmed:
+the fork-and-customize path is served by YAML config and additive `extra_secret_patterns`,
+which is data rather than code, so no consumer needs to import `orchestrator` or
+`pipeline` in-process.
+
+### Q9 — open, needs a ruling before #160 is worked
+
+Should the sidecar carry a `sidecar_schema_version` independent of `sanitizer_version`?
+Today it does not, so the tool version doubles as the schema key and consumers must map
+versions to shapes. **Recommendation: add `sidecar_schema_version: 1` at `0.3.0`.** The
+asymmetry decides it: added now, every public-era sidecar carries it; added at `0.4.0`,
+consumers handle its absence forever. Recorded as an open decision in #160.
