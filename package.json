@@ -8,7 +8,7 @@
     "format:write": "prettier . --write"
   },
   "devDependencies": {
-    "@shopify/prettier-plugin-liquid": "^1.9.3",
-    "prettier": "^3.6.2"
+    "@shopify/prettier-plugin-liquid": "1.11.0",
+    "prettier": "3.9.5"
   }
 }
