@@ -160,26 +160,30 @@ Here's what the parent saw for our `pm` invocation — the `toolUseResult` from 
     "cache_read_input_tokens": 27000
   },
   "toolStats": {
-    "Read": 4,
-    "mcp__github__get_issue": 1,
-    "mcp__github__add_issue_comment": 2
+    "readCount": 4,
+    "searchCount": 0,
+    "bashCount": 0,
+    "editFileCount": 0,
+    "linesAdded": 0,
+    "linesRemoved": 0,
+    "otherToolCount": 3
   }
 }
 ```
 
-That's genuinely useful. At a glance you know the `pm` agent ran for ~132 seconds and made 7 tool calls across `Read`, `get_issue`, and `add_issue_comment`. For a lot of questions, that's enough, and you never have to open the trace file.
+That's genuinely useful. At a glance you know the `pm` agent ran for ~132 seconds, made 7 tool calls, spent four of them reading, and edited nothing. For a lot of questions, that's enough, and you never have to open the trace file.
 
-But notice what it can't tell you, and one field that will actively mislead you. It says `Read` was called four times, not _which files_. It says `add_issue_comment` was called twice, not _what the comments said_, or whether the first attempt failed and the second was a retry. It records the final summary string, not the reasoning that produced it. And the token fields are a trap: `totalTokens` and `usage` here snapshot a **single** turn, the subagent's last, not the whole run, so they undercount what the run actually processed and can't tell you which turn was expensive. `toolStats`, `totalToolUseCount`, and `totalDurationMs` are genuine run-level rollups; the token fields are not. Part 4 is where that trap gets its full treatment.
+But notice what it can't tell you, and one field that will actively mislead you. `toolStats` is keyed by tool **category**, not by tool name, and those seven keys are the entire vocabulary. So `readCount: 4` means four read-category calls, and it can't distinguish `Read` from `Glob`, let alone tell you _which files_. The three non-read calls collapse into `otherToolCount: 3` without naming a single tool or MCP server, so the rollup can't tell you the agent touched GitHub at all, never mind _what the comments said_ or whether the first attempt failed and the second was a retry. It records the final summary string, not the reasoning that produced it. There's a shape trap in the object too: `linesAdded` and `linesRemoved` are edit magnitude, not invocation counts, so summing every value in `toolStats` yields a number dominated by line counts. Use `totalToolUseCount` for the invocation total. And the token fields are a trap of their own: `totalTokens` and `usage` here snapshot a **single** turn, the subagent's last, not the whole run, so they undercount what the run actually processed and can't tell you which turn was expensive. `toolStats`, `totalToolUseCount`, and `totalDurationMs` are genuine run-level rollups; the token fields are not. Part 4 is where that trap gets its full treatment.
 
 |             | Parent `toolUseResult` (rollup)                  | Subagent trace file (evidence)                                  |
 | ----------- | ------------------------------------------------ | --------------------------------------------------------------- |
 | Granularity | One line covering the whole run                  | Every model turn, every tool call, every result                 |
 | Tokens      | A single turn's `totalTokens` + `usage` snapshot | Per-`assistant`-line `message.usage`, summable to the run total |
-| Tools       | Per-tool **counts** (`{"Read": 4}`)              | Every `tool_use`/`tool_result` pair, full `input` and `content` |
+| Tools       | Per-**category** counts (`{"readCount": 4}`)     | Every `tool_use`/`tool_result` pair, full `input` and `content` |
 | Duration    | One `totalDurationMs` scalar                     | Per-line `timestamp`s — diff them yourself                      |
 | Reasoning   | Absent                                           | `thinking` blocks (when extended thinking is on)                |
 
-This is exactly why most parsers stop at the parent envelope and treat a subagent as a single opaque tool call. The data is _there_ — it just lives in a different file, and you have to know to go get it. Anything that measures what a subagent actually did, rather than what the parent claims it did, has to read the trace.
+This is exactly why most parsers stop at the parent envelope and treat a subagent as a single opaque tool call. The rollup is thinner than it looks: no tool names anywhere, so the trace file is the _only_ place a subagent's tool identity is recorded. The data is _there_ — it just lives in a different file, and you have to know to go get it. Anything that measures what a subagent actually did, rather than what the parent claims it did, has to read the trace.
 
 ## What you won't find in a trace file
 
@@ -222,7 +226,7 @@ cat ~/.claude/projects/<slug>/<session-uuid>/subagents/agent-<agentId>.jsonl \
       | .message.content[]? | select(.type? == "tool_use") | .name'
 ```
 
-The first snippet answers "how many turns did this subagent take?" — a number the parent rollup never gives you. The second one expands the parent's `toolStats` counts back into an ordered list of what the subagent did, which is the difference between "called `Read` four times" and "read these four files, in this order, before commenting." That expansion — from rollup back to transcript — is one of many reasons trace files are worth opening.
+The first snippet answers "how many turns did this subagent take?" — a number the parent rollup never gives you. The second one expands the parent's `toolStats` counts back into an ordered list of what the subagent did, which is the difference between "four read-category calls and three other calls" and "read these four files, in this order, then commented on the issue twice." That expansion — from rollup back to transcript — is one of many reasons trace files are worth opening.
 
 ## What's next
 
@@ -241,6 +245,8 @@ If your own traces show a `type` value, an attribution field, or a nesting layou
 ---
 
 **Correction (2026-07-19).** An earlier version of this post described the parent's `toolUseResult.usage` / `totalTokens` as "rolled up across the whole run" and called the trace and rollup "the same tokens, counted twice," warning that summing both inflates a session total. That was backwards. The token fields in the rollup are a single assistant turn's snapshot (the subagent's last), not a run total, so reading them as the run's cost undercounts it, by a median of about 6x on a live corpus of 691 invocations. The `toolStats`, `totalToolUseCount`, and `totalDurationMs` fields are genuine run-level rollups; the token fields are the exception. The displayed envelope, the comparison table, and the "gotcha" section have been corrected, and the paired fixtures were re-cut to match ([#144](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/144)). The canonical treatment is in [`reference/subagent-traces.md` — Token accounting](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#token-accounting).
+
+**Correction (2026-08-15).** An earlier version of this post showed `toolStats` keyed by tool name (`{"Read": 4, "mcp__github__get_issue": 1, …}`) and reasoned from that shape: that the rollup told you the agent made "7 tool calls across `Read`, `get_issue`, and `add_issue_comment`," and that its limit was not knowing _which files_ `Read` touched. The shape was wrong. `toolStats` is keyed by tool **category**, with the same seven keys on every instance observed in a real session, and the tool-name form has never appeared in one. It came from this repo's own synthetic fixture, since re-cut ([#154](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/154), [#156](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/156)). This widens the post's argument rather than weakening it: the rollup names no tools at all, and MCP calls disappear into `otherToolCount` without naming a server, so the trace file is even more necessary than the original text claimed. The envelope, the comparison table, and the three prose passages that reasoned from tool names have been corrected, and one further trap is now called out: `linesAdded` / `linesRemoved` share the object with the invocation counters, so summing `toolStats` values gives a line-count-dominated number rather than a tool-call count. Use `totalToolUseCount`. Canonical treatment: [`reference/data-dictionary.md` — `toolStats` shape](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#toolstats-shape).
 
 ---
 

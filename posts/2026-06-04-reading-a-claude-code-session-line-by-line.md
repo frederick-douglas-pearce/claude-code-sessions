@@ -162,7 +162,15 @@ Here's the part that surprises readers who think they've figured the format out:
     "totalDurationMs": 132140,
     "totalTokens": 18234,
     "totalToolUseCount": 7,
-    "toolStats": { "Read": 4, "mcp__github__get_issue": 1, "mcp__github__add_issue_comment": 2 }
+    "toolStats": {
+      "readCount": 4,
+      "searchCount": 0,
+      "bashCount": 0,
+      "editFileCount": 0,
+      "linesAdded": 0,
+      "linesRemoved": 0,
+      "otherToolCount": 3
+    }
   }
 }
 ```
@@ -173,7 +181,7 @@ Second, **the envelope lives outside `message.content`**, not inside it. That pl
 
 What's in it depends on the tool. The full union of observed keys is in [`data-dictionary.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#tooluseresult-envelope); a few representative subsets:
 
-- **`Agent`** — `agentId`, `agentType`, `prompt`, `totalDurationMs`, `totalTokens`, `totalToolUseCount`, `toolStats`. This is the surface that powers any per-subagent diagnostic.
+- **`Agent`** — `agentId`, `agentType`, `prompt`, `totalDurationMs`, `totalTokens`, `totalToolUseCount`, `toolStats`. This is the surface that powers any per-subagent diagnostic. Note that `toolStats` is keyed by tool _category_, not tool name: the seven keys above are the whole vocabulary, so the two MCP calls and the one non-read tool call in this example collapse into `otherToolCount: 3` with no server or tool named. Note also that `linesAdded` and `linesRemoved` are edit magnitude, not invocation counts, so summing every value in `toolStats` gives you a number dominated by line counts. Use `totalToolUseCount` for the invocation total.
 - **`Bash`** — `stdout`, `stderr`, `code`, `interrupted`, `durationMs`. Enough to characterize most command outcomes without parsing `stdout`.
 - **`Edit`** — `filePath`, `oldString`, `newString`, `replaceAll`, `structuredPatch`, `userModified`. The diff is in `structuredPatch`; security-review tooling lives off that field.
 - **`Read`** — often minimal or absent. The actionable content is in `tool_result.content`; `Read` doesn't need a separate envelope.
@@ -277,7 +285,7 @@ cat <session>.jsonl | jq 'select(.toolUseResult?.agentType?)
 
 The `?` operators in the third snippet matter: in real sessions, `toolUseResult` is sometimes an array or a string rather than an object, and without the `?` guards `jq` will raise an indexing error on those lines. With them, non-matching lines are silently skipped.
 
-The first snippet is the fastest way to feel the shape of a session you've never opened before — and the easiest way to discover top-level `type` values this post hasn't catalogued. The second is a one-line agent-trace. The third pulls the rollup of every subagent the parent session delegated to. The `agent_id` value in that rollup is the literal handle that takes you to the subagent's full trace file at `~/.claude/projects/<slug>/<session-uuid>/subagents/agent-<agent_id>.jsonl` — which is where Part 3 picks up. I deliberately omitted `toolStats` from the third snippet because its shape varies by agent type — built-in subagents and the `Explore` agent populate different keys.
+The first snippet is the fastest way to feel the shape of a session you've never opened before — and the easiest way to discover top-level `type` values this post hasn't catalogued. The second is a one-line agent-trace. The third pulls the rollup of every subagent the parent session delegated to. The `agent_id` value in that rollup is the literal handle that takes you to the subagent's full trace file at `~/.claude/projects/<slug>/<session-uuid>/subagents/agent-<agent_id>.jsonl` — which is where Part 3 picks up. I deliberately omitted `toolStats` from the third snippet, because its category counters answer a coarser question than the rest of the rollup does, and reading them alongside per-tool data invites the mistake of treating them as a per-tool breakdown.
 
 One caveat on that `context_tokens` field. `toolUseResult.totalTokens` looks like the subagent's token total, but it is a snapshot of a single assistant turn's context size, not a sum across the run, so it understates what the run actually processed and must not be summed across invocations or priced as cost. That's why the key here is named `context_tokens`, not `tokens`. [Part 4](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-24-token-accounting-is-harder-than-it-looks.md) is the full treatment; for now, read it as a rough context-size figure, and get real token totals by summing the trace file's per-turn `message.usage`.
 
@@ -296,6 +304,8 @@ If there's a line type or a behavior I didn't cover that you've seen in your own
 ---
 
 **Correction (2026-07-19).** The subagent `jq` recipe above originally emitted `tokens: .toolUseResult.totalTokens`, which reads as the subagent's token total. It isn't: `totalTokens` is a single assistant turn's context-size snapshot, not a sum across the run, and using it as a token total undercounts the run (by a median of about 6x on a live corpus of 691 invocations) and can't be priced. The key has been renamed to `context_tokens` with a caveat, and a pointer added to get real token totals from the trace. See [Part 4](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-24-token-accounting-is-harder-than-it-looks.md) and [`reference/subagent-traces.md` — Token accounting](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#token-accounting).
+
+**Correction (2026-08-15).** The `toolUseResult` example above originally showed `toolStats` keyed by tool name (`{"Read": 4, "mcp__github__get_issue": 1, …}`). That shape has never been observed in a real session. `toolStats` is keyed by tool **category**, and every real instance carries the same seven keys shown in the corrected block. The tool-name form came from this repo's own synthetic fixture, which has since been re-cut ([#154](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/154), [#156](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/156)). `totalToolUseCount: 7` was and remains correct. Two consequences, now spelled out in the `Agent` bullet: there is no per-tool detail in the rollup at all, and `linesAdded` / `linesRemoved` are edit magnitude sitting in the same object as the counters, so summing the object does not give you a tool-call count. The claim that the shape varies by agent type was part of the same error and has been dropped. Canonical treatment: [`reference/data-dictionary.md` — `toolStats` shape](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#toolstats-shape).
 
 ---
 
