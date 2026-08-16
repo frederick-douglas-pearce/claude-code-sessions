@@ -1,20 +1,28 @@
 [build-system]
-requires = ["hatchling"]
+# >=1.27 for PEP 639 support (SPDX `license` expression + `license-files`).
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
 name = "claude-code-sessions-sanitizer"
 dynamic = ["version"]
 description = "Scrub Claude Code session JSONL files for safe publication."
-readme = "README.md"
+# Content type pinned rather than inferred from the extension: this string
+# is what PyPI uses to render the project page.
+readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.11"
-license = { text = "MIT" }
+# PEP 639. `LICENSE` is a verbatim copy of the repo-root LICENSE, kept here
+# so the built wheel and sdist carry the license text (the repo root is
+# outside the build context).
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Fred Pearce" }]
 keywords = ["claude-code", "jsonl", "sanitization", "security", "redaction"]
+# No `License ::` classifier: PEP 639 makes it redundant and build backends
+# warn when it is mixed with the SPDX expression above.
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -43,10 +51,15 @@ path = "src/ccs_sanitize/__init__.py"
 packages = ["src/ccs_sanitize"]
 
 [tool.hatch.build.targets.sdist]
+# `tests` ships in the sdist deliberately: a downstream packager or a
+# security auditor can re-run the fail-closed and residual-scan suites
+# against the exact published source. They stay out of the wheel (the
+# wheel target packages `src/ccs_sanitize` only).
 include = [
     "src",
     "tests",
     "README.md",
     "CHANGELOG.md",
+    "LICENSE",
     "pyproject.toml",
 ]

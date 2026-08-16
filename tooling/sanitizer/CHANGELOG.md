@@ -38,6 +38,41 @@ Use semver: `MAJOR.MINOR.PATCH`.
 
 ## [Unreleased]
 
+### Changed (issue #159 — packaging made PyPI-correct)
+- **PEP 639 license metadata.** `license = { text = "MIT" }` becomes the SPDX
+  expression `license = "MIT"` plus `license-files = ["LICENSE"]`, and the now
+  redundant `License :: OSI Approved :: MIT License` classifier is dropped.
+  Build backends warn when the classifier is mixed with the SPDX expression.
+  Requires `hatchling>=1.27`, so the build-system pin is raised.
+- **`LICENSE` ships in the artifacts.** `tooling/sanitizer/LICENSE` is a verbatim
+  copy of the repo-root `LICENSE`; the package root is the build context, so the
+  root copy is out of reach. It now lands in the wheel
+  (`*.dist-info/licenses/LICENSE`) and in the sdist. A published security tool
+  with no license text in the artifact is a real audit gap downstream.
+- **README is PyPI-safe.** Every repo-relative link (`../../.claude/specs/...`,
+  `tests/`, `CHANGELOG.md`) becomes an absolute `github.com/.../blob/main/...`
+  URL, since a pip user never cloned the repo and the project page is the first
+  thing anyone evaluating the tool reads. In-page `#anchor` links are unchanged.
+- **`readme` content type pinned** to `text/markdown` via the table form rather
+  than inferred from the file extension.
+- **Three content errors corrected in the README**, all of which render on the
+  PyPI project page:
+  - the sidecar example used `input_hash` and claimed the hash was "not stored."
+    The field is `input_sha256` and it *is* stored (PRD §10 had already recorded
+    the README as wrong). The example now matches `sidecar.py`'s emitted payload
+    field-for-field, and `sanitizer_version` is a `<version>` placeholder so the
+    example cannot go stale on a bump.
+  - the "Rule sources" section credited AgentFluent's hook as the source of the
+    secret-pattern library. This repo is upstream (PRD D-6): the shipped copy is
+    `rules/secrets.py`, and the hook is a peer consumer held in sync by
+    `test_secret_patterns_in_sync.py`.
+  - "not yet published to a package index" is replaced by an Install section that
+    also states the supported public surface: the CLI and the sidecar format are
+    the contract, the module surface is private (PRD D-5a, Q8).
+- No behavior change and no output-byte change, so no version bump under the
+  policy above. `tests/` stay in the sdist and out of the wheel, deliberately:
+  an auditor can re-run the fail-closed suite against the published source.
+
 ### Added (issue #45 — config storage and safety, PRD §12b)
 - `ccs-sanitize --init` bootstraps a fresh repo or fork: writes
   `.ccs-sanitize.example.yaml` (if missing) and `.ccs-sanitize.yaml`
