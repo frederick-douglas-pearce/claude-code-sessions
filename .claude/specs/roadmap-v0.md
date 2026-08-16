@@ -175,7 +175,10 @@ Explicitly deferred until traffic or contributor activity warrants:
 - Multi-author workflows
 - Comments or engagement features on the published site
 - Translation / i18n
-- Sanitizer publishing as a standalone PyPI package (in-repo only for v0; can be extracted later)
+- ~~Sanitizer publishing as a standalone PyPI package (in-repo only for v0; can be extracted later)~~
+  **Superseded 2026-08-16.** The standalone audience appeared (CCDC contributors, [#75](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/75)),
+  so the sanitizer publishes to PyPI at `0.3.0`. See PRD [D-5a](prd-sanitizer.md#d-5-amendment)
+  and [`plan-sanitizer-pypi.md`](plan-sanitizer-pypi.md).
 - Automation of cross-post route (manual in v0; automate after the pattern proves out)
 
 ---

@@ -5,7 +5,7 @@
 **Roadmap item:** [W2 — Sanitizer design + v0 implementation](roadmap-v0.md#w2--sanitizer-design--v0-implementation)
 **Tracking issue:** [#1 — Epic: Sanitizer design + v0 implementation](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/1)
 **Created:** 2026-05-29
-**Last updated:** 2026-05-29
+**Last updated:** 2026-08-16 (D-5 reversed by [D-5a](#d-5-amendment): publishes to PyPI)
 
 > This PRD is deliberately verbose. Per the epic, we are early-stage and want the
 > design rationale, the alternatives considered, and the decision history recorded
@@ -480,6 +480,53 @@ constraint), plus PyYAML for config parsing. Target Python 3.11+. Extraction to 
 PyPI package (`claude-code-sessions-sanitizer`) is deferred until a standalone audience
 materializes — the module layout is kept import-clean so extraction is mechanical later.
 
+### Amendment 2026-08-16 — D-5 reversed: the sanitizer publishes to PyPI {#d-5-amendment}
+
+**Decision D-5a (2026-08-16), superseding D-5: `claude-code-sessions-sanitizer` publishes to
+PyPI, first public version `0.3.0`.** D-5 above is left intact as the record of what was
+decided on 2026-05-29 and why. This amendment supersedes it; it does not rewrite it.
+
+Scoping doc: [`plan-sanitizer-pypi.md`](plan-sanitizer-pypi.md). Tracking issue:
+[#158](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/158), under the
+`epic:sanitizer-pypi` label.
+
+**Trigger.** D-5 deferred publication "until a standalone audience materializes." It has. The
+audience of record is **CCDC contributors** ([#75](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/75)),
+the public sanitized-session corpus effort. External contributors to a public corpus need a
+`pip install`-able scrubber. Telling them to clone this monorepo and run an in-tree tool is a
+higher barrier and a worse security story, because people improvise their own scrubbing when
+the sanctioned tool is inconvenient. That is the whole justification; no other motivation is
+part of the written record.
+
+**Rulings recorded with this amendment.** Downstream issues consume these as written decisions
+rather than as conversation:
+
+| # | Question | Ruling |
+|---|---|---|
+| Q1 | Which standalone audience triggers the reversal? | CCDC contributors ([#75](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/75)). |
+| Q2 | First public version: `0.3.0` or `1.0.0`? | **`0.3.0`.** The package is `Development Status :: 3 - Alpha`, the CLI surface may still move, and `1.0.0` would over-promise against a determinism contract that only holds *within* a version. |
+| Q3 | Distribution name? | Keep **`claude-code-sessions-sanitizer`** (descriptive, namespaced, searchable); the console script stays `ccs-sanitize`. Reserve `ccs-sanitize` on PyPI defensively, as an inert placeholder that installs no console script. |
+| Q5 | Force the vendored secret-pattern dedup before publishing? | **Defer.** Only the sanitizer's copy ships; `test_secret_patterns_in_sync.py` keeps it element-wise identical to the hook copy, so the artifact cannot silently drift below the hook's floor. [§17](#17-future-work-v1) stands as future work, not a publish blocker. |
+| Q7 | Upload credential? | **PyPI Trusted Publishing (OIDC).** No long-lived API token at rest. A leaked token would let an attacker publish a poisoned sanitizer, and every user of that release is by definition handling raw session data. |
+
+**Supported public surface at `0.3.0`.** The **CLI** and the **`.scrubbed` sidecar format**
+([§10](#10-the-scrubbed-sidecar)) are the supported contract. The module surface
+(`orchestrator`, `pipeline`, `rules`, and everything else under `ccs_sanitize`) is **private
+and may move without a MAJOR bump.** Stating this is cheap now and expensive to retrofit:
+silence invites strangers to import internals that then become costly to change. The
+fork-and-customize path is served by YAML config and additive `extra_secret_patterns`, which
+is data rather than code, so no consumer needs to import the pipeline in-process. If someone
+asks for a documented library API, that is a new decision.
+
+**What this amendment does not change.** D-1 (hybrid config), D-6 (vendored patterns), D-7
+(strip high-risk line types), and the [§4](#4-non-goals) non-goals all stand. Publishing is a
+distribution change, not a design change. What it does change is who bears the cost of a
+defect: a stranger who trusted the word "sanitizer," not the author who already knows the
+limitations. The consequences of that (shipped LICENSE, PyPI-safe README, a loud statement of
+the [§4](#4-non-goals) free-text gap, SECURITY.md and a disclosure path, tests green on the
+published ref, a public determinism contract) are scoped in
+[`plan-sanitizer-pypi.md` §5](plan-sanitizer-pypi.md), not here.
+
 ### Config model — hybrid {#config-model-hybrid}
 
 **Decision D-1: hybrid.** Secret patterns are **code-defined** (the non-weakenable security
@@ -636,7 +683,7 @@ with its resolution. All resolved 2026-05-29.
 | 2 | README | Sidecar: substitution dictionaries vs counts | **Redacted per-substitution detail**; secrets count-only; no original values | [D-2](#decision-d-2--redacted-sidecar) |
 | 3 | README | Jitter granularity (field/message/session) | **Deferred to v1**; designed as per-session offset | [D-3](#9b-layer-4-jitter-deferred-to-v1-but-designed) |
 | 4 | README | Validator: re-scan vs trust sidecar | **Independent re-scan**, never trust the sidecar | [D-4](#13-fixture-validator-integration) |
-| 5 | Roadmap | PyPI package vs in-repo | **In-repo only for v0** | [D-5](#packaging--in-repo-only-for-v0) |
+| 5 | Roadmap | PyPI package vs in-repo | **In-repo only for v0** — _superseded 2026-08-16 by [D-5a](#d-5-amendment): publishes to PyPI at `0.3.0`_ | [D-5](#packaging--in-repo-only-for-v0), [D-5a](#d-5-amendment) |
 | 6 | Roadmap | Secret-pattern library: copy vs dependency | **Vendor (copy)** into the sanitizer; sync-test guards drift | [D-6](#decision-d-6--vendor-the-secret-pattern-library) |
 | 7 | Review | High-risk line types (`file-history-snapshot`, `attachment`) | **Dropped wholesale in v0** via `--strip-types`; synthetic fixtures cover those surfaces | [D-7](#decision-d-7--v0-drops-high-risk-line-types) |
 
@@ -688,7 +735,9 @@ and the design is signed off.
 
 - **Jitter** (per-session offset) + **session-bundle mode** (`--session-dir`, shared seed) —
   the two are coupled (§9b).
-- **PyPI extraction** as `claude-code-sessions-sanitizer` if a standalone audience appears.
+- ~~**PyPI extraction** as `claude-code-sessions-sanitizer` if a standalone audience appears.~~
+  **Active as of 2026-08-16** — the audience appeared (CCDC, [#75](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/75)).
+  See [D-5a](#d-5-amendment) and [`plan-sanitizer-pypi.md`](plan-sanitizer-pypi.md).
 - **Interactive review mode** — surface free-text prompts/outputs for human confirmation,
   addressing the §4 free-text limitation.
 - **Content-level handling of `file-history-snapshot`** — scrub `trackedFileBackups` file
@@ -704,4 +753,5 @@ and the design is signed off.
 | Date | Change |
 |---|---|
 | 2026-05-29 | PRD created. D-1 through D-6 decided (§15). Jitter deferred to v1. |
+| 2026-08-16 | **D-5 reversed** by [D-5a](#d-5-amendment) ([#158](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/158)): the sanitizer publishes to PyPI at `0.3.0`, triggered by the CCDC contributor audience ([#75](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/75)). Rulings Q1/Q2/Q3/Q5/Q7 recorded; supported public surface declared as CLI + sidecar format, modules private. Scoping doc: [`plan-sanitizer-pypi.md`](plan-sanitizer-pypi.md). |
 | 2026-05-29 | Architect review incorporated ([issue #1 comment](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/1)): structural-traversal + strip-types spec (§6b, C-1/C-2), D-7 added, secret floor expanded to two tiers (§9, C-3), serialization pinned + rename order (§11, I-1/I-5), replacement-leak guard (§10, I-3), sync-test comparison shape (§9, I-4). |
