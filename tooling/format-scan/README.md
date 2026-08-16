@@ -5,9 +5,11 @@ walks a Claude Code projects root (default `~/.claude/projects/`) and reports th
 **shape** of the session data on disk — top-level `type` values, envelope keys
 (overall and per type), content-block types, session subdirectories, the file
 shape inside `tool-results/`, the key set of the per-subagent `meta.json`
-manifests, and the Claude Code `version` values that produced the data. With
-`--baseline` it diffs the observed taxonomy against what `reference/` already
-documents, so the delta is "undocumented drift" — the input the
+manifests, and the Claude Code `version` values that produced the data. Manifest
+shape is also bucketed **by** the version that produced it, which turns "this key
+exists somewhere" into "this key appeared at version X". With `--baseline` it
+diffs the observed taxonomy against what `reference/` already documents, so the
+delta is "undocumented drift" — the input the
 [`jsonl-format-watch`](../../.claude/skills/jsonl-format-watch/) queue wants.
 
 ## Security contract — read before editing
@@ -35,7 +37,27 @@ python3 scan.py --json --max-files 200
 # Probe tool_result contents for the tool-results/ externalization wrapper
 # (fixed-marker presence + counts only — no content emitted)
 python3 scan.py --probe-tool-results
+
+# Probe multi-level subagent layout: nested subagents/ dirs, the spawnDepth
+# histogram, and the rollup shape at each depth
+python3 scan.py --probe-nesting
 ```
+
+### Manifest shape by version
+
+The default report's `meta_json_by_version` section answers "when did this
+`meta.json` key appear, and what values did it take" — the shape most
+format-drift questions need. A manifest carries no `version` of its own, so it
+inherits the **earliest** version seen on its own sibling trace file (the
+manifest is written at spawn time). Manifests whose trace is missing or
+unversioned land in `manifests_unattributed` rather than being dropped, and
+`traces_spanning_multiple_versions` counts traces that straddle a CC upgrade, so
+both caveats stay visible in the output.
+
+Only keys on the `EMITTABLE_META_VALUE_FIELDS` whitelist contribute their
+**values** to a bucket (currently just `spawnDepth`, the runtime's own nesting
+counter). Every other key contributes a name and a count and nothing else —
+`description` and `worktreePath` carry PII and must never be printed.
 
 Every `--json` report is stamped with a top-level `scan_version` (semver) and a
 stable `tool` id (`ccs-format-scan`), so a structural profile self-describes
