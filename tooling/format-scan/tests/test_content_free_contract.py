@@ -60,6 +60,14 @@ def planted_root(tmp_path):
         subagent_traces={
             "agent-abc.jsonl": [
                 {"type": "assistant", "uuid": "s1", "isSidechain": True,
+                 "version": "2.1.226",
+                 "message": {"content": [{"type": "text", "text": S_PROMPT}]}},
+            ],
+            # A depth-2 subagent, so --probe-nesting and the per-version manifest
+            # buckets both have a populated surface to (not) leak from.
+            "agent-nested.jsonl": [
+                {"type": "assistant", "uuid": "s2", "isSidechain": True,
+                 "version": "2.1.226",
                  "message": {"content": [{"type": "text", "text": S_PROMPT}]}},
             ],
         },
@@ -69,6 +77,13 @@ def planted_root(tmp_path):
                 "description": S_PROMPT,
                 "toolUseId": S_UUID,
                 "worktreePath": S_PATH,
+                "spawnDepth": 1,
+            },
+            "agent-nested.meta.json": {
+                "agentType": "general-purpose",
+                "description": S_PROMPT,
+                "toolUseId": S_UUID + "-nested",
+                "spawnDepth": 2,
             },
         },
         tool_results={
@@ -97,6 +112,8 @@ SCAN_MODES = [
     pytest.param(["--baseline", str(BASELINE), "--json"], id="baseline-json"),
     pytest.param(["--probe-tool-results"], id="probe-tool-results"),
     pytest.param(["--probe-tool-results", "--json"], id="probe-tool-results-json"),
+    pytest.param(["--probe-nesting"], id="probe-nesting"),
+    pytest.param(["--probe-nesting", "--json"], id="probe-nesting-json"),
 ]
 
 
@@ -118,6 +135,9 @@ def test_modes_still_emit_expected_structure(planted_root, mode_args):
     assert out.strip()
     if "--probe-tool-results" in mode_args:
         assert "Preview (first" in out or "marker_counts" in out
+    elif "--probe-nesting" in mode_args:
+        # The depth histogram is content-free structure and must be present.
+        assert "spawn_depth_histogram" in out or "spawnDepth" in out
     else:
         # The meta.json key NAMES are emittable; their values are not.
         assert "agentType" in out

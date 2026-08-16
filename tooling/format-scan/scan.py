@@ -6,10 +6,13 @@ Walks a Claude Code projects root (default ~/.claude/projects/) and reports the
 envelope keys appear (overall and per type), which content-block types appear,
 which session subdirectories exist (e.g. subagents/, tool-results/), the file
 shape inside tool-results/, the key set of the per-subagent `meta.json` manifest
-sidecars, and which Claude Code `version` values produced the data. With
---baseline it diffs the observed taxonomy against a checked-in list of what
-`reference/` already documents, so the delta is "undocumented drift" — exactly
-the input the jsonl-format-watch queue wants.
+sidecars, and which Claude Code `version` values produced the data. Manifest
+shape is also bucketed *by* the Claude Code version that produced it, which is
+what turns "this key exists somewhere" into "this key appeared at version X" —
+the shape most format-drift questions actually need. With --baseline it diffs the
+observed taxonomy against a checked-in list of what `reference/` already
+documents, so the delta is "undocumented drift" — exactly the input the
+jsonl-format-watch queue wants.
 
 SECURITY CONTRACT (read before editing — see CLAUDE.md "Security posture"):
 
@@ -25,16 +28,20 @@ SECURITY CONTRACT (read before editing — see CLAUDE.md "Security posture"):
         the value itself (mirrors how keys_by_type and meta_json_keys describe
         what a key holds without revealing what it holds)
       - a COUNT, a SIZE in bytes, a file EXTENSION, or a DIRECTORY name
+      - a STRUCTURAL COUNTER value from a `meta.json` key on the
+        EMITTABLE_META_VALUE_FIELDS whitelist below — a small integer describing
+        the runtime's own nesting bookkeeping (`spawnDepth`), never user content
 
     It MUST NEVER emit a message value: no prompt text, no file contents, no
     command output, no tool inputs/results, no paths from inside the data, no
     UUIDs, no filenames-with-arbitrary-content. This bites hardest for the
     `meta.json` probe: its `description` and `worktreePath` keys carry free-text
     and filesystem-path PII, so the probe emits only those keys' NAMES, counts,
-    and value JSON-types — never their string values. The whitelist of
-    value-bearing fields is defined once in EMITTABLE_VALUE_FIELDS below; if you
-    find yourself wanting to print anything else, stop — that is a leak, and it
-    defeats the reason this scanner exists instead of `cat`.
+    and value JSON-types — never their string values. The two whitelists of
+    value-bearing fields are defined once in EMITTABLE_VALUE_FIELDS and
+    EMITTABLE_META_VALUE_FIELDS below; if you find yourself wanting to print
+    anything else, stop — that is a leak, and it defeats the reason this scanner
+    exists instead of `cat`.
 
     The block_secret_reads.py hook deliberately does NOT block Bash from reading
     ~/.claude/projects/ (so this scanner and the sanitizer CLI work). That makes
@@ -70,7 +77,7 @@ from pathlib import Path
 #
 # Bump __version__ (semver) on ANY change that alters --json output shape or
 # semantics; CCDC gates on it, so it must move when the output does.
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 TOOL_ID = "ccs-format-scan"
 
 # The ONLY message fields whose *values* may be emitted. Each is a public
@@ -81,6 +88,27 @@ TOOL_ID = "ccs-format-scan"
 # deliberately ABSENT: the probe reports their key names + value JSON-types, not
 # their values — description/worktreePath carry PII and must never be printed.
 EMITTABLE_VALUE_FIELDS = frozenset({"type", "version"})
+
+# The ONLY `meta.json` manifest keys whose *values* may be emitted, as a value
+# histogram in the per-version buckets. The bar for adding one is higher than for
+# EMITTABLE_VALUE_FIELDS above, because manifest values are where the PII lives:
+# a key qualifies only if its value space is a small, closed set the *runtime*
+# writes about its own bookkeeping, with no path through it for user content.
+#
+# `spawnDepth` qualifies: it is the subagent's nesting level, a small
+# non-negative integer capped by the runtime's own depth limit. Knowing it is 2
+# reveals nothing about what the agent was doing. `agentType` does NOT qualify
+# despite looking enum-ish — user-defined agents put arbitrary author-chosen names
+# in it. `description`, `worktreePath`, `toolUseId`, `name`, `model` do not
+# qualify. If you add a key here, bump __version__ and say so in CHANGELOG.md.
+EMITTABLE_META_VALUE_FIELDS = frozenset({"spawnDepth"})
+
+# Fixed hypothesis marker for the --probe-nesting rollup check: the inline
+# per-subagent token trailer that the Agent tool_result carries in place of a
+# `toolUseResult` rollup sibling in some runtimes (see F-017). As with
+# PERSISTED_MARKERS, this is a string WE supply, so testing for it leaks nothing —
+# the probe reports only whether it was present, never the text around it.
+SUBAGENT_TOKENS_MARKER = "subagent_tokens"
 
 
 def json_type(value) -> str:
@@ -106,6 +134,23 @@ def json_type(value) -> str:
     if isinstance(value, dict):
         return "dict"
     return "<unknown>"
+
+
+def version_sort_key(version: str) -> tuple:
+    """Order a Claude Code `version` string numerically, not lexically.
+
+    "2.1.99" must sort before "2.1.150"; plain string sort gets that backwards,
+    which would silently scramble every per-version table. Non-numeric segments
+    sort after numeric ones at the same position, and an unparseable version
+    still gets a total order (it lands at the end) rather than raising.
+    """
+    parts = []
+    for seg in str(version).split("."):
+        if seg.isdigit():
+            parts.append((0, int(seg), ""))
+        else:
+            parts.append((1, 0, seg))
+    return tuple(parts)
 
 # --probe-tool-results hypothesis markers. The probe reports only how many
 # tool_result contents CONTAIN each of these fixed strings (presence + count) —
@@ -164,6 +209,17 @@ class Observation:
         self.meta_json_parse_errors = 0
         self.meta_json_keys: Counter[str] = Counter()
         self.meta_json_key_types: defaultdict[str, Counter[str]] = defaultdict(Counter)
+        # Manifest shape bucketed by the CC version that produced it. Populated in
+        # two passes: scan() records the versions seen on each subagent trace file
+        # (keyed by that file's path), then _ingest_subagent_meta() attributes each
+        # manifest to its own trace's version. See _attribute_version() for why the
+        # *earliest* version on the trace is the right bucket.
+        self.trace_versions: dict[str, set[str]] = {}
+        self.meta_by_version: defaultdict[str, dict] = defaultdict(
+            lambda: {"manifests": 0, "keys": Counter(), "values": defaultdict(Counter)}
+        )
+        self.meta_manifests_unattributed = 0
+        self.traces_spanning_multiple_versions = 0
 
     # --- line-level ingestion -------------------------------------------------
 
@@ -255,6 +311,39 @@ class Observation:
             for key, value in manifest.items():
                 self.meta_json_keys[key] += 1
                 self.meta_json_key_types[key][json_type(value)] += 1
+            self._ingest_meta_by_version(f, manifest)
+
+    def _attribute_version(self, meta_path: Path) -> str | None:
+        """Which CC version produced this manifest, from its own trace file.
+
+        A manifest has no `version` of its own, so it inherits the version from
+        the sibling `<agent-id>.jsonl` trace it describes. When a trace spans a CC
+        upgrade we take the EARLIEST version on it: the manifest is written when
+        the subagent is spawned, so the spawn-time version is the one whose
+        behavior the manifest's shape reflects. Multi-version traces are counted
+        so the caveat stays visible in the report rather than being smoothed away.
+        """
+        trace = meta_path.with_name(meta_path.name[: -len(".meta.json")] + ".jsonl")
+        versions = self.trace_versions.get(str(trace))
+        if not versions:
+            return None
+        if len(versions) > 1:
+            self.traces_spanning_multiple_versions += 1
+        return min(versions, key=version_sort_key)
+
+    def _ingest_meta_by_version(self, meta_path: Path, manifest: dict) -> None:
+        version = self._attribute_version(meta_path)
+        if version is None:
+            self.meta_manifests_unattributed += 1
+            return
+        bucket = self.meta_by_version[version]
+        bucket["manifests"] += 1
+        for key, value in manifest.items():
+            bucket["keys"][key] += 1
+            # Values only for the tightly-scoped structural-counter whitelist —
+            # everything else contributes its key name and nothing more.
+            if key in EMITTABLE_META_VALUE_FIELDS:
+                bucket["values"][key][str(value)] += 1
 
 
 def scan(root: Path, obs: Observation, max_files: int | None = None) -> None:
@@ -267,6 +356,10 @@ def scan(root: Path, obs: Observation, max_files: int | None = None) -> None:
         if max_files is not None and obs.files_scanned >= max_files:
             break
         obs.files_scanned += 1
+        # A subagent trace is the version anchor for its meta.json sidecar, which
+        # carries no version of its own. Collect per-file so pass 2 can attribute.
+        is_trace = jsonl_path.parent.name == "subagents"
+        file_versions: set[str] = set()
         try:
             with jsonl_path.open("r", encoding="utf-8", errors="replace") as fh:
                 for raw in fh:
@@ -279,8 +372,14 @@ def scan(root: Path, obs: Observation, max_files: int | None = None) -> None:
                         obs.parse_errors += 1
                         continue
                     obs.ingest_line(obj)
+                    if is_trace and isinstance(obj, dict):
+                        v = obj.get("version")
+                        if isinstance(v, str):
+                            file_versions.add(v)
         except OSError:
             continue
+        if is_trace and file_versions:
+            obs.trace_versions[str(jsonl_path)] = file_versions
 
     # 2) Inventory <session-uuid>/ directories for subdir shape. A session dir
     #    is a directory whose name matches a sibling "<name>.jsonl" parent file.
@@ -406,6 +505,140 @@ def probe_tool_results(root: Path, max_files: int | None = None) -> dict:
     }
 
 
+# --- nesting probe -----------------------------------------------------------
+
+
+def _iter_session_dirs(root: Path):
+    """Yield each `<slug>/<session-uuid>/` directory (one with a sibling .jsonl)."""
+    if not root.is_dir():
+        return
+    for slug_dir in sorted(root.iterdir()):
+        if not slug_dir.is_dir():
+            continue
+        for child in sorted(slug_dir.iterdir()):
+            if child.is_dir() and (slug_dir / f"{child.name}.jsonl").exists():
+                yield child
+
+
+def probe_nesting(root: Path, max_files: int | None = None) -> dict:
+    """Answer the multi-level-subagent layout questions from observation (#169).
+
+    Three things the per-version manifest table can't tell you on its own:
+
+      1. Is the `subagents/` layout still FLAT once subagents spawn subagents, or
+         does a depth-2 trace land in `subagents/<parent>/subagents/`? Counted
+         directly as nested `subagents/` directories.
+      2. At depth >= 2, does the spawning `Agent` tool_result still carry a
+         `toolUseResult` rollup sibling, or only an inline `subagent_tokens`
+         trailer (the SDK behavior in F-017)? Cost attribution depends on this.
+      3. Where does the spawning tool_result LIVE — in the parent session
+         transcript, or inside the depth-1 subagent's own trace file? That is what
+         a parser has to walk to rebuild the tree.
+
+    Depth-1 manifests are probed the same way as a control, so "depth >= 2 behaves
+    differently" is a measured contrast and not an assumption. Content-free: the
+    probe emits counts, the fixed SUBAGENT_TOKENS_MARKER's presence, and the
+    structural container label — never the tool_result text or any id.
+    """
+    nested_dirs = 0
+    session_dirs = 0
+    for session_dir in _iter_session_dirs(root):
+        session_dirs += 1
+        subagents = session_dir / "subagents"
+        if subagents.is_dir():
+            # Any `subagents/` dir below the session's own one means the layout
+            # is not flat. rglob covers arbitrary nesting depth, not just one level.
+            nested_dirs += sum(1 for d in subagents.rglob("subagents") if d.is_dir())
+
+    # toolUseId -> spawnDepth, for every manifest that carries both. The id is used
+    # ONLY as a join key here; it is never emitted.
+    targets: dict[str, int] = {}
+    depth_histogram: Counter[str] = Counter()
+    manifests = 0
+    for session_dir in _iter_session_dirs(root):
+        for meta in sorted((session_dir / "subagents").glob("*.meta.json")):
+            try:
+                with meta.open("r", encoding="utf-8", errors="replace") as fh:
+                    manifest = json.load(fh)
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(manifest, dict):
+                continue
+            manifests += 1
+            depth = manifest.get("spawnDepth")
+            depth_histogram[str(depth) if isinstance(depth, int) else "<absent>"] += 1
+            tuid = manifest.get("toolUseId")
+            if isinstance(depth, int) and isinstance(tuid, str):
+                targets[tuid] = depth
+
+    # One pass over every transcript, joining tool_result blocks to the target ids.
+    # Bucketed by the spawned agent's depth, so depth 1 reads as the control row.
+    by_depth: defaultdict[str, Counter[str]] = defaultdict(Counter)
+    matched: set[str] = set()
+    files = 0
+    for jsonl_path in sorted(root.rglob("*.jsonl")):
+        if max_files is not None and files >= max_files:
+            break
+        files += 1
+        container = "subagent-trace" if jsonl_path.parent.name == "subagents" else "parent-session"
+        try:
+            with jsonl_path.open("r", encoding="utf-8", errors="replace") as fh:
+                for raw in fh:
+                    raw = raw.strip()
+                    if not raw:
+                        continue
+                    try:
+                        obj = json.loads(raw)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(obj, dict):
+                        continue
+                    msg = obj.get("message")
+                    content = msg.get("content") if isinstance(msg, dict) else None
+                    if not isinstance(content, list):
+                        continue
+                    for block in content:
+                        if not isinstance(block, dict) or block.get("type") != "tool_result":
+                            continue
+                        tuid = block.get("tool_use_id")
+                        depth = targets.get(tuid) if isinstance(tuid, str) else None
+                        if depth is None:
+                            continue
+                        matched.add(tuid)
+                        row = by_depth[str(depth)]
+                        row["spawn_sites"] += 1
+                        row[f"container:{container}"] += 1
+                        row[
+                            "has_toolUseResult_sibling"
+                            if "toolUseResult" in obj
+                            else "no_toolUseResult_sibling"
+                        ] += 1
+                        text = block.get("content")
+                        if isinstance(text, list):
+                            text = " ".join(
+                                p.get("text", "") for p in text if isinstance(p, dict)
+                            )
+                        if isinstance(text, str) and SUBAGENT_TOKENS_MARKER in text:
+                            row["has_subagent_tokens_trailer"] += 1
+        except OSError:
+            continue
+
+    return {
+        "session_dirs": session_dirs,
+        "nested_subagent_dirs": nested_dirs,
+        "manifests": manifests,
+        "spawn_depth_histogram": dict(
+            sorted(depth_histogram.items(), key=lambda kv: version_sort_key(kv[0]))
+        ),
+        "joinable_manifests": len(targets),
+        "spawn_sites_located": len(matched),
+        "spawn_sites_not_located": len(targets) - len(matched),
+        "by_spawn_depth": {
+            d: dict(sorted(c.items())) for d, c in sorted(by_depth.items(), key=lambda kv: version_sort_key(kv[0]))
+        },
+    }
+
+
 # --- reporting ---------------------------------------------------------------
 
 
@@ -450,6 +683,28 @@ def build_report(obs: Observation, diff: dict | None) -> dict:
             "keys": dict(obs.meta_json_keys.most_common()),
             "key_types": {
                 k: dict(c.most_common()) for k, c in sorted(obs.meta_json_key_types.items())
+            },
+        },
+        "meta_json_by_version": {
+            "attribution": (
+                "earliest `version` observed on the subagent's own trace file "
+                "(spawn time); manifests carry no version of their own"
+            ),
+            "manifests_attributed": sum(
+                b["manifests"] for b in obs.meta_by_version.values()
+            ),
+            "manifests_unattributed": obs.meta_manifests_unattributed,
+            "traces_spanning_multiple_versions": obs.traces_spanning_multiple_versions,
+            "versions": {
+                v: {
+                    "manifests": b["manifests"],
+                    "keys": dict(b["keys"].most_common()),
+                    "values": {
+                        k: dict(sorted(c.items(), key=lambda kv: version_sort_key(kv[0])))
+                        for k, c in sorted(b["values"].items())
+                    },
+                }
+                for v, b in sorted(obs.meta_by_version.items(), key=lambda kv: version_sort_key(kv[0]))
             },
         },
         "versions": dict(obs.versions.most_common()),
@@ -504,6 +759,31 @@ def print_human(report: dict) -> None:
     else:
         print("_no subagents/*.meta.json manifests observed_\n")
 
+    mv = report["meta_json_by_version"]
+    print("## subagents/ meta.json manifest shape by Claude Code version\n")
+    if mv["versions"]:
+        print(
+            f"_{mv['manifests_attributed']} manifest(s) attributed, "
+            f"{mv['manifests_unattributed']} unattributed (no version on the trace); "
+            f"{mv['traces_spanning_multiple_versions']} trace(s) span more than one "
+            f"version. Attribution: {mv['attribution']}._\n"
+        )
+        print("| version | manifests | keys present | whitelisted values |")
+        print("| --- | --- | --- | --- |")
+        for v, b in mv["versions"].items():
+            keys = ", ".join(f"{k}×{n}" for k, n in b["keys"].items()) or "—"
+            vals = (
+                "; ".join(
+                    f"{k}=" + ",".join(f"{val}×{n}" for val, n in counts.items())
+                    for k, counts in b["values"].items()
+                )
+                or "—"
+            )
+            print(f"| `{v}` | {b['manifests']} | {keys} | {vals} |")
+        print()
+    else:
+        print("_no manifests could be attributed to a version_\n")
+
     table("Claude Code `version` values", report["versions"], "lines")
 
     if report["baseline_diff"] is not None:
@@ -544,7 +824,42 @@ def main(argv: list[str] | None = None) -> int:
         help="probe tool_result contents for the tool-results/ externalization wrapper "
         "(fixed-marker presence + counts only — no content emitted)",
     )
+    parser.add_argument(
+        "--probe-nesting",
+        action="store_true",
+        help="probe multi-level subagent layout: nested subagents/ dirs, spawnDepth "
+        "histogram, and whether the spawning Agent tool_result carries a "
+        "toolUseResult rollup at each depth (counts only — no content emitted)",
+    )
     args = parser.parse_args(argv)
+
+    if args.probe_nesting:
+        result = probe_nesting(args.root, max_files=args.max_files)
+        if args.json:
+            print(json.dumps(result, indent=2, sort_keys=True))
+        else:
+            print("# multi-level subagent nesting probe\n")
+            print(
+                f"{result['session_dirs']} session dir(s), {result['manifests']} manifest(s). "
+                f"**Nested `subagents/` directories: {result['nested_subagent_dirs']}** "
+                f"(0 == the layout is flat at every observed depth).\n"
+            )
+            print("## `spawnDepth` histogram\n")
+            for d, n in result["spawn_depth_histogram"].items():
+                print(f"- depth `{d}` — {n} manifests")
+            print(
+                f"\n## Spawn-site rollup shape\n\n"
+                f"_{result['spawn_sites_located']} of {result['joinable_manifests']} "
+                f"joinable manifests located their spawning tool_result "
+                f"({result['spawn_sites_not_located']} not located)._\n"
+            )
+            if result["by_spawn_depth"]:
+                for d, row in result["by_spawn_depth"].items():
+                    print(f"- depth `{d}`: " + ", ".join(f"{k}={v}" for k, v in row.items()))
+            else:
+                print("_no spawn sites located_")
+            print()
+        return 0
 
     if args.probe_tool_results:
         result = probe_tool_results(args.root, max_files=args.max_files)

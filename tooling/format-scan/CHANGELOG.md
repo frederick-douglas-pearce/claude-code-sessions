@@ -39,6 +39,41 @@ Use semver: `MAJOR.MINOR.PATCH`.
   consumer reading the prior shape. Reserve `1.0.0` for the point at which the
   `--json` shape is declared stable.
 
+## [0.2.0] — manifest shape by Claude Code version, and a nesting probe
+
+Added for issue #169, which needed to settle "what subagent spawn depth did the
+runtime actually reach, at which Claude Code version" from observation rather
+than from a self-contradicting CHANGELOG.
+
+- **New top-level report key `meta_json_by_version`.** Buckets `meta.json`
+  manifest shape by the Claude Code version that produced it. Each bucket carries
+  the manifest count, the per-key presence counts, and a value histogram for keys
+  on the new `EMITTABLE_META_VALUE_FIELDS` whitelist. Versions are ordered
+  numerically. This is the reusable half of the change: any "when did this
+  manifest key appear" question now reads straight off the table.
+
+  A manifest carries no version of its own, so it inherits the **earliest**
+  version observed on its own sibling trace file — the manifest is written at
+  spawn time. Manifests whose trace is missing or unversioned are counted in
+  `manifests_unattributed` rather than dropped, and traces spanning a CC upgrade
+  are counted in `traces_spanning_multiple_versions`.
+
+- **New `EMITTABLE_META_VALUE_FIELDS` whitelist**, currently `{"spawnDepth"}`.
+  This is the first time any `meta.json` *value* is emitted, so the bar is
+  deliberately higher than for `EMITTABLE_VALUE_FIELDS`: a key qualifies only if
+  its value space is a small closed set the runtime writes about its own
+  bookkeeping, with no path through it for user content. Adding a key here is an
+  output-affecting change and requires a bump.
+
+- **New `--probe-nesting` mode** (own output shape, like `--probe-tool-results`).
+  Counts nested `subagents/` directories, histograms `spawnDepth`, and joins each
+  manifest's `toolUseId` to its spawning `Agent` `tool_result` to report — per
+  depth — whether that line carries a `toolUseResult` rollup sibling, whether it
+  carries the inline `subagent_tokens` trailer, and which file holds it.
+  Unlocatable spawn sites are counted so the denominator stays honest.
+
+No existing key changed shape, so this is a `MINOR` bump.
+
 ## [0.1.0] — first stamped version
 
 First build to carry a `scan_version`. Nothing earlier was ever versioned or
