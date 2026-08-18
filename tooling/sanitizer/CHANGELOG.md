@@ -26,17 +26,86 @@ version. Downstream consumers (the fixture-validator, sibling projects) gate
 on the sidecar's `sanitizer_version`. If the bytes change without the version,
 the contract is meaningless.
 
-Use semver: `MAJOR.MINOR.PATCH`.
+Versions are semver, `MAJOR.MINOR.PATCH`. **What each level promises to a
+consumer is stated once, publicly, in the README's
+[Stability and the determinism contract](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/sanitizer/README.md#stability-and-the-determinism-contract).**
+That section is the authority; this file does not restate the level
+definitions, so the two cannot drift. What lives here is the maintainer-facing
+trigger list above: whether a given change requires a bump at all.
 
-- `PATCH` — bug fix that changes which inputs match a rule (no rule added or
-  removed; no config-surface change).
-- `MINOR` — new rule, new pattern, new CLI flag, new sidecar field. Backward
-  compatible at the config-surface level.
-- `MAJOR` — sidecar format change, config schema break, removal of a built-in
-  pattern, or any change requiring re-running the sanitizer on previously
-  scrubbed sessions.
+Releases are tagged `sanitizer-v<version>` (component-scoped, not a bare `v*`:
+this is a monorepo and a bare tag filter would fire the publish workflow on
+unrelated tags).
 
 ## [Unreleased]
+
+_Nothing yet._
+
+## [0.3.0] — 2026-08-17
+
+**First public release.** Everything below has been accumulating unreleased
+since `0.1.0`; the interim `0.2.0` was an in-tree bump that was never
+published, so `0.3.0` is the first version a `pip install` can produce
+(ruling Q2, [PRD D-5a](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/.claude/specs/prd-sanitizer.md#d-5-amendment)).
+Tagged `sanitizer-v0.3.0`.
+
+### Added (issue #160 — first public version and the determinism contract)
+- **`sidecar_schema_version: 1`** is emitted as the first field of every
+  `.scrubbed` sidecar (Q9, ruled 2026-08-17). It versions the sidecar *shape*
+  only: fields added, removed, renamed, or retyped. `sanitizer_version`
+  continues to key the byte-level determinism contract. The asymmetry is what
+  forced the decision now rather than later: added at `0.3.0`, every
+  public-era sidecar carries it; added at `0.4.0`, consumers handle its
+  absence forever. PRD §9b jitter, which turns the `jitter` scalar into a
+  structured value, is the first expected consumer of a bump to `2`.
+  A new sanitizer version does **not** imply a new schema version.
+- **"Stability and the determinism contract"** section in the README, stating
+  in quotable form what PATCH / MINOR / MAJOR promise about output bytes, that
+  byte-stability holds only *within* a version so consumers must record the
+  `sanitizer_version` they scrubbed under, that byte-identity holds across the
+  supported Python versions (3.11, 3.12, 3.13), that a scrubbed artifact stays
+  pinned to the version that produced it and re-scrubbing after a MAJOR bump is
+  a deliberate manual act, and that yanks are for security only. It also notes,
+  for the future fixture-validator (PRD §13 / D-4), that "a recognized
+  `sanitizer_version`" has to mean a maintained allowlist of historical
+  versions rather than "the current one."
+- **Tagging convention decided:** `sanitizer-v<version>`. Component-scoped
+  because this monorepo also holds posts, reference docs, and two other tools;
+  a bare `v*` filter in the release workflow (#163) would fire the PyPI publish
+  job on any future repo-level or Pages tag.
+- The bump policy in this file's head no longer restates the semver level
+  definitions. It defers to the README section, so there is one authority.
+- Sidecar field order changed (a new leading field), which is a sidecar shape
+  change and therefore byte-affecting for the sidecar. It is carried by this
+  release's MINOR bump rather than a MAJOR because no existing field changed
+  name, type, or meaning, and `0.3.0` is the first version any external
+  consumer can have gated on.
+
+### Added (issue #161 — SECURITY.md and the limitation notice)
+- **`SECURITY.md`** at the repository root: private disclosure through GitHub
+  Security Advisories (private reporting enabled on the repo), an explicit
+  request not to open a public issue for a scrubbing bypass, what is worth
+  reporting versus what is a documented limitation, what to include (and the
+  instruction not to attach real session data to a report), the
+  supported-version policy, and the response play: fix, publish, **yank rather
+  than delete** the affected version so it stays installable by exact pin for
+  forensics, publish an advisory, and state the re-scrub obligation. SECURITY.md
+  owns version lifecycle; the README owns the determinism contract; each links
+  the other.
+- **A limitation notice at the top of the README**, ahead of everything else,
+  written for someone who has never seen this repo: the tool *reduces*
+  disclosure risk and does **not** guarantee zero leakage; free-text prompts and
+  tool output are not scrubbed for arbitrary PII; human review of the
+  `.scrubbed` sidecar is still required before publishing. It renders at the top
+  of the PyPI project page, which is the first thing a stranger evaluating a
+  tool named "sanitizer" reads. Links to PRD §4 for the full statement.
+- The notice also records a behavior the PRD §12b sidecar-safety claim did not
+  cover for external users: **a custom `-c` config basename is written verbatim**
+  into `config_source`. `acme-prod.yaml` or `jsmith-laptop.yaml` lands in the
+  artifact the docs call safe to commit, and the emit-time leak guard cannot
+  catch it because the string is not in the user's match list. Documented as
+  fixed behavior with the guidance to name configs generically. No placeholder
+  or hashing scheme at `0.3.0`; engineering around it would be disproportionate.
 
 ### Changed (issue #159 — packaging made PyPI-correct)
 - **PEP 639 license metadata.** `license = { text = "MIT" }` becomes the SPDX

@@ -13,6 +13,18 @@ the output path, writing the temp file, and performing the atomic rename
 ordering documented in PRD section 11 (sidecar-first-then-output) -- all
 of which would force a refactor here if this module also did I/O.
 
+**Sidecar schema version (Q9, ruled 2026-08-17).** The payload leads with
+``sidecar_schema_version``, an integer that versions the *shape* of this
+document and nothing else. ``sanitizer_version`` keys the byte-level
+determinism contract ("same input + same config -> byte-identical
+output", which holds only within a sanitizer version); the schema version
+lets a consumer branch on the sidecar layout without maintaining a table
+mapping every sanitizer release to a shape. It is bumped only when a
+field is added, removed, renamed, or changes type -- PRD section 9b
+jitter, which turns the ``jitter`` scalar into a structured value, is the
+first expected consumer of a bump to ``2``. A new sanitizer version does
+NOT imply a new schema version.
+
 **I-3 emit-time leak guard.** The config loader's ``_check_replacement_leak``
 already guarantees that no user ``replace`` value matches any other rule
 or any built-in / extra secret pattern (PRD section 10, I-3). The sidecar
@@ -53,6 +65,11 @@ from .config import Config
 from .pipeline import PipelineCounts
 from .rules.secrets import SecretCounts, iter_all_secret_patterns
 from .subtable import SubstitutionTable
+
+#: Version of the ``.scrubbed`` sidecar *shape* (Q9, PRD section 10).
+#: Bump only when a field is added, removed, renamed, or changes type --
+#: never merely because ``__version__`` moved.
+SIDECAR_SCHEMA_VERSION = 1
 
 # One registry per label co-locates (rule_layer, placeholder_template). A
 # template containing ``{idx}`` is indexed (counter restarts per rule_layer);
@@ -224,6 +241,7 @@ def build_sidecar(
     # Ordered dict so the rendered YAML matches PRD section 10's field order
     # one-for-one. ``sort_keys=False`` in ``yaml.safe_dump`` preserves it.
     payload: dict[str, Any] = {
+        "sidecar_schema_version": SIDECAR_SCHEMA_VERSION,
         "sanitizer_version": __version__,
         "scrubbed_at": metadata.scrubbed_at,
         "input_filename": metadata.input_filename,

@@ -1,11 +1,11 @@
 # PRD — Session JSONL Sanitizer (`ccs-sanitize`)
 
-**Status:** v0 implemented and in use (`ccs-sanitize` v0.2.0). This PRD remains the canonical design and is kept current; where it differs from the package READMEs, the PRD wins.
+**Status:** v0 implemented and in use (`ccs-sanitize` v0.3.0, the first public release). This PRD remains the canonical design and is kept current; where it differs from the package READMEs, the PRD wins.
 **Owner:** Fred Pearce
 **Roadmap item:** [W2 — Sanitizer design + v0 implementation](roadmap-v0.md#w2--sanitizer-design--v0-implementation)
 **Tracking issue:** [#1 — Epic: Sanitizer design + v0 implementation](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/1)
 **Created:** 2026-05-29
-**Last updated:** 2026-08-16 (D-5 reversed by [D-5a](#d-5-amendment): publishes to PyPI)
+**Last updated:** 2026-08-17 (ruling Q9: `sidecar_schema_version` at `0.3.0`; §13 validator note)
 
 > This PRD is deliberately verbose. Per the epic, we are early-stage and want the
 > design rationale, the alternatives considered, and the decision history recorded
@@ -379,6 +379,7 @@ scrubbed, in a file sitting right next to the "safe" output. Rejected.
 Final format:
 
 ```yaml
+sidecar_schema_version: 1                         # shape of THIS document (Q9); independent of the tool version
 sanitizer_version: 0.1.0
 scrubbed_at: 2026-05-29T18:30:00Z
 input_filename: real-subagent-trace.jsonl       # basename only, never the full path
@@ -403,6 +404,16 @@ residual_scan: clean                              # post-scrub secret re-scan re
 
 Notes:
 
+- `sidecar_schema_version` (added at `0.3.0`, ruling Q9) versions the **shape** of the sidecar
+  and nothing else: a field added, removed, renamed, or retyped. `sanitizer_version` continues
+  to key the byte-level determinism contract ("same input + same config → byte-identical
+  output", which holds only *within* a version). The two are independent: a new sanitizer
+  version does not imply a new schema version. Without it, every consumer would have to
+  maintain a table mapping sanitizer releases to sidecar shapes. [§9b](#9b-layer-4-jitter-deferred-to-v1-but-designed)
+  jitter, which turns the `jitter` scalar into a structured value, is the first expected
+  consumer of a bump to `2`. The public statement of both contracts lives in the sanitizer
+  README's "Stability and the determinism contract" section, which is the authority for what
+  each version bump promises.
 - `input_sha256` is a one-way hash of the *raw* input — it aids traceability and dedup and is
   safe (not reversible). It resolves the README's ambiguous "input_hash ... not stored" note:
   the raw input is not stored; its hash is.
@@ -508,6 +519,7 @@ rather than as conversation:
 | Q3 | Distribution name? | Keep **`claude-code-sessions-sanitizer`** (descriptive, namespaced, searchable); the console script stays `ccs-sanitize`. Reserve `ccs-sanitize` on PyPI defensively, as an inert placeholder that installs no console script. |
 | Q5 | Force the vendored secret-pattern dedup before publishing? | **Defer.** Only the sanitizer's copy ships; `test_secret_patterns_in_sync.py` keeps it element-wise identical to the hook copy, so the artifact cannot silently drift below the hook's floor. [§17](#17-future-work-v1) stands as future work, not a publish blocker. |
 | Q7 | Upload credential? | **PyPI Trusted Publishing (OIDC).** No long-lived API token at rest. A leaked token would let an attacker publish a poisoned sanitizer, and every user of that release is by definition handling raw session data. |
+| Q9 | Should the sidecar carry a `sidecar_schema_version` independent of `sanitizer_version`? | **Yes. `sidecar_schema_version: 1` ships at `0.3.0`** (ruled 2026-08-17, [#160](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/160)). The asymmetry decides it: added now, every public-era sidecar carries it; added at `0.4.0`, consumers handle its absence forever. It versions the sidecar *shape* only; `sanitizer_version` still keys byte-level determinism. See [§10](#10-the-scrubbed-sidecar). |
 
 **Supported public surface at `0.3.0`.** The **CLI** and the **`.scrubbed` sidecar format**
 ([§10](#10-the-scrubbed-sidecar)) are the supported contract. The module surface
@@ -627,6 +639,13 @@ When [`tooling/fixture-validator/`](../../tooling/fixture-validator/README.md) c
 in `fixtures/sanitized/`, it:
 
 1. Confirms a `.scrubbed` sidecar exists and its `sanitizer_version` is recognized.
+   **"Recognized" must mean a maintained allowlist of historical versions, not "the current
+   one."** A sanitized artifact stays pinned to the version that produced it, determinism only
+   holds within a version, and re-scrubbing after a MAJOR bump is a deliberate manual act.
+   Publishing to PyPI ([D-5a](#d-5-amendment)) accelerates release churn, so a validator that
+   accepts only the newest version would start rejecting valid archived fixtures almost
+   immediately. The validator should also read `sidecar_schema_version` to pick the shape it
+   validates against, rather than inferring the shape from `sanitizer_version`.
 2. **Independently re-runs the secret-pattern scan** over the fixture contents.
 3. Optionally verifies `input_sha256` shape and required sidecar keys.
 
@@ -756,5 +775,6 @@ and the design is signed off.
 | Date | Change |
 |---|---|
 | 2026-05-29 | PRD created. D-1 through D-6 decided (§15). Jitter deferred to v1. |
+| 2026-08-17 | Ruling **Q9** recorded ([#160](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/160)): the sidecar carries `sidecar_schema_version: 1` from `0.3.0`, versioning the sidecar shape independently of the tool version ([§10](#10-the-scrubbed-sidecar)). `0.3.0` cut as the first public release, with the determinism contract and the version-lifecycle / disclosure policy published in the sanitizer README and `SECURITY.md` respectively ([#161](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/161)). Release tags are component-scoped: `sanitizer-v<version>`. |
 | 2026-08-16 | **D-5 reversed** by [D-5a](#d-5-amendment) ([#158](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/158)): the sanitizer publishes to PyPI at `0.3.0`, triggered by the CCDC contributor audience ([#75](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/75)). Rulings Q1/Q2/Q3/Q5/Q7 recorded; supported public surface declared as CLI + sidecar format, modules private. Scoping doc: [`plan-sanitizer-pypi.md`](plan-sanitizer-pypi.md). |
 | 2026-05-29 | Architect review incorporated ([issue #1 comment](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/1)): structural-traversal + strip-types spec (§6b, C-1/C-2), D-7 added, secret floor expanded to two tiers (§9, C-3), serialization pinned + rename order (§11, I-1/I-5), replacement-leak guard (§10, I-3), sync-test comparison shape (§9, I-4). |

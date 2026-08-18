@@ -98,12 +98,18 @@ Workflow for PR-required changes:
 - Open PRs with the sections in [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md): Summary, Test plan, **Security review**, Breaking changes.
 - **CI is being wired incrementally.** Live workflows (`.github/workflows/`): Prettier (posts), OG card guard, and Pages sync. Still pending: the fixture validator and a hook-test runner — until those land, the data-safety and hook gates are review-enforced, not automated. Run the relevant local checks first — e.g. `python3 .claude/hooks/tests/test_hooks.py` for hook changes, and the `pytest` suites under `tooling/sanitizer/` and `tooling/format-scan/` for tooling changes.
 
+### Release tags
+
+Release tags are **component-scoped**, never a bare `v*`: the sanitizer releases as `sanitizer-v<version>` (e.g. `sanitizer-v0.3.0`). This is a monorepo holding posts, reference docs, and three tools, so a bare `v0.3.0` is ambiguous and a `v*` filter in the PyPI release workflow (#163) would fire the publish job on an unrelated repo-level or Pages tag. Any future component that publishes gets its own prefix.
+
 ### Security gate (repo-specific)
 
 Because this repo documents a format that can carry secrets, every PR — and every direct content commit — must confirm:
 
 - **No raw session JSONL committed:** only synthetic fixtures, or sanitized fixtures with a `.scrubbed` sidecar.
 - **No secrets** in fixtures, posts, or examples. The `.claude/hooks/` guards cover live working sessions, not committed diffs — this is the diff-level backstop.
+
+Vulnerability reports go to [`SECURITY.md`](SECURITY.md), which owns the disclosure path (private GitHub Security Advisories, never a public issue for a scrubbing bypass), the supported-version policy, and the yank-not-delete response play. The sanitizer README owns the complementary half: the determinism contract and what each version bump promises. Each cross-links the other; do not restate one in the other.
 
 Commit messages follow the Commit conventions above.
 

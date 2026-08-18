@@ -2,6 +2,29 @@
 
 CLI tool that scrubs raw Claude Code session JSONL files for safe publication.
 
+> ### Read this before you trust it
+>
+> **This tool reduces the risk of disclosure. It does not guarantee zero leakage.**
+>
+> - It catches **structured** leaks: filesystem paths, the identifiers you configure
+>   (name, email, usernames, hostnames, project slugs), and secrets that match a known
+>   pattern library.
+> - It does **not** read prose. **Free-text prompts and tool output are not scrubbed for
+>   arbitrary PII.** "My name is Jane and I work at AcmeCorp", typed into a prompt, comes
+>   through the sanitizer untouched, because no rule describes it.
+> - **Human review is still required.** Read the `.scrubbed` sidecar, and read the scrubbed
+>   file, before publishing anything. The sidecar exists to make that review possible, not
+>   to replace it.
+> - If you point `-c` at a config of your own, **its filename is recorded verbatim** in the
+>   sidecar (`config_source`, basename only). `acme-prod.yaml` or `jsmith-laptop.yaml` puts
+>   your employer or your name into the one file the docs call safe to commit, and no rule
+>   will catch it, because it is not in your match list. Name config files generically.
+>
+> The full statement of this limitation is [PRD §4](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/.claude/specs/prd-sanitizer.md#4-non-goals).
+> To report a scrubbing hole, use the private channel in
+> [SECURITY.md](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/SECURITY.md),
+> not a public issue.
+
 **Status:** Implemented and in use. All transform layers (path → identifier → secret-pattern, with the statistical-jitter stub) ship behind the `ccs-sanitize` CLI, covered by the `pytest` suite under [`tests/`](https://github.com/frederick-douglas-pearce/claude-code-sessions/tree/main/tooling/sanitizer/tests). See [`CHANGELOG.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/sanitizer/CHANGELOG.md) for release history and the current version.
 
 **Design:** [`prd-sanitizer.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/.claude/specs/prd-sanitizer.md) is the canonical
@@ -79,6 +102,7 @@ not a second copy of the data: it names the *kind* of thing that changed and how
 and never records an original value. Secrets contribute a count only.
 
 ```yaml
+sidecar_schema_version: 1 # the shape of THIS document; see the stability section below
 sanitizer_version: <version> # the version that produced this file; consumers gate on it
 scrubbed_at: 2026-05-31T18:30:00Z
 input_filename: real-subagent-trace.jsonl # basename only, never the full path
@@ -101,6 +125,93 @@ residual_scan: clean # post-scrub re-scan; a file that is not clean is never wri
 ```
 
 The field-level contract is [PRD §10](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/.claude/specs/prd-sanitizer.md#10-the-scrubbed-sidecar).
+
+## Stability and the determinism contract
+
+**The promise: the same input, scrubbed with the same config under the same sanitizer
+version, produces byte-identical output.** That is what makes a scrubbed artifact
+reviewable and re-checkable: anyone can re-run the scrub and diff. The sidecar is
+identical too, apart from `scrubbed_at`, which is a wall-clock timestamp.
+
+**The promise holds only *within* a sanitizer version.** A different version may legally
+produce different bytes from the same input. That is the whole reason the version is
+stamped into every sidecar.
+
+> **If you consume scrubbed artifacts, record the `sanitizer_version` you scrubbed under
+> and compare against that.** Assuming byte-stability across versions does not raise an
+> error. It silently gives you a wrong answer, which is the worst failure shape available.
+
+Byte-identity also holds **across supported Python versions**, currently **3.11, 3.12,
+and 3.13** (the `requires-python` floor is 3.11). Scrubbing on one and validating on
+another is a supported workflow. The golden-fixture assertion that pins this across the
+CI matrix lands with
+[#162](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/162).
+
+### What each bump level means for your bytes
+
+Versions are semver, `MAJOR.MINOR.PATCH`. Read them as statements about output bytes:
+
+| Bump | What changed | What it means for you |
+|---|---|---|
+| **PATCH** | A bug fix that changes which inputs a rule matches. No rule added or removed, no config-surface change. | Output bytes may differ from the previous version on affected inputs. Re-scrub if you need the fix. |
+| **MINOR** | A new rule, a new pattern, a new CLI flag, or an *additive* sidecar field. Backward compatible at the config surface. | Your existing config keeps working. Output may scrub *more* than before. A consumer that ignores unknown sidecar keys is unaffected. |
+| **MAJOR** | A *breaking* sidecar change (a field removed, renamed, or retyped), a config schema break, removal of a built-in pattern, or any change that requires re-running the sanitizer on previously scrubbed sessions. | Read the CHANGELOG before upgrading. Previously scrubbed artifacts may need re-scrubbing. |
+
+Any change to the sidecar's shape, additive or breaking, also bumps
+`sidecar_schema_version`. The two levers are separate on purpose: the semver level tells
+you what the *tool* did to your bytes, the schema version tells you what the *document*
+looks like.
+
+The maintainer-facing checklist of what counts as a byte-affecting change lives in
+[`CHANGELOG.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/sanitizer/CHANGELOG.md). This
+section is the authoritative statement of what a bump *promises*; the CHANGELOG defers
+to it rather than restating it.
+
+### `sidecar_schema_version`
+
+The sidecar leads with `sidecar_schema_version`, currently **`1`**. It versions the
+*shape* of the sidecar document and nothing else: fields added, removed, renamed, or
+changed in type. It is independent of `sanitizer_version`, so a consumer branches on one
+integer instead of maintaining a table mapping every sanitizer release to a layout. A new
+sanitizer version does not imply a new schema version. Every public-era sidecar
+(`0.3.0` onward) carries the field.
+
+### Scrubbed artifacts are pinned to the version that produced them
+
+A `.scrubbed` sidecar records the version that made *that* file. It does not move when the
+tool does, and nothing re-scrubs it automatically. **Re-scrubbing after a MAJOR bump is a
+deliberate manual act**, decided by whoever owns the artifact. The sanitized fixtures in
+this repo behave exactly that way: they keep the version they were scrubbed under, which
+is why some of them predate `0.3.0`.
+
+The corollary for anything that validates artifacts: **"a recognized `sanitizer_version`"
+has to mean a maintained allowlist of historical versions, not "the current one."**
+Publishing accelerates release churn, so a validator that only accepts the newest version
+starts rejecting valid archived artifacts almost immediately.
+
+### Deprecation, yanking, and support
+
+A MAJOR bump may require re-running the sanitizer on previously scrubbed sessions. That is
+the strongest thing a release can ask of you, and the CHANGELOG will say so explicitly.
+
+**Old versions are yanked from PyPI only for security reasons, never for routine
+supersession.** A superseded release stays installable. Which versions receive security
+fixes, and what happens when a scrubbing hole is found, are stated in
+[SECURITY.md](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/SECURITY.md), which owns that policy.
+
+### Releases and tagging
+
+Releases are tagged with a **component-scoped** tag, not a bare `v*`:
+
+```
+sanitizer-v0.3.0
+```
+
+This repo is a monorepo holding posts, reference docs, and three tools, so a bare `v0.3.0`
+would be ambiguous, and a `v*` tag filter in the release workflow
+([#163](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/163))
+would fire the PyPI publish job on any future repo-level or Pages tag. The tag is
+`sanitizer-v<version>`, matching `__version__` and the CHANGELOG heading exactly.
 
 ## Getting started
 
@@ -159,8 +270,10 @@ The runtime dependency surface is intentionally minimal: stdlib plus PyYAML
 for config parsing. `pytest` is the only dev dep.
 
 Version bumps follow [`CHANGELOG.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/sanitizer/CHANGELOG.md)'s "bump on any
-byte-affecting change" policy — because the value lands in every
-`.scrubbed` sidecar and downstream consumers gate on it.
+byte-affecting change" checklist, because the value lands in every `.scrubbed` sidecar and
+downstream consumers gate on it. What each bump level promises to those consumers is
+[Stability and the determinism contract](#stability-and-the-determinism-contract) above.
+Cutting a release also means tagging `sanitizer-v<version>`.
 
 ## Not in scope (for v0)
 

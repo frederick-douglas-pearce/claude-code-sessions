@@ -31,7 +31,10 @@ Rather than duplicate format documentation across both projects, this repo serve
 
 Session JSONL files contain prompts, file paths, code, and occasionally secrets. **No raw session data is ever committed to this repo.** The sanitizer and fixture-validator enforce this; the CLAUDE.md spells out the rules.
 
-If you find a fixture in this repo that contains real personal data, file an issue immediately.
+Found a scrubbing hole, or real personal data in a committed fixture? Report it privately through
+[GitHub Security Advisories](https://github.com/frederick-douglas-pearce/claude-code-sessions/security/advisories/new),
+not a public issue. The disclosure path, the supported-version policy, and the response play are in
+[SECURITY.md](SECURITY.md).
 
 ## Supplemental study
 
