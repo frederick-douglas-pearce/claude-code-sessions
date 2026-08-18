@@ -42,7 +42,19 @@ permissions:
   contents: read
 
 concurrency:
-  group: sanitizer-release-${{ github.ref }}
+  # Keyed by event as well as ref (issue #180). A tag push and a rehearsal
+  # dispatched at that same tag share `github.ref`, so a ref-only group put
+  # them in contention -- and a run parked awaiting environment approval
+  # holds its concurrency slot. That deadlocked the documented sequence: the
+  # rehearsal is meant to run WHILE the publish run is parked, but it would
+  # queue behind it and only start once the thing it was supposed to gate had
+  # already been approved.
+  #
+  # Every protection the group was added for survives. Two tag pushes at the
+  # same tag still serialize, and two rehearsals still serialize. What no
+  # longer serializes is a rehearsal against a parked publish, which address
+  # different indexes and were never in real contention.
+  group: sanitizer-release-${{ github.ref }}-${{ github.event_name }}
   # Deliberately not cancel-in-progress. A cancelled run that was mid-upload
   # burns a version number PyPI will never accept again.
   cancel-in-progress: false

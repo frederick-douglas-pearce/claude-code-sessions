@@ -65,6 +65,32 @@ publisher has to exist before the first upload for that upload to be OIDC.
 
 Steps 1 and 2 are ordinary PR work. Step 3 onward is the release proper.
 
+Steps 3 through 7 are driven by
+[`release.py`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/sanitizer/release.py)
+(issue [#181](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/181)).
+It takes no version argument: `__version__` is already the source of truth and the
+tag is mechanically `sanitizer-v<version>`, so it derives both. The raw commands
+are kept below each step on purpose. A runbook that only works when the wrapper
+works has a bootstrapping problem, and the night of a security release is the
+wrong time to find that out.
+
+The driver cannot publish, never approves a deployment, and never deletes or
+force-updates anything on `origin`. Its only outward write is pushing one tag.
+
+```bash
+python3 tooling/sanitizer/release.py preflight   # read-only; safe any time
+```
+
+Preflight checks the same things the workflow's gates do, plus a few the workflow
+cannot: on `main`, clean, level with `origin/main`, CHANGELOG entry present, tag
+free, `sanitizer-ci` green on `HEAD`, and the version not already spent on either
+index. It fails on your laptop in two seconds instead of in CI in ninety.
+
+One caveat worth keeping straight: preflight's CI check is **advisory**. It reads
+the existing `sanitizer-ci` check run on `main@HEAD`, which is a different
+question from the workflow's re-run on the tagged ref. The workflow's `ci` job is
+the authority. Nothing should ever skip it because preflight was green.
+
 1. **Bump and document.** Update `__version__` in
    `src/ccs_sanitize/__init__.py` and add the matching `## [x.y.z]` heading to
    [`CHANGELOG.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/sanitizer/CHANGELOG.md),
@@ -75,6 +101,14 @@ Steps 1 and 2 are ordinary PR work. Step 3 onward is the release proper.
 2. **Merge it.** Normal PR, `sanitizer-ci` green.
 
 3. **Tag the merged commit** and push the tag:
+
+   ```bash
+   python3 tooling/sanitizer/release.py tag        # add --dry-run to see it first
+   ```
+
+   It runs preflight, prints the version, tag, target commit and its subject,
+   and requires you to type the tag before it pushes anything. Equivalent by
+   hand:
 
    ```bash
    git checkout main && git pull
@@ -93,11 +127,24 @@ Steps 1 and 2 are ordinary PR work. Step 3 onward is the release proper.
    `pypi-sanitizer` environment waiting for approval. Nothing has been uploaded
    yet. That pause is where the rehearsal happens.
 
-4. **Rehearse against TestPyPI.** From the Actions tab, run the Sanitizer
-   Release workflow manually and select the tag `sanitizer-v0.3.0` as the ref.
-   A manual run routes to TestPyPI and cannot reach PyPI, so there is no field
-   to get wrong. It builds from the same tagged bytes, so what lands on
-   TestPyPI is what PyPI will receive.
+4. **Rehearse against TestPyPI.**
+
+   ```bash
+   python3 tooling/sanitizer/release.py rehearse
+   ```
+
+   Equivalently by hand: from the Actions tab, run the Sanitizer Release
+   workflow manually and select the tag `sanitizer-v0.3.0` as the ref. A manual
+   run routes to TestPyPI and cannot reach PyPI, so there is no field to get
+   wrong. It builds from the same tagged bytes, so what lands on TestPyPI is
+   what PyPI will receive.
+
+   This happens **while the tag-push run is parked** at the `pypi-sanitizer`
+   gate, which only works because the workflow's concurrency group is keyed by
+   event as well as ref. A ref-only group put the two runs in contention, and a
+   run awaiting approval holds its slot, so the rehearsal queued behind the very
+   thing it was supposed to gate (issue
+   [#180](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/180)).
 
    This step is load-bearing, not ceremonial. `twine check --strict` validates
    the metadata it understands; it never asks the server whether the metadata
@@ -106,20 +153,26 @@ Steps 1 and 2 are ordinary PR work. Step 3 onward is the release proper.
    gate in the chain that catches a server-side rejection, and it catches it
    before a version number is spent.
 
-5. **Verify the rehearsal,** in a clean environment:
+5. **Verify the rehearsal,** in a clean environment. `release.py rehearse` does
+   this for you once the run goes green. By hand:
 
    ```bash
    python3 -m venv /tmp/rehearsal && /tmp/rehearsal/bin/pip install \
      --index-url https://test.pypi.org/simple/ \
      --extra-index-url https://pypi.org/simple/ \
-     claude-code-sessions-sanitizer
+     claude-code-sessions-sanitizer==0.3.0
    /tmp/rehearsal/bin/ccs-sanitize --version     # expect: ccs-sanitize 0.3.0
    mkdir -p /tmp/rehearsal-run && cd /tmp/rehearsal-run
    /tmp/rehearsal/bin/ccs-sanitize --init        # outside any git repo
    ```
 
-   `--extra-index-url` is needed because PyYAML is not on TestPyPI. `--init`
-   run outside a git repository is the first-run shape for someone who
+   `--extra-index-url` is needed because PyYAML is not on TestPyPI. **Pin the
+   version.** Unpinned, pip resolves the highest version across both indexes, so
+   a candidate that has not yet propagated to TestPyPI would quietly install the
+   previous release from real PyPI and the rehearsal would validate the wrong
+   bytes.
+
+   `--init` run outside a git repository is the first-run shape for someone who
    installed from PyPI with no clone: it should write both config files, print
    the gitignore reminder to stderr, and exit 0.
 
@@ -127,16 +180,28 @@ Steps 1 and 2 are ordinary PR work. Step 3 onward is the release proper.
    the `pypi-sanitizer` environment. The upload happens with a short-lived OIDC
    token and PEP 740 attestations.
 
+   **This step has no `release.py` subcommand, deliberately.** The API to
+   approve a deployment exists and is not called. Approval is the one
+   irreversible act in the whole sequence, and it is worth keeping in a
+   different context, in front of a different screen, from the script that
+   pushed the tag.
+
 7. **Verify the real thing,** same shape as step 5 but from PyPI:
 
    ```bash
-   python3 -m venv /tmp/verify && /tmp/verify/bin/pip install claude-code-sessions-sanitizer
+   python3 tooling/sanitizer/release.py verify
+   ```
+
+   By hand:
+
+   ```bash
+   python3 -m venv /tmp/verify && /tmp/verify/bin/pip install claude-code-sessions-sanitizer==0.3.0
    /tmp/verify/bin/ccs-sanitize --version
    mkdir -p /tmp/verify-run && cd /tmp/verify-run && /tmp/verify/bin/ccs-sanitize --init
    ```
 
-   Also check the project page renders, and that the release shows its
-   attestations on PyPI.
+   The driver also reports whether the release published PEP 740 attestations.
+   Check the project page renders while you are there.
 
 ## Things that will bite you
 
