@@ -149,7 +149,7 @@ def _run(id_, sha=SHA, event="workflow_dispatch"):
 
 
 def test_picks_the_run_that_was_not_there_before():
-    assert release.pick_dispatched_run([_run(1), _run(2)], SHA, {1}) == 2
+    assert release.pick_dispatched_run([_run(1), _run(2)], SHA, {1})["databaseId"] == 2
 
 
 def test_returns_none_before_the_run_appears():
@@ -170,8 +170,43 @@ def test_ignores_dispatch_runs_on_a_different_commit():
     assert release.pick_dispatched_run([_run(9, sha="deadbeef" * 5)], SHA, set()) is None
 
 
-def test_oldest_of_the_new_runs_wins():
-    assert release.pick_dispatched_run([_run(5), _run(3), _run(4)], SHA, {3}) == 4
+def test_ambiguity_raises_rather_than_guessing():
+    """Two candidates must fail closed, not resolve to one of them.
+
+    Picking either risks watching a run that already concluded `success`,
+    which would report a rehearsal that never gated these bytes. That is the
+    false-green the driver exists to prevent, so guessing is not an option
+    however tempting the heuristic.
+    """
+    with pytest.raises(release.ReleaseError) as excinfo:
+        release.pick_dispatched_run([_run(5), _run(3), _run(4)], SHA, {3})
+    assert "refusing to guess" in str(excinfo.value)
+
+
+def test_carries_the_run_url_through():
+    run = dict(_run(2), url="https://github.com/o/r/actions/runs/2")
+    assert release.pick_dispatched_run([run], SHA, {1})["url"].endswith("/2")
+
+
+# ------------------------------------------------------ paginated responses
+
+
+def test_merge_paginated_flattens_pages():
+    pages = [{"check_runs": [{"name": "a"}]}, {"check_runs": [{"name": "b"}]}]
+    assert [r["name"] for r in release.merge_paginated(pages, "check_runs")] == ["a", "b"]
+
+
+def test_merge_paginated_tolerates_an_empty_page():
+    assert release.merge_paginated([{}, {"check_runs": None}], "check_runs") == []
+
+
+def test_merge_paginated_rejects_an_unslurped_object():
+    """Without --slurp, gh emits one object per page and this is what arrives.
+
+    Catching it here beats a JSONDecodeError halfway through a release.
+    """
+    with pytest.raises(release.ReleaseError):
+        release.merge_paginated({"check_runs": []}, "check_runs")
 
 
 # ----------------------------------------------------------- index lookup
@@ -196,9 +231,9 @@ def test_other_versions_do_not_burn_this_one():
     assert not release.index_has_version({"releases": {"0.2.0": [], "0.3.1": []}}, "0.3.0")
 
 
-def test_info_version_is_a_fallback_signal():
-    assert release.index_has_version({"info": {"version": "0.3.0"}}, "0.3.0")
-
-
-def test_empty_payload_is_not_a_match():
-    assert not release.index_has_version({}, "0.3.0")
+def test_unrecognized_payload_fails_closed():
+    """A guard against spending a version must not read "I do not understand"
+    as "the version is free"."""
+    for payload in ({}, {"info": {"version": "0.3.0"}}, {"releases": None}, {"releases": []}):
+        with pytest.raises(release.ReleaseError):
+            release.index_has_version(payload, "0.3.0")

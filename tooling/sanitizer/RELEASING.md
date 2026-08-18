@@ -78,13 +78,18 @@ The driver cannot publish, never approves a deployment, and never deletes or
 force-updates anything on `origin`. Its only outward write is pushing one tag.
 
 ```bash
-python3 tooling/sanitizer/release.py preflight   # read-only; safe any time
+python3 tooling/sanitizer/release.py preflight   # read-only; run before step 3
 ```
 
 Preflight checks the same things the workflow's gates do, plus a few the workflow
 cannot: on `main`, clean, level with `origin/main`, CHANGELOG entry present, tag
 free, `sanitizer-ci` green on `HEAD`, and the version not already spent on either
 index. It fails on your laptop in two seconds instead of in CI in ninety.
+
+It writes nothing, but it is a **pre-tag** gate rather than a status command. Once
+step 4 has rehearsed a version onto TestPyPI, preflight for that version reports
+it as spent, which is correct and expected. Do not read that as the release having
+gone wrong; it means you are past this step.
 
 One caveat worth keeping straight: preflight's CI check is **advisory**. It reads
 the existing `sanitizer-ci` check run on `main@HEAD`, which is a different
@@ -200,8 +205,11 @@ the authority. Nothing should ever skip it because preflight was green.
    mkdir -p /tmp/verify-run && cd /tmp/verify-run && /tmp/verify/bin/ccs-sanitize --init
    ```
 
-   The driver also reports whether the release published PEP 740 attestations.
-   Check the project page renders while you are there.
+   The driver also checks that both the wheel and the sdist published PEP 740
+   attestations, and **fails** if either is missing: `sanitizer-release.yml`
+   sets `attestations: true` explicitly and anticipates the action's default
+   flipping, so absent provenance is a regression rather than a footnote. Check
+   the project page renders while you are there.
 
 ## Things that will bite you
 

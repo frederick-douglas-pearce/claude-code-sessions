@@ -94,7 +94,8 @@ jobs:
             test_orchestrator.py \
             test_secret_patterns_in_sync.py \
             test_sidecar.py \
-            test_golden_determinism.py
+            test_golden_determinism.py \
+            test_release.py
           do
             path="tooling/sanitizer/tests/$suite"
             if [ ! -f "$path" ]; then
@@ -151,6 +152,16 @@ jobs:
           cd /tmp/wheel-smoke-run
           /tmp/wheel-smoke/bin/ccs-sanitize --init
           test -s .ccs-sanitize.example.yaml
+          # `--init` writes the example AND the live config. The count stands
+          # in for the second one, which is not named in a committed file.
+          # Kept identical to the same assertion in sanitizer-release.yml and
+          # tooling/sanitizer/release.py: three vantage points, one contract.
+          written="$(find . -maxdepth 1 -type f | wc -l)"
+          if [ "$written" -ne 2 ]; then
+            echo "::error::--init produced $written files; expected 2"
+            ls -la
+            exit 1
+          fi
 
   # Single always-reporting status check. Branch protection points at this
   # job name, not at the matrix cells: matrix job names carry the interpreter
