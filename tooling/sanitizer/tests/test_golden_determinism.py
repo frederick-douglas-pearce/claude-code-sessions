@@ -17,7 +17,20 @@ pinned in ``pipeline.serialize_line`` (``separators=(",", ":")``,
 ``sidecar.build_sidecar`` (``yaml.safe_dump(sort_keys=False)``), so this is
 a regression guard on a latent risk rather than a fix for a live bug.
 
-The fixture is synthetic and documented in
+**Two cells, one input.** The same synthetic session is scrubbed under two
+pinned configs:
+
+  - ``golden-config.yaml`` -- the shipped default, ``remap_uuids: false``.
+  - ``golden-config-remap.yaml`` -- ``remap_uuids: true`` with a pinned
+    ``uuid_seed``. This is the only *generative* path in the sanitizer:
+    every UUID-graph field is rewritten via SHA-256(seed + original) and
+    each distinct original earns a sidecar row in encounter order. Value
+    stability comes from the hash; row order comes from insertion order in
+    the substitution table, and the second is what a dict-iteration
+    dependency would break. Covering only the default cell would leave that
+    path outside the byte assertion (architect review, 2026-08-18).
+
+The fixtures are synthetic and documented in
 ``tests/golden/golden-session.jsonl.generator.md``, which also carries the
 regeneration procedure. **Read it before regenerating anything**: a change
 in the golden bytes is a version bump under the CHANGELOG policy, not a
@@ -44,9 +57,23 @@ from ccs_sanitize import __version__
 
 _GOLDEN_DIR = Path(__file__).resolve().parent / "golden"
 _INPUT = _GOLDEN_DIR / "golden-session.jsonl"
-_CONFIG = _GOLDEN_DIR / "golden-config.yaml"
-_EXPECTED_OUTPUT = _GOLDEN_DIR / "golden-session.expected.jsonl"
-_EXPECTED_SIDECAR = _GOLDEN_DIR / "golden-session.expected.jsonl.scrubbed"
+
+#: ``cell -> (config, expected output, expected sidecar)``. Parametrizing on
+#: the key keeps failure output naming the cell ("default" vs "remap")
+#: rather than a path triple.
+_CELLS: dict[str, tuple[Path, Path, Path]] = {
+    "default": (
+        _GOLDEN_DIR / "golden-config.yaml",
+        _GOLDEN_DIR / "golden-session.expected.jsonl",
+        _GOLDEN_DIR / "golden-session.expected.jsonl.scrubbed",
+    ),
+    "remap": (
+        _GOLDEN_DIR / "golden-config-remap.yaml",
+        _GOLDEN_DIR / "golden-session.expected.remap.jsonl",
+        _GOLDEN_DIR / "golden-session.expected.remap.jsonl.scrubbed",
+    ),
+}
+_CELL_IDS = sorted(_CELLS)
 
 # The two sidecar fields that are per-run by construction: the version moves
 # on every release, the timestamp on every run. Both are asserted separately
@@ -57,6 +84,12 @@ _VERSION_LINE = re.compile(r"^sanitizer_version: (.*)$", re.M)
 _TIMESTAMP_LINE = re.compile(r"^scrubbed_at: (.*)$", re.M)
 _ISO8601_Z = re.compile(r"^'?\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z'?$")
 
+_REGENERATE_HINT = (
+    "This is the determinism contract failing, not a stale fixture. Read "
+    "tests/golden/golden-session.jsonl.generator.md before regenerating -- "
+    "an intended output change is a version bump, not a `cp`."
+)
+
 
 def _normalize_sidecar(text: str) -> str:
     """Blank out the two per-run sidecar fields so the rest can be diffed."""
@@ -64,11 +97,13 @@ def _normalize_sidecar(text: str) -> str:
     return _TIMESTAMP_LINE.sub(f"scrubbed_at: {_NORMALIZED}", text)
 
 
-def _run_golden(tmp_path: Path, *, hash_seed: str | None = None) -> tuple[str, str]:
-    """Scrub the golden input into ``tmp_path``; return (output, sidecar) text.
+def _run_golden(
+    tmp_path: Path, config: Path, *, hash_seed: str | None = None
+) -> tuple[Path, Path]:
+    """Scrub the golden input into ``tmp_path``; return (output, sidecar) paths.
 
-    ``--no-check`` is correct here: ``golden-config.yaml`` is committed on
-    purpose because it holds no real PII, so the pre-run gitignore guard has
+    ``--no-check`` is correct here: the golden configs are committed on
+    purpose because they hold no real PII, so the pre-run gitignore guard has
     nothing to protect. This is the documented test-suite use of the
     override, not a workaround for exit 3 on a live config (PRD section 12b).
     """
@@ -86,7 +121,7 @@ def _run_golden(tmp_path: Path, *, hash_seed: str | None = None) -> tuple[str, s
             "-o",
             str(out_path),
             "-c",
-            str(_CONFIG),
+            str(config),
             "--no-check",
         ],
         capture_output=True,
@@ -95,65 +130,66 @@ def _run_golden(tmp_path: Path, *, hash_seed: str | None = None) -> tuple[str, s
         env=env,
     )
     assert result.returncode == 0, (
-        f"ccs-sanitize exited {result.returncode} on the golden fixture. "
-        f"stderr: {result.stderr!r}"
+        f"ccs-sanitize exited {result.returncode} on the golden fixture "
+        f"with {config.name}. stderr: {result.stderr!r}"
     )
-    sidecar_path = out_path.with_name(out_path.name + ".scrubbed")
-    return (
-        out_path.read_text(encoding="utf-8"),
-        sidecar_path.read_text(encoding="utf-8"),
-    )
+    return out_path, out_path.with_name(out_path.name + ".scrubbed")
 
 
-def test_golden_output_bytes_match(tmp_path: Path) -> None:
+@pytest.mark.parametrize("cell", _CELL_IDS)
+def test_golden_output_bytes_match(tmp_path: Path, cell: str) -> None:
     """The scrubbed output is byte-identical to the committed artifact.
 
     This is the cross-interpreter assertion. If it fails on one matrix cell
     and passes on another, the sanitizer's output depends on the interpreter
     and the determinism contract is broken. If it fails on every cell, the
-    sanitizer's output changed -- see the generator doc before regenerating.
+    sanitizer's output changed.
+
+    Compared as bytes, not as decoded text: the contract is about bytes, and
+    a str comparison would pass on a host whose default encoding differed
+    while the files on disk did not match.
     """
-    produced, _ = _run_golden(tmp_path)
-    expected = _EXPECTED_OUTPUT.read_text(encoding="utf-8")
-    assert produced == expected, (
-        "Scrubbed output diverged from tests/golden/"
-        "golden-session.expected.jsonl. This is the determinism contract "
-        "failing, not a stale fixture. Read tests/golden/"
-        "golden-session.jsonl.generator.md before regenerating -- an "
-        "intended output change is a version bump, not a `cp`."
+    config, expected_output, _ = _CELLS[cell]
+    out_path, _ = _run_golden(tmp_path, config)
+    assert out_path.read_bytes() == expected_output.read_bytes(), (
+        f"Scrubbed output for the {cell!r} cell diverged from "
+        f"tests/golden/{expected_output.name}. {_REGENERATE_HINT}"
     )
 
 
-def test_golden_output_is_utf8_bytes(tmp_path: Path) -> None:
-    """Byte-level, not str-level, equality.
+@pytest.mark.parametrize("cell", _CELL_IDS)
+def test_golden_output_keeps_non_ascii_unescaped(tmp_path: Path, cell: str) -> None:
+    """``ensure_ascii=False`` is part of the serialization contract.
 
-    ``read_text`` decodes, so the test above would pass on a host whose
-    default encoding differed while the bytes on disk did not match. The
-    contract is about bytes, so assert bytes -- and specifically that the
-    non-ASCII characters in the fixture survive unescaped, which is what
-    pins ``ensure_ascii=False``.
+    The byte comparison above would already catch escaping to ``\\uXXXX``,
+    but it would report it as an opaque byte diff. This names the property
+    so the diagnostic points at the cause.
     """
-    out_path = tmp_path / "golden-out.jsonl"
-    _run_golden(tmp_path)
-    assert out_path.read_bytes() == _EXPECTED_OUTPUT.read_bytes()
-    assert "café".encode("utf-8") in out_path.read_bytes(), (
-        "non-ASCII text was escaped or transcoded; ensure_ascii=False is "
-        "part of the serialization contract (PRD section 8)"
-    )
+    config, _, _ = _CELLS[cell]
+    out_path, _ = _run_golden(tmp_path, config)
+    produced = out_path.read_bytes()
+    for token in ("café", "résumé", "✅"):
+        assert token.encode("utf-8") in produced, (
+            f"{token!r} was escaped or transcoded in the {cell!r} cell; "
+            f"ensure_ascii=False is part of the serialization contract "
+            f"(PRD section 8)"
+        )
 
 
-def test_golden_sidecar_matches(tmp_path: Path) -> None:
+@pytest.mark.parametrize("cell", _CELL_IDS)
+def test_golden_sidecar_matches(tmp_path: Path, cell: str) -> None:
     """The sidecar matches byte for byte once the two per-run fields are
     normalized. That covers ``input_sha256``, the strip-type counts, the
-    per-layer substitution totals, and the placeholder numbering -- all of
-    which are insertion-ordered and would drift if key ordering ever stopped
-    being stable."""
-    _, produced = _run_golden(tmp_path)
-    expected = _EXPECTED_SIDECAR.read_text(encoding="utf-8")
-    assert _normalize_sidecar(produced) == expected, (
-        "Sidecar diverged from tests/golden/"
-        "golden-session.expected.jsonl.scrubbed. See that fixture's "
-        "generator doc; a legitimate change is a version bump."
+    per-layer substitution totals, and the substitution rows -- all of which
+    are insertion-ordered and would drift if key ordering ever stopped being
+    stable. In the ``remap`` cell the rows also carry the SHA-256-derived
+    UUID replacements, so the hash output itself is pinned."""
+    config, _, expected_sidecar = _CELLS[cell]
+    _, sidecar_path = _run_golden(tmp_path, config)
+    produced = _normalize_sidecar(sidecar_path.read_text(encoding="utf-8"))
+    assert produced == expected_sidecar.read_text(encoding="utf-8"), (
+        f"Sidecar for the {cell!r} cell diverged from "
+        f"tests/golden/{expected_sidecar.name}. {_REGENERATE_HINT}"
     )
 
 
@@ -162,7 +198,9 @@ def test_golden_sidecar_normalized_fields_are_still_asserted(
 ) -> None:
     """The two fields excluded from the byte comparison are checked here, so
     normalizing them does not amount to not testing them."""
-    _, produced = _run_golden(tmp_path)
+    config, _, _ = _CELLS["default"]
+    _, sidecar_path = _run_golden(tmp_path, config)
+    produced = sidecar_path.read_text(encoding="utf-8")
     version_match = _VERSION_LINE.search(produced)
     timestamp_match = _TIMESTAMP_LINE.search(produced)
     assert version_match is not None, "sidecar is missing sanitizer_version"
@@ -174,21 +212,51 @@ def test_golden_sidecar_normalized_fields_are_still_asserted(
     )
 
 
+def test_golden_cells_differ(tmp_path: Path) -> None:
+    """Guard against the two cells silently collapsing into one.
+
+    If a future edit pointed both cells at the same config, or turned the
+    remap option off, every other test here would still pass while the
+    generative path quietly left coverage. The UUID-remap cell must actually
+    rewrite the UUID graph.
+    """
+    default_output = _CELLS["default"][1].read_bytes()
+    remap_output = _CELLS["remap"][1].read_bytes()
+    assert default_output != remap_output, (
+        "the default and remap golden outputs are identical; the remap cell "
+        "is not exercising remap_uuids"
+    )
+    assert b"11111111-1111-1111-1111-111111111001" in default_output, (
+        "the default cell should preserve the input UUIDs (remap_uuids is "
+        "off, which is what keeps committed fixtures graph-readable)"
+    )
+    assert b"11111111-1111-1111-1111-111111111001" not in remap_output, (
+        "the remap cell still carries an input UUID; remap_uuids did not "
+        "take effect (it also requires the pipeline skip-predicate to be "
+        "built with remap_uuids=True -- see rules/identifiers.py)"
+    )
+
+
+@pytest.mark.parametrize("cell", _CELL_IDS)
 @pytest.mark.parametrize("hash_seed", ["0", "1", "4242"])
 def test_golden_output_is_hash_seed_independent(
-    tmp_path: Path, hash_seed: str
+    tmp_path: Path, cell: str, hash_seed: str
 ) -> None:
     """Output must not depend on ``PYTHONHASHSEED``.
 
     Python randomizes str hashing per process by default, so a latent
     dependence on set or dict iteration order would surface as a flaky
     failure on one CI run in N rather than as a clean red build. Pinning
-    three seeds turns that into a deterministic failure. Relevant because
-    the config carries rules in a list but the pipeline builds lookup
-    structures from them, and ``--strip-types`` is a ``frozenset``.
+    three seeds turns that into a deterministic failure. Most relevant to the
+    ``remap`` cell, where each distinct UUID is hashed and recorded in
+    encounter order, but it applies to the whole scrub path: the config
+    carries rules in a list while the pipeline builds lookup structures from
+    them, and ``--strip-types`` is a ``frozenset``.
     """
-    produced, _ = _run_golden(tmp_path / hash_seed, hash_seed=hash_seed)
-    assert produced == _EXPECTED_OUTPUT.read_text(encoding="utf-8"), (
-        f"golden output changed under PYTHONHASHSEED={hash_seed}; something "
-        f"in the scrub path iterates a set or dict whose order is not pinned"
+    config, expected_output, _ = _CELLS[cell]
+    out_path, _ = _run_golden(tmp_path / hash_seed, config, hash_seed=hash_seed)
+    assert out_path.read_bytes() == expected_output.read_bytes(), (
+        f"golden output for the {cell!r} cell changed under "
+        f"PYTHONHASHSEED={hash_seed}; something in the scrub path iterates "
+        f"a set or dict whose order is not pinned"
     )

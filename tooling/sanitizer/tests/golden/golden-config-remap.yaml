@@ -1,0 +1,43 @@
+# Second golden cell: identical rules to golden-config.yaml, with UUID
+# remapping ON (issue #162, architect review 2026-08-18).
+#
+# The first cell leaves `remap_uuids: false`, which is the shipped default
+# and the right default for committed fixtures (the parent/subagent graph
+# stays readable). But it means the one *generative* path in the sanitizer
+# stayed outside the cross-interpreter byte assertion: with remapping on,
+# every UUID-graph field is rewritten via SHA-256(uuid_seed + original) and
+# each distinct original earns a row in the sidecar in encounter order.
+# Value stability comes from the hash; row ORDER comes from insertion order
+# in the substitution table. The second is the property worth pinning across
+# interpreters, and hashing is exactly where a dict-iteration dependency
+# would hide.
+#
+# `uuid_seed` is pinned. It is a deterministic input to the hash, so leaving
+# it at the default would couple these golden bytes to a default that could
+# move for unrelated reasons.
+#
+# Same warning as the first cell: do not edit these rules. See
+# golden-session.jsonl.generator.md.
+version: 1
+
+paths:
+  - match: "/home/goldenuser"
+    replace: "/home/user"
+
+identifiers:
+  - match: "golden.author@example.net"
+    replace: "user@example.com"
+
+  - match: "goldenuser"
+    replace: "user"
+
+  - match: "golden-handle"
+    replace: "example-user"
+
+  - match: "Golden Author"
+    replace: "Example Author"
+
+options:
+  scrub_git_branch: true
+  remap_uuids: true
+  uuid_seed: "ccs-sanitize/golden-162"

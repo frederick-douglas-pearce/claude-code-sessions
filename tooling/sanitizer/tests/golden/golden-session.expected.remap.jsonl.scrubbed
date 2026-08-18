@@ -1,0 +1,67 @@
+sidecar_schema_version: 1
+sanitizer_version: <normalized>
+scrubbed_at: <normalized>
+input_filename: golden-session.jsonl
+input_sha256: f5ba335206290eea2dc64b19a967b6747cc0f6904b482ba6c5474f1bc12f9592
+config_version: 1
+config_source: golden-config-remap.yaml
+lines_processed: 8
+stripped_lines:
+  file-history-snapshot: 1
+  attachment: 1
+rules_applied:
+  paths:
+    substitutions: 6
+    distinct: 1
+  identifiers:
+    substitutions: 21
+    distinct: 10
+  secrets:
+    matches: 2
+  jitter: disabled
+substitutions:
+- rule: identifiers
+  placeholder: <uuid>
+  replacement: fb2093f5-807e-175b-1fb3-1e4a04f6452d
+  occurrences: 4
+- rule: identifiers
+  placeholder: <uuid>
+  replacement: a5d0e314-03d3-a0b5-74f4-a12c4a2ecb31
+  occurrences: 2
+- rule: paths
+  placeholder: <path-1>
+  replacement: /home/user
+  occurrences: 6
+- rule: identifiers
+  placeholder: <git-branch>
+  replacement: feature/example
+  occurrences: 4
+- rule: identifiers
+  placeholder: <identifier-1>
+  replacement: user@example.com
+  occurrences: 2
+- rule: identifiers
+  placeholder: <uuid>
+  replacement: df29da5f-5bc0-a94a-e9d8-3078b2d409f5
+  occurrences: 2
+- rule: identifiers
+  placeholder: <identifier-2>
+  replacement: user
+  occurrences: 2
+- rule: identifiers
+  placeholder: <uuid>
+  replacement: adbf4f80-be01-1df6-f064-e822a98dad31
+  occurrences: 2
+- rule: identifiers
+  placeholder: <uuid>
+  replacement: 755d5e68-772b-4089-b365-6e82157e52c2
+  occurrences: 1
+- rule: identifiers
+  placeholder: <identifier-3>
+  replacement: example-user
+  occurrences: 1
+- rule: identifiers
+  placeholder: <identifier-4>
+  replacement: Example Author
+  occurrences: 1
+residual_scan: clean

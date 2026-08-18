@@ -27,12 +27,35 @@ same committed artifact rather than merely matching themselves.
 
 ## Files
 
-| File                                   | Role                                                    |
-| -------------------------------------- | ------------------------------------------------------- |
-| `golden-session.jsonl`                 | Input. Fabricated session.                              |
-| `golden-config.yaml`                   | Pinned rules. Committed, not gitignored (no real PII).  |
-| `golden-session.expected.jsonl`        | Expected scrubbed output, byte for byte.                |
-| `golden-session.expected.jsonl.scrubbed` | Expected sidecar, with two fields normalized (below). |
+One input, two cells. Both configs are committed and neither is gitignored:
+every match value in them is fabricated, so there is nothing to protect.
+
+| File                                           | Role                                                   |
+| ---------------------------------------------- | ------------------------------------------------------ |
+| `golden-session.jsonl`                         | Input. Fabricated session. Shared by both cells.        |
+| `golden-config.yaml`                           | Cell 1 rules — shipped defaults, `remap_uuids: false`.  |
+| `golden-session.expected.jsonl`                | Cell 1 expected output, byte for byte.                  |
+| `golden-session.expected.jsonl.scrubbed`       | Cell 1 expected sidecar, two fields normalized (below). |
+| `golden-config-remap.yaml`                     | Cell 2 rules — `remap_uuids: true`, pinned `uuid_seed`. |
+| `golden-session.expected.remap.jsonl`          | Cell 2 expected output.                                 |
+| `golden-session.expected.remap.jsonl.scrubbed` | Cell 2 expected sidecar.                                |
+
+### Why a second cell
+
+`remap_uuids: false` is the shipped default and the right default for
+committed fixtures: it keeps the parent/subagent graph readable. But it
+leaves the sanitizer's one *generative* path outside the byte assertion.
+With remapping on, every UUID-graph field is rewritten via
+SHA-256(`uuid_seed` + original), and each distinct original earns a sidecar
+row in encounter order. Value stability comes from the hash; row **order**
+comes from insertion order in the substitution table, and order is what a
+dict-iteration dependency would break. That is the property most worth
+pinning across interpreters, so cell 2 pins it (architect review,
+2026-08-18).
+
+`uuid_seed` is pinned in cell 2 rather than left at the default, because it
+is a deterministic input to the hash: inheriting the default would couple
+these bytes to a value that could move for unrelated reasons.
 
 ## What the input deliberately exercises
 
@@ -84,27 +107,31 @@ When the change *is* intended, it is a version bump under the
 2. Bump the sanitizer version and record the output change in
    `CHANGELOG.md`. Byte-level output changes are what the determinism
    contract versions.
-3. Only then regenerate:
+3. Only then regenerate. Both cells, or the two stop being comparable:
 
    ```bash
    cd tooling/sanitizer
-   python -m ccs_sanitize.cli tests/golden/golden-session.jsonl \
-     -o /tmp/golden-out.jsonl \
-     -c tests/golden/golden-config.yaml \
-     --no-check --force
-   cp /tmp/golden-out.jsonl tests/golden/golden-session.expected.jsonl
-   sed -e 's/^sanitizer_version: .*/sanitizer_version: <normalized>/' \
-       -e 's/^scrubbed_at: .*/scrubbed_at: <normalized>/' \
-       /tmp/golden-out.jsonl.scrubbed \
-       > tests/golden/golden-session.expected.jsonl.scrubbed
+   for cell in "golden-config.yaml:" "golden-config-remap.yaml:remap."; do
+     config="${cell%%:*}"; infix="${cell##*:}"
+     python -m ccs_sanitize.cli tests/golden/golden-session.jsonl \
+       -o "/tmp/golden-${infix}out.jsonl" \
+       -c "tests/golden/$config" \
+       --no-check --force
+     cp "/tmp/golden-${infix}out.jsonl" \
+        "tests/golden/golden-session.expected.${infix}jsonl"
+     sed -e 's/^sanitizer_version: .*/sanitizer_version: <normalized>/' \
+         -e 's/^scrubbed_at: .*/scrubbed_at: <normalized>/' \
+         "/tmp/golden-${infix}out.jsonl.scrubbed" \
+         > "tests/golden/golden-session.expected.${infix}jsonl.scrubbed"
+   done
    ```
 
-`--no-check` is correct here and only here: `golden-config.yaml` is
-committed on purpose because it holds no real PII, so the pre-run gitignore
+`--no-check` is correct here and only here: both golden configs are
+committed on purpose because they hold no real PII, so the pre-run gitignore
 guard has nothing to protect. It is not the fix for exit 3 on a live config.
 
-Do not edit `golden-session.jsonl` or `golden-config.yaml` to make a failing
-test pass. Editing the input changes what the artifact proves.
+Do not edit `golden-session.jsonl` or either config to make a failing test
+pass. Editing the input changes what the artifact proves.
 
 ## Verified against
 
