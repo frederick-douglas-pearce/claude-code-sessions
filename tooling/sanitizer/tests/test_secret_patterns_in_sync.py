@@ -25,6 +25,24 @@ Loading the hook:
   Two parent jumps from this test file land at ``tooling/sanitizer/``;
   one more lands at the repo root. If this file ever moves the path math
   needs to update.
+
+Running from an unpacked sdist (issue #182):
+
+  ``tests`` ships in the sdist on purpose, so that a packager or an auditor
+  can re-run this suite against the exact published source. An sdist has no
+  repo root and no ``.claude/``, so the hook is simply not there and these
+  three tests used to fail. Three red tests in the secret-pattern drift
+  guard is a bad first impression for a security tool, and the correct
+  reading -- an environment assumption, not real drift -- costs a code read.
+
+  So the module skips there. What it must NOT do is skip inside the repo:
+  this is the D-6 gate, and a hook deleted or moved in a PR has to be loud.
+  The discriminator is ``PKG-INFO``, which every sdist carries at its root
+  (PEP 625) and a checkout never does. Deliberately not "the hook file is
+  missing" on its own: that reads a deleted hook as a reason to stop
+  checking, which is the failure mode this file exists to prevent. In a
+  checkout the hook being absent stays a failure, reported by
+  ``test_the_hook_is_reachable_in_a_checkout`` below.
 """
 
 from __future__ import annotations
@@ -32,10 +50,23 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 from ccs_sanitize.rules.secrets import BATCH_PATTERNS, VENDORED_PATTERNS
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
+_PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+_REPO_ROOT = _PACKAGE_ROOT.parents[1]
 _HOOK_PATH = _REPO_ROOT / ".claude" / "hooks" / "detect_secrets_in_output.py"
+
+# True only in an unpacked sdist. See the module docstring for why this is
+# the condition rather than the hook's absence.
+_IN_SDIST = (_PACKAGE_ROOT / "PKG-INFO").exists()
+
+if _IN_SDIST and not _HOOK_PATH.exists():  # pragma: no cover - sdist only
+    pytest.skip(
+        "the hook is not shipped in the sdist; the D-6 drift guard runs in-repo",
+        allow_module_level=True,
+    )
 
 
 def _load_hook_secret_patterns() -> list[tuple[str, str]]:
@@ -54,6 +85,22 @@ def _load_hook_secret_patterns() -> list[tuple[str, str]]:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return [(pattern.pattern, label) for pattern, label in module.SECRET_PATTERNS]
+
+
+def test_the_hook_is_reachable_in_a_checkout() -> None:
+    """Absent hook, inside a checkout, is a failure and not a skip.
+
+    The three tests below would fail anyway, with a ``FileNotFoundError``
+    raised from ``exec_module`` several frames down. This one names the
+    condition, so that deleting or moving the hook reads as "the drift
+    guard lost its other half" rather than as an import problem."""
+    assert _HOOK_PATH.exists(), (
+        f"the hook is missing at {_HOOK_PATH}. Inside the repo that is a "
+        "removed security boundary, not an environment quirk: "
+        "VENDORED_PATTERNS in rules/secrets.py has nothing left to be "
+        "checked against. Restore it, or retire the vendoring contract in "
+        "PRD section 9 / D-6 on purpose."
+    )
 
 
 def test_vendored_patterns_match_hook_element_wise() -> None:

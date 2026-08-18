@@ -64,6 +64,31 @@ No version bump: nothing below changes the produced bytes.
   pull request instead of a `twine upload`. The aggregate `sanitizer-ci` job
   is the required status check.
 
+### Fixed (issue #182 — the shipped suite runs outside a checkout)
+- **`tests/test_secret_patterns_in_sync.py`** skips, rather than failing,
+  when it is run from an unpacked sdist. `tests` ships in the sdist so that
+  a packager or an auditor can re-run it against the exact published source,
+  but the D-6 drift guard loads `.claude/hooks/detect_secrets_in_output.py`
+  from the repo root, and an sdist has neither a repo root nor a `.claude/`.
+  The published source therefore produced three red tests in the
+  secret-pattern drift guard of a security tool, on the first thing its
+  packaging comment invites a reader to do.
+  The skip is conditional on `PKG-INFO`, which every sdist carries and a
+  checkout never does, rather than on the hook simply being missing. That
+  condition would read a deleted hook as a reason to stop checking. In a
+  checkout an absent hook stays a failure, now named by
+  `test_the_hook_is_reachable_in_a_checkout` instead of surfacing as a
+  `FileNotFoundError` several frames down. Pre-existing since issue #36; no
+  behavior change to the sanitizer.
+- **`.github/workflows/sanitizer-ci.yml`** gained two assertions that make
+  the above hold on its own. The `package` job unpacks the sdist it just
+  built and runs the **shipped** suite from outside the checkout, so the next
+  test that reaches for a repo path it cannot see fails on a pull request
+  rather than in a stranger's terminal. The `tests` job asserts the drift
+  guard reported neither a skip nor a failure, because a skipped test still
+  reports green: without it, a misfiring sdist condition would silently stop
+  checking the hook against `VENDORED_PATTERNS` and nothing would go red.
+
 ## [0.3.0] — 2026-08-17
 
 **First public release.** Everything below has been accumulating unreleased
