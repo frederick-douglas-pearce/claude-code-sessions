@@ -1,0 +1,166 @@
+name: Sanitizer CI
+
+# The always-on gate in front of a published artifact (issue #162). Before
+# this workflow there was no Python CI in this repo at all: the sanitizer's
+# pytest suite ran when someone remembered to run it, and nothing built the
+# wheel or checked its metadata. That is tolerable for an in-repo tool with
+# one user; it is not tolerable once `pip install claude-code-sessions-
+# sanitizer` puts the tool in strangers' hands, because the release workflow
+# needs something authoritative to depend on: tests green on the exact commit
+# being published.
+#
+# Why there is no `paths:` filter, even though the work is sanitizer-scoped:
+#
+#   1. This workflow's `gate` job is a REQUIRED status check. GitHub leaves a
+#      required check permanently "Expected" on any PR where its workflow did
+#      not trigger, so a paths-filtered required check blocks every post-only
+#      PR forever. The usual workaround is a diff-detection job plus a
+#      conditional gate, which trades a filter for a more fragile moving
+#      part.
+#   2. The suite is not actually sanitizer-scoped. `test_secret_patterns_in_
+#      sync.py` loads `.claude/hooks/detect_secrets_in_output.py` and asserts
+#      the vendored Tier-1 patterns match it element-wise (PRD section 9 /
+#      D-6). A filter on `tooling/sanitizer/**` would let a hook-side pattern
+#      edit merge without the sanitizer side, which is the exact drift that
+#      test exists to catch.
+#
+# The suite runs in about a second. Running it unconditionally costs less
+# than either failure mode above.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: pytest (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      # One red interpreter should not hide the state of the other two: the
+      # interesting failure here is "3.13 disagrees with 3.11", which is only
+      # legible if every cell reports.
+      fail-fast: false
+      matrix:
+        # Mirrors the `Programming Language :: Python :: 3.x` classifiers in
+        # tooling/sanitizer/pyproject.toml. A classifier the CI does not
+        # verify gets removed or gets verified; it does not stay unverified.
+        # If a classifier is added there, add the cell here in the same PR.
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: tooling/sanitizer/pyproject.toml
+
+      # Editable install from the repo root, by path. Not a `cd` into the
+      # package directory and not a developer's local `.venv`: the sync test
+      # walks three parents up from its own file to find the repo root, so it
+      # only passes when the checkout is intact, and pinning the invocation
+      # to repo-root-relative paths keeps that true.
+      - name: Install the sanitizer and its dev deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e "./tooling/sanitizer[dev]"
+
+      # Fails the build if a security-critical suite is renamed or deleted
+      # without this list being updated. Without it, `pytest <dir>` on a
+      # directory that quietly lost a file is still green, and the gate in
+      # front of a published security tool goes hollow without anyone
+      # noticing. Cheap; runs before the suite so the diagnostic is specific.
+      - name: Confirm the security-critical suites are present
+        run: |
+          set -euo pipefail
+          for suite in \
+            test_residual.py \
+            test_orchestrator.py \
+            test_secret_patterns_in_sync.py \
+            test_sidecar.py \
+            test_golden_determinism.py
+          do
+            path="tooling/sanitizer/tests/$suite"
+            if [ ! -f "$path" ]; then
+              echo "::error::missing security-critical suite: $path"
+              exit 1
+            fi
+          done
+
+      - name: Run the sanitizer test suite
+        run: python -m pytest tooling/sanitizer/tests -q
+
+  package:
+    name: build + twine check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          # Built on the lowest supported interpreter. The wheel is pure
+          # Python and `requires-python = ">=3.11"`, so building on 3.11 is
+          # the conservative choice: a backend that emitted a 3.13-only
+          # artifact would surface here rather than at upload time.
+          python-version: "3.11"
+
+      - name: Install build tooling
+        run: python -m pip install --upgrade pip build twine
+
+      - name: Build sdist and wheel
+        run: python -m build --sdist --wheel --outdir dist/ tooling/sanitizer
+
+      # `--strict` turns README rendering warnings into failures. PyPI
+      # rejects or mangles a project page on exactly these warnings, and
+      # finding that out during `twine upload` means burning a version
+      # number, because PyPI will not accept a re-upload of the same one.
+      - name: twine check --strict
+        run: python -m twine check --strict dist/*
+
+      # Metadata being valid is not the same as the artifact working. This
+      # installs the built wheel into a clean venv, outside the source tree,
+      # and exercises the console script plus `--init`. `--init` is what
+      # reads the bundled config template out of package data, so a
+      # packaging regression that dropped `_templates` from the wheel would
+      # pass `twine check` and fail here -- which is the whole point of a
+      # first-run smoke test for a `pip install` user with no clone.
+      - name: Smoke-test the built wheel in a clean environment
+        run: |
+          set -euo pipefail
+          python -m venv /tmp/wheel-smoke
+          /tmp/wheel-smoke/bin/python -m pip install --upgrade pip
+          /tmp/wheel-smoke/bin/python -m pip install dist/*.whl
+          /tmp/wheel-smoke/bin/ccs-sanitize --version
+          mkdir -p /tmp/wheel-smoke-run
+          cd /tmp/wheel-smoke-run
+          /tmp/wheel-smoke/bin/ccs-sanitize --init
+          test -s .ccs-sanitize.example.yaml
+
+  # Single always-reporting status check. Branch protection points at this
+  # job name, not at the matrix cells: matrix job names carry the interpreter
+  # version, so adding or dropping a cell would otherwise mean editing the
+  # required-checks list in repo settings in lockstep, and forgetting that is
+  # a silent loss of coverage. `if: always()` makes this report even when an
+  # upstream job is skipped or cancelled, which is what keeps it usable as a
+  # required check.
+  gate:
+    name: sanitizer-ci
+    runs-on: ubuntu-latest
+    needs: [tests, package]
+    if: always()
+    steps:
+      - name: Fail if any upstream job did not succeed
+        run: |
+          set -euo pipefail
+          echo "tests:   ${{ needs.tests.result }}"
+          echo "package: ${{ needs.package.result }}"
+          if [ "${{ needs.tests.result }}" != "success" ] || \
+             [ "${{ needs.package.result }}" != "success" ]; then
+            echo "::error::sanitizer CI did not pass; see the jobs above"
+            exit 1
+          fi

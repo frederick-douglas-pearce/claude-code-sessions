@@ -1,0 +1,46 @@
+# Pinned config for the cross-interpreter golden test (issue #162).
+#
+# This file is COMMITTED and intentionally not gitignored: every value in
+# it is fabricated, so the leak surface that the live-config guard
+# protects (PRD section 12b) does not exist here. The golden test passes
+# `--no-check` for that reason. That is the documented, test-suite
+# legitimate override of the pre-run gitignore guard, not a workaround
+# for exit 3.
+#
+# Do not "improve" these rules. The golden output bytes are computed from
+# exactly this config, so editing a rule changes a published artifact.
+# See golden-session.jsonl.generator.md before touching anything here.
+version: 1
+
+paths:
+  # Home directory of the fabricated author. The paths layer runs before
+  # the identifier layer, so `/home/goldenuser` is replaced as a unit and
+  # the bare-username rule below only fires on the remaining occurrences.
+  - match: "/home/goldenuser"
+    replace: "/home/user"
+
+identifiers:
+  # RFC 2606 reserved TLDs on both sides: the match can never collide
+  # with a real address, and the replacement can never be taken for one.
+  - match: "golden.author@example.net"
+    replace: "user@example.com"
+
+  # Bare Unix username. Exercises the project-dir encoding Claude Code
+  # uses (`-home-goldenuser-projects-demo`) as well as prose mentions.
+  - match: "goldenuser"
+    replace: "user"
+
+  # Ordered before the personal-name rule, matching the shipped template's
+  # guidance: a hyphenated handle can overlap a surname.
+  - match: "golden-handle"
+    replace: "example-user"
+
+  - match: "Golden Author"
+    replace: "Example Author"
+
+# Pinned explicitly rather than left to defaults. A future change to a
+# default would otherwise alter the golden bytes silently, and the test
+# would report it as a determinism break rather than as what it is.
+options:
+  scrub_git_branch: true
+  remap_uuids: false

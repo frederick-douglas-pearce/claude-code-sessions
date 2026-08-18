@@ -1,0 +1,47 @@
+sidecar_schema_version: 1
+sanitizer_version: <normalized>
+scrubbed_at: <normalized>
+input_filename: golden-session.jsonl
+input_sha256: f5ba335206290eea2dc64b19a967b6747cc0f6904b482ba6c5474f1bc12f9592
+config_version: 1
+config_source: golden-config.yaml
+lines_processed: 8
+stripped_lines:
+  file-history-snapshot: 1
+  attachment: 1
+rules_applied:
+  paths:
+    substitutions: 6
+    distinct: 1
+  identifiers:
+    substitutions: 10
+    distinct: 5
+  secrets:
+    matches: 2
+  jitter: disabled
+substitutions:
+- rule: paths
+  placeholder: <path-1>
+  replacement: /home/user
+  occurrences: 6
+- rule: identifiers
+  placeholder: <git-branch>
+  replacement: feature/example
+  occurrences: 4
+- rule: identifiers
+  placeholder: <identifier-1>
+  replacement: user@example.com
+  occurrences: 2
+- rule: identifiers
+  placeholder: <identifier-2>
+  replacement: user
+  occurrences: 2
+- rule: identifiers
+  placeholder: <identifier-3>
+  replacement: example-user
+  occurrences: 1
+- rule: identifiers
+  placeholder: <identifier-4>
+  replacement: Example Author
+  occurrences: 1
+residual_scan: clean

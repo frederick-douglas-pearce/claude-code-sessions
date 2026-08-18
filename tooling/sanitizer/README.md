@@ -65,6 +65,7 @@ sanitizer/
 │       │   └── jitter.py   # statistical jitter (stub for v0)
 │       └── _templates/     # --init config templates
 └── tests/                  # pytest suite — one module per rule + orchestration
+    └── golden/             # committed cross-interpreter determinism artifact
 ```
 
 ## Install
@@ -143,9 +144,14 @@ stamped into every sidecar.
 
 Byte-identity also holds **across supported Python versions**, currently **3.11, 3.12,
 and 3.13** (the `requires-python` floor is 3.11). Scrubbing on one and validating on
-another is a supported workflow. The golden-fixture assertion that pins this across the
-CI matrix lands with
-[#162](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/162).
+another is a supported workflow. This is enforced, not asserted: a committed golden
+fixture ([`tests/golden/`](https://github.com/frederick-douglas-pearce/claude-code-sessions/tree/main/tooling/sanitizer/tests/golden))
+holds a synthetic session, a pinned config, and the exact expected output and sidecar
+bytes, and every cell of the CI matrix must reproduce them. All three interpreters match
+the same artifact on disk rather than merely matching themselves
+([#162](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/162)).
+When those bytes change, that is a version bump under the CHANGELOG policy, not a
+regeneration.
 
 ### What each bump level means for your bytes
 
@@ -268,6 +274,12 @@ ccs-sanitize --version          # smoke-check the entry point
 
 The runtime dependency surface is intentionally minimal: stdlib plus PyYAML
 for config parsing. `pytest` is the only dev dep.
+
+CI runs the same suite on a 3.11 / 3.12 / 3.13 matrix, plus `python -m build`,
+`twine check --strict`, and a clean-environment smoke test of the built wheel
+(`.github/workflows/sanitizer-ci.yml`). The aggregate `sanitizer-ci` check is
+required, so packaging problems surface on a pull request rather than during
+`twine upload`, where a bad artifact costs a version number.
 
 Version bumps follow [`CHANGELOG.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/sanitizer/CHANGELOG.md)'s "bump on any
 byte-affecting change" checklist, because the value lands in every `.scrubbed` sidecar and

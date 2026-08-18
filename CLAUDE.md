@@ -96,7 +96,7 @@ Workflow for PR-required changes:
 - **Branches:** `feature/<issue#>-short-description` or `fix/<issue#>-short-description` (e.g. `feature/12-secret-detection-hooks`).
 - Commit freely on the branch; **squash-merge** to `main` via PR. Every PR references its issue.
 - Open PRs with the sections in [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md): Summary, Test plan, **Security review**, Breaking changes.
-- **CI is being wired incrementally.** Live workflows (`.github/workflows/`): Prettier (posts), OG card guard, and Pages sync. Still pending: the fixture validator and a hook-test runner — until those land, the data-safety and hook gates are review-enforced, not automated. Run the relevant local checks first — e.g. `python3 .claude/hooks/tests/test_hooks.py` for hook changes, and the `pytest` suites under `tooling/sanitizer/` and `tooling/format-scan/` for tooling changes.
+- **CI is being wired incrementally.** Live workflows (`.github/workflows/`): Prettier (posts), OG card guard, Pages sync, and Sanitizer CI (pytest on a 3.11/3.12/3.13 matrix, `python -m build`, `twine check --strict`, and a clean-environment wheel smoke test; the aggregate `sanitizer-ci` job is the required check). Still pending: the fixture validator and a hook-test runner — until those land, the data-safety and hook gates are review-enforced, not automated. Run the relevant local checks first — e.g. `python3 .claude/hooks/tests/test_hooks.py` for hook changes, and the `pytest` suites under `tooling/sanitizer/` and `tooling/format-scan/` for tooling changes.
 
 ### Release tags
 
@@ -128,7 +128,7 @@ If you're working on AgentFluent or CodeFluent and find new format details, they
 - **Posts:** Markdown (Jekyll-compatible frontmatter), Prettier-gated
 - **Reference:** Markdown
 - **Tooling:** Python — the sanitizer (`tooling/sanitizer/`, shipped with a `pytest` suite), the format-scan drift scanner (`tooling/format-scan/`), and the publish/OG helpers (`tooling/*.py`). The fixture-validator is still planned.
-- **CI:** GitHub Actions — Prettier, OG card guard, and Pages sync are live; fixture validation is planned.
+- **CI:** GitHub Actions — Prettier, OG card guard, Pages sync, and Sanitizer CI (test matrix + packaging checks) are live; fixture validation is planned.
 
 ## Status
 
