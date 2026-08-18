@@ -34,7 +34,8 @@ Mechanical enforcement is in place via `.claude/hooks/block_secret_reads.py` (Pr
 - Required frontmatter: `layout`, `title`, `date`, `description`, `categories`, `tags`, `og_image`, `featured`, `claude_code_version_verified` (the Claude Code version the post was last fact-checked against)
 - **`posts/` frontmatter tracks the Pages site's conventions directly** (issue #14), so the publish transform stays thin:
   - `date` carries a time + UTC offset: `YYYY-MM-DD HH:MM:SS-TZTZ` (e.g. `2026-05-26 00:00:00-0800`)
-  - `categories` and `tags` are quoted-string arrays: `["foundation"]`, `["claude-code", "jsonl"]`
+  - `categories` and `tags` are quoted-string arrays: `["claude-code-sessions"]`, `["claude-code", "jsonl"]`
+  - **`categories` names the series, not the kind of post** — always `["claude-code-sessions"]` here. The Pages site builds its blog filter chips from categories, and a second repo publishes into the same `_posts/` namespace, so the category is what separates the two series. Kind (`foundation`, `analysis`, `format-update`, `security`, `tooling`) is a tag; see [`posts/README.md`](posts/README.md#categories-and-tags)
   - `featured: false` unless a post is explicitly featured
   - `claude_code_version_verified` is **upstream-only**: it drives the re-verification cadence here but Pages ignores it, so `tooling/publish-to-pages.py` strips this one field on publish and copies everything else verbatim
 - **Code fences and the Prettier gate.** The `posts/` Prettier gate (issue #76) formats fenced code in recognized languages. Author to it, don't fight it:

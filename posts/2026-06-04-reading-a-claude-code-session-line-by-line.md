@@ -3,8 +3,8 @@ layout: post
 title: "Reading a Claude Code session, line by line"
 date: 2026-06-04 00:00:00-0800
 description: "Part 2 of the anatomy series. Every type of line in a session JSONL, the snake_case/camelCase split that reveals two layers (API content wrapped in Claude Code's bookkeeping), and why tool results live inside user messages."
-categories: ["foundation"]
-tags: ["claude-code", "agent-sdk", "jsonl", "sessions"]
+categories: ["claude-code-sessions"]
+tags: ["claude-code", "agent-sdk", "jsonl", "sessions", "foundation"]
 og_image: https://frederick-douglas-pearce.github.io/assets/img/reading-a-claude-code-session-line-by-line-og.png
 og_card_source: social/images/2026-06-04-linkedin-reading-a-claude-code-session-line-by-line/og-card.png
 featured: false

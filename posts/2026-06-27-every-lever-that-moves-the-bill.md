@@ -3,8 +3,8 @@ layout: post
 title: "Every lever that moves the bill"
 date: 2026-06-27 00:00:00-0800
 description: "An aside off Part 4. cache_creation_input_tokens is the sum of two TTLs that price differently. That's the most expensive gap, but it's not the only one. A complete picture of every input that moves the effective cost of a Claude Code turn."
-categories: ["foundation"]
-tags: ["claude-code", "jsonl", "tokens", "cost"]
+categories: ["claude-code-sessions"]
+tags: ["claude-code", "jsonl", "tokens", "cost", "foundation"]
 og_image: https://frederick-douglas-pearce.github.io/assets/img/every-lever-that-moves-the-bill-og.png
 og_card_source: social/images/2026-06-27-linkedin-every-lever-that-moves-the-bill/og-card.png
 featured: false

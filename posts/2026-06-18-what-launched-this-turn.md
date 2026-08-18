@@ -3,8 +3,8 @@ layout: post
 title: "What launched this turn? Subagents, MCP tools, and Skills"
 date: 2026-06-18 00:00:00-0800
 description: "A short aside off Part 3. Every assistant line can carry a record of how it came to exist — which subagent ran it, which MCP tool it routed through, which Skill it ran under. The attribution* fields, what each one records, and the one that is not the sidechain signal it looks like."
-categories: ["foundation"]
-tags: ["claude-code", "agent-sdk", "jsonl", "sessions", "subagents"]
+categories: ["claude-code-sessions"]
+tags: ["claude-code", "agent-sdk", "jsonl", "sessions", "subagents", "foundation"]
 og_image: https://frederick-douglas-pearce.github.io/assets/img/what-launched-this-turn-og.png
 og_card_source: social/images/2026-06-18-linkedin-what-launched-this-turn/og-card.png
 featured: false

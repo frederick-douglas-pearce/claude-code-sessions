@@ -3,8 +3,8 @@ layout: post
 title: "What should a better leaderboard have measured?"
 date: 2026-07-25 00:00:00-0800
 description: "Meta, Amazon, and Uber each learned what happens when you rank engineers by tokens. Session data records everything up to the moment work is handed off and nothing after it. What that boundary actually permits, and why the missing numerator was never the tool's to supply."
-categories: ["foundation"]
-tags: ["claude-code", "jsonl", "sessions", "cost", "metrics"]
+categories: ["claude-code-sessions"]
+tags: ["claude-code", "jsonl", "sessions", "cost", "metrics", "foundation"]
 og_image: https://frederick-douglas-pearce.github.io/assets/img/what-should-a-better-leaderboard-have-measured-og.png
 og_card_source: social/images/2026-07-25-linkedin-what-should-a-better-leaderboard-have-measured/og-card.png
 featured: false

@@ -3,8 +3,8 @@ layout: post
 title: "Token accounting is harder than it looks"
 date: 2026-06-24 00:00:00-0800
 description: "Part 4 of the anatomy series. The four token kinds, the subagent rollup undercount trap, and why turning session JSONL into accurate cost figures needs model identity, service_tier, and an external pricing table rather than a single sum."
-categories: ["foundation"]
-tags: ["claude-code", "jsonl", "sessions", "tokens", "cost"]
+categories: ["claude-code-sessions"]
+tags: ["claude-code", "jsonl", "sessions", "tokens", "cost", "foundation"]
 og_image: https://frederick-douglas-pearce.github.io/assets/img/token-accounting-is-harder-than-it-looks-og.png
 og_card_source: social/images/2026-06-24-linkedin-token-accounting-is-harder-than-it-looks/og-card.png
 featured: false
