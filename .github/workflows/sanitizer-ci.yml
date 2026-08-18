@@ -163,6 +163,29 @@ jobs:
             exit 1
           fi
 
+      # `tests` ships in the sdist so a packager or an auditor can re-run
+      # the suite against the exact published source. That claim only stays
+      # true if something checks it, and nothing did: issue #182 was a test
+      # reaching up to `.claude/hooks/` from a tarball that has no repo root,
+      # producing three red tests in the drift guard of a security tool for
+      # anyone who did what the packaging comment invites. Running the
+      # SHIPPED tests from an unpacked sdist, outside the checkout, moves
+      # that failure here from a stranger's terminal.
+      #
+      # The venv's bin goes on PATH so the console-script tests run rather
+      # than skipping themselves for want of `ccs-sanitize`.
+      - name: Run the shipped test suite from the unpacked sdist
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/sdist-check
+          tar -xzf dist/*.tar.gz -C /tmp/sdist-check
+          python -m venv /tmp/sdist-venv
+          /tmp/sdist-venv/bin/python -m pip install --upgrade pip
+          cd /tmp/sdist-check/*/
+          /tmp/sdist-venv/bin/python -m pip install . pytest
+          PATH="/tmp/sdist-venv/bin:$PATH" \
+            /tmp/sdist-venv/bin/python -m pytest tests -q
+
   # Single always-reporting status check. Branch protection points at this
   # job name, not at the matrix cells: matrix job names carry the interpreter
   # version, so adding or dropping a cell would otherwise mean editing the
