@@ -12,20 +12,31 @@ layout: post
 title: "Post title"
 date: YYYY-MM-DD
 description: "One-sentence summary used for previews and SEO"
-categories: [foundation | format-update | security | tooling]
-tags: [claude-code, jsonl, sessions, ...]
+categories: ["claude-code-sessions"]
+tags: [claude-code, jsonl, sessions, ..., foundation | format-update | security | tooling]
 claude_code_version_verified: vX.Y.Z
 ---
 ```
 
 The `claude_code_version_verified` field records the Claude Code version the post was last fact-checked against. Posts more than ~3 minor versions behind current should be re-verified before being treated as authoritative.
 
-## Categories
+## Categories and tags
+
+`categories` names the **series**, not the kind of post. Every post here is
+`["claude-code-sessions"]`, and it stays that way — the Pages site drives its blog
+filter chips off categories (`display_categories`), so one category per series is
+what makes "show me only this series" work across the two repos that publish into
+the same `_posts/` namespace.
+
+The kind of post lives on the **tags** axis instead:
 
 - `foundation` — evergreen anatomy and reference posts (e.g., "Anatomy of a Claude Code session")
+- `analysis` — measuring something with the format rather than documenting it
 - `format-update` — drops covering new fields, renames, or bug-fix-driven format changes
 - `security` — what's in your sessions and how to handle it
 - `tooling` — using and building tools against the format
+
+Add topic tags (`claude-code`, `jsonl`, `sessions`, `tokens`, …) alongside the kind.
 
 ## Embedding fixture data
 
