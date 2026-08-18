@@ -85,10 +85,11 @@ Use semver: `MAJOR.MINOR.PATCH`.
   `load_config`, the CLI asks `git check-ignore -v <config>` whether
   the resolved config path is gitignored. If not, exits 3 with an
   actionable message naming the file and pointing at
-  `.ccs-sanitize.example.yaml`. `--no-check` opts out for CI
-  environments without a `.git` directory and for the test suite. If
-  `git` is unavailable or the cwd is not a git repository, the check
-  warns to stderr and proceeds — defense-in-depth, not the only defense
+  `.ccs-sanitize.example.yaml`. If `git` is unavailable or the cwd is
+  not a git repository, the check warns to stderr and proceeds, so
+  exit 3 is reachable only from inside a git repository. `--no-check`
+  is a deliberate override of the guard rather than the remedy for
+  exit 3 — defense-in-depth, not the only defense
   (the convention layer and the future hook layer [#47] cover the same
   threat from other angles).
 - Template lives at `ccs_sanitize/_templates/ccs-sanitize.example.yaml`

@@ -581,10 +581,13 @@ leak surface and is treated as sensitive across the rest of the threat model bel
   whether the resolved config path is gitignored. If not: refuse to operate, exit
   code 3, actionable error naming the file and pointing at `.ccs-sanitize.example.yaml`.
   The check runs on every invocation so a user who ignored the `--init` reminder
-  still hits a clear error before the scrub starts. `--no-check` opts out for CI
-  environments without a `.git` directory and for the test suite. If `git` is
-  unavailable or the cwd is not a git repository, the check warns to stderr and
-  proceeds — defense-in-depth, not the only defense.
+  still hits a clear error before the scrub starts. If `git` is unavailable or the
+  cwd is not a git repository, the check warns to stderr and proceeds —
+  defense-in-depth, not the only defense. `--no-check` is a deliberate override of
+  the guard, not the remedy for exit 3 (gitignoring the config is), and the test
+  suite is its main legitimate user; a repo-less environment does not need it,
+  because that case already takes the warn-and-proceed path
+  ([#164](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/164)).
 
 **Defense layers — additional.**
 
