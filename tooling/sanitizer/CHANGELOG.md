@@ -20,6 +20,13 @@ includes, non-exhaustively:
 A bug fix that does **not** change which inputs match (e.g., refactoring a
 helper, fixing an error message) does not require a bump.
 
+The mechanical check on this list is `tests/test_golden_determinism.py`. It
+diffs the produced output and sidecar against committed bytes in
+`tests/golden/`, on every interpreter in the CI matrix. **A red golden test is
+the bump trigger firing**, so treat it as a finding: confirm the diff is the
+change you meant, bump, and record it here — then regenerate the fixture, in
+that order. Regenerating first turns the trigger off without answering it.
+
 The rule is conservative because the PRD's determinism contract — "same input
 + same config → byte-identical output" — only holds *within* a sanitizer
 version. Downstream consumers (the fixture-validator, sibling projects) gate
@@ -39,7 +46,23 @@ unrelated tags).
 
 ## [Unreleased]
 
-_Nothing yet._
+No version bump: nothing below changes the produced bytes.
+
+### Added (issue #162 — Python CI and the cross-interpreter golden fixture)
+- **`tests/golden/`** — a committed determinism artifact: a synthetic session,
+  a pinned config, and the exact expected output and sidecar bytes.
+  `tests/test_golden_determinism.py` asserts them in every cell of the CI
+  matrix, so 3.11, 3.12, and 3.13 must all reproduce the same bytes on disk
+  rather than merely matching themselves. The determinism tests that predate
+  this all ran the same input twice on one interpreter, which proves an
+  interpreter agrees with itself and nothing more — and consumers do not scrub
+  and validate on the same host.
+- **`.github/workflows/sanitizer-ci.yml`** — the pytest matrix (3.11 / 3.12 /
+  3.13, matching the declared classifiers), `python -m build`,
+  `twine check --strict`, and a clean-environment smoke test of the built
+  wheel that exercises `--init` so a dropped package-data template fails a
+  pull request instead of a `twine upload`. The aggregate `sanitizer-ci` job
+  is the required status check.
 
 ## [0.3.0] — 2026-08-17
 
