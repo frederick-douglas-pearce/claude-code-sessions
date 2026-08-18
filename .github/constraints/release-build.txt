@@ -1,0 +1,30 @@
+# Build-backend constraint for RELEASE builds only (issue #163).
+#
+# `tooling/sanitizer/pyproject.toml` declares `build-system.requires =
+# ["hatchling>=1.27"]` -- a floor, not a pin, so an ordinary
+# `python -m build` resolves whatever hatchling exists at that moment.
+# That is the right default for a tool people are meant to fork and
+# rebuild: constraining the backend in `pyproject.toml` would push the
+# pin onto downstream packagers building from the sdist.
+#
+# It is the wrong default for the bytes we publish. This package's whole
+# pitch is "this artifact came from this workflow," and a release built
+# by an unnamed backend version weakens that claim: two tags cut a month
+# apart could produce different metadata for identical source, and the
+# PEP 740 attestation would faithfully attest to both.
+#
+# So the pin lives here, applied via `PIP_CONSTRAINT` on the release
+# build step only. Bumping it is a visible, reviewable one-line diff on
+# a PR rather than a silent resolution at tag time.
+#
+# This is not theoretical. Verified locally 2026-08-18 by building this
+# package twice against the same source: hatchling 1.27.0 produces
+# `Metadata-Version: 2.4`, hatchling 1.32.0 produces `2.5` (PEP 794). The
+# backend version therefore decides a metadata field that the index itself
+# can accept or reject -- Warehouse refused 2.5 uploads outright until
+# 2026-02-17. An unpinned release build lets that field change without a
+# diff, and `twine check --strict` will not notice, because it validates the
+# metadata it understands rather than asking the server.
+#
+# Chosen 2026-08-18: latest hatchling at the time #163 landed.
+hatchling==1.32.0

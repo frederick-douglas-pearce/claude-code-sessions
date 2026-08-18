@@ -1,0 +1,301 @@
+name: Sanitizer Release
+
+# Publishes `claude-code-sessions-sanitizer` to PyPI via Trusted Publishing
+# (issue #163). The runbook for the human half -- account setup, the pending
+# publisher, the rehearsal, the post-upload verification -- is
+# `tooling/sanitizer/RELEASING.md`.
+#
+# The framing this workflow is built around: publishing a sanitizer is a
+# supply-chain event, not a packaging exercise. The dominant risk is not "the
+# package fails to install." It is that a compromised or malformed release
+# ships a sanitizer that appears to work and silently under-scrubs. Everyone
+# running that release is, by definition, handling raw session data that
+# contains secrets, and the only signal they get is an exit code. A bad
+# `ccs-sanitize` release leaks other people's credentials, not ours.
+#
+# Four properties follow from that, and each maps to something below:
+#
+#   1. Nothing at rest can publish. No `PYPI_API_TOKEN` in repo secrets; OIDC
+#      mints a short-lived token per run, scoped to this repo + workflow +
+#      environment. `id-token: write` is granted to the two publish jobs
+#      only, so neither `ci` nor `build` ever holds an OIDC-capable token.
+#   2. The bytes uploaded are the bytes that were tested. The `ci` job re-runs
+#      the full matrix on the tagged ref, and `build` smoke-tests the exact
+#      artifact it is about to hand to the publisher. See the note on the
+#      smoke-test step for why re-running it here is not redundant.
+#   3. A manual run cannot reach real PyPI. Index is chosen by event type, not
+#      by an input: tag push -> PyPI, `workflow_dispatch` -> TestPyPI. There
+#      is no field to fat-finger.
+#   4. The artifact is verifiable by a stranger. PEP 740 attestations are on.
+
+on:
+  push:
+    # Component-scoped, never a bare `v*`. This is a monorepo holding posts,
+    # reference docs, and three tools; a `v*` filter would fire this publish
+    # job on a future repo-level or Pages tag. Convention is documented in
+    # `tooling/sanitizer/README.md` -> "Releases and tagging" (#160).
+    tags: ["sanitizer-v*"]
+  # Rehearsal only. This path can reach TestPyPI and nothing else.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sanitizer-release-${{ github.ref }}
+  # Deliberately not cancel-in-progress. A cancelled run that was mid-upload
+  # burns a version number PyPI will never accept again.
+  cancel-in-progress: false
+
+jobs:
+  # Re-runs the whole `sanitizer-ci` gate (3.11/3.12/3.13 matrix, build,
+  # `twine check --strict`, clean-venv wheel smoke test) against this ref.
+  #
+  # This is not belt-and-braces, it is the load-bearing check. `sanitizer-ci`
+  # has no `tags:` trigger, so pushing `sanitizer-v0.3.0` runs it on nothing.
+  # A green check appearing on a tag is transitive and incidental: the tagged
+  # SHA was built because a squash-merge to `main` built it. Nothing enforces
+  # that a tag lands on a SHA that was ever built, and a tag on an older
+  # commit, or on a commit whose run was cancelled, presents as "no status"
+  # rather than as red. Branch protection does not close the gap either --
+  # the `main` ruleset has `RepositoryRole: admin` at `bypass_mode: always`,
+  # so "it could not have been merged red" is not a claim about these bytes.
+  #
+  # A local reusable-workflow call runs at the caller's commit, so this is
+  # structural rather than a status query that has to remember to treat an
+  # absent status as failure. Costs about 40 seconds.
+  ci:
+    uses: ./.github/workflows/sanitizer-ci.yml
+
+  build:
+    name: build release artifacts
+    needs: ci
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          # Lowest supported interpreter, matching `sanitizer-ci`'s `package`
+          # job: the wheel is pure Python with `requires-python = ">=3.11"`,
+          # so a backend that emitted a 3.13-only artifact surfaces here
+          # rather than at upload time.
+          python-version: "3.11"
+
+      - name: Read the package version
+        id: version
+        run: |
+          set -euo pipefail
+          version="$(python - <<'PY'
+          import pathlib, re, sys
+
+          src = pathlib.Path("tooling/sanitizer/src/ccs_sanitize/__init__.py")
+          match = re.search(r'^__version__\s*=\s*"([^"]+)"', src.read_text(), re.M)
+          if not match:
+              sys.exit(f"no __version__ assignment found in {src}")
+          print(match.group(1))
+          PY
+          )"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "package version: $version"
+
+      # Gate 1. A tag whose name disagrees with `__version__` is the quiet
+      # way to publish 0.3.0's bytes under a 0.3.1 tag, or to publish
+      # yesterday's code because the bump commit was never merged. The
+      # sanitizer's determinism contract is anchored to the version string
+      # that lands in every `.scrubbed` sidecar, so a version that means the
+      # wrong bytes is worse here than in an ordinary package.
+      - name: Gate -- tag must match __version__
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ "$REF_TYPE" != "tag" ]; then
+            echo "::notice::dispatched from a non-tag ref ($REF_NAME); skipping the tag/version check. This path can only reach TestPyPI."
+            exit 0
+          fi
+          expected="sanitizer-v${VERSION}"
+          if [ "$REF_NAME" != "$expected" ]; then
+            echo "::error::tag $REF_NAME does not match __version__ ${VERSION} (expected $expected)"
+            exit 1
+          fi
+          echo "tag $REF_NAME matches __version__ ${VERSION}"
+
+      # Gate 2. The CHANGELOG is where the determinism contract is cashed
+      # out: downstream consumers gate on the sidecar's `sanitizer_version`
+      # and read that file to find out what changed under it. A release with
+      # no entry publishes a version number that answers nothing.
+      - name: Gate -- CHANGELOG has an entry for this version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          changelog="tooling/sanitizer/CHANGELOG.md"
+          # Escape `.` so 0.3.0 cannot be satisfied by a 0y3z0 heading.
+          pattern="^## \[${VERSION//./\\.}\]"
+          if ! grep -qE "$pattern" "$changelog"; then
+            echo "::error::no '## [${VERSION}]' heading in $changelog"
+            exit 1
+          fi
+          grep -m1 -E "$pattern" "$changelog"
+
+      - name: Install build tooling
+        run: python -m pip install --upgrade pip build twine
+
+      # `PIP_CONSTRAINT` is what reaches inside `build`'s isolated build
+      # environment; `pip -c/--constraint` on the outer invocation does not
+      # (pypa/pip#13300). pip is growing a dedicated `PIP_BUILD_CONSTRAINT`
+      # for exactly this; when it is available on the runner's pip, switch to
+      # it -- the env var below is the current mechanism, not a preference.
+      # Absolute path because `build` runs the backend from a temp cwd.
+      - name: Build sdist and wheel with a pinned backend
+        env:
+          PIP_CONSTRAINT: ${{ github.workspace }}/.github/constraints/release-build.txt
+        run: python -m build --sdist --wheel --outdir dist/ tooling/sanitizer
+
+      # Gate 3. Catches a build that silently produced a different version
+      # than the one just gated, and a backend that changed name
+      # normalization out from under us.
+      - name: Gate -- artifact filenames carry the gated version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          sdist="dist/claude_code_sessions_sanitizer-${VERSION}.tar.gz"
+          wheel="dist/claude_code_sessions_sanitizer-${VERSION}-py3-none-any.whl"
+          for artifact in "$sdist" "$wheel"; do
+            if [ ! -f "$artifact" ]; then
+              echo "::error::expected artifact missing: $artifact"
+              ls -l dist/
+              exit 1
+            fi
+          done
+          # Nothing else may ride along into the upload.
+          count="$(find dist -maxdepth 1 -type f | wc -l)"
+          if [ "$count" -ne 2 ]; then
+            echo "::error::dist/ holds $count files; expected exactly the sdist and the wheel"
+            ls -l dist/
+            exit 1
+          fi
+
+      # `--strict` turns README rendering warnings into failures. PyPI
+      # rejects or mangles a project page on exactly these, and learning that
+      # during upload burns a version number.
+      #
+      # What it does NOT do: ask PyPI whether the server accepts our
+      # `Metadata-Version`. hatchling emits 2.5 (PEP 794), and Warehouse
+      # rejected 2.5 outright until 2026-02-17. A green `twine check` would
+      # have sailed straight into a rejected first upload. The TestPyPI
+      # rehearsal is the only gate that catches a server-side metadata
+      # rejection -- treat it as load-bearing, not as a nicety.
+      - name: twine check --strict
+        run: python -m twine check --strict dist/*
+
+      # Not redundant with the identical step in `sanitizer-ci`. That job
+      # builds with the FLOATING backend (`hatchling>=1.27`) and throws the
+      # result away; this job builds with the PINNED backend and ships what
+      # it built. Smoke-testing only the discarded artifact would satisfy the
+      # letter of "the build is tested" while publishing bytes no test ever
+      # touched. `--init` is the step that reads the bundled config template
+      # out of package data, so a packaging regression that dropped it would
+      # pass `twine check` and fail here.
+      - name: Smoke-test the artifact that will be published
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          python -m venv /tmp/release-smoke
+          /tmp/release-smoke/bin/python -m pip install --upgrade pip
+          /tmp/release-smoke/bin/python -m pip install dist/*.whl
+          reported="$(/tmp/release-smoke/bin/ccs-sanitize --version)"
+          echo "ccs-sanitize --version -> $reported"
+          case "$reported" in
+            *"$VERSION"*) ;;
+            *) echo "::error::--version reported '$reported', expected it to contain ${VERSION}"; exit 1 ;;
+          esac
+          # Run `--init` outside the checkout and outside any git repository:
+          # that is the first-run shape for a `pip install` user with no
+          # clone, and it exercises the guard's warn-and-proceed path.
+          mkdir -p /tmp/release-smoke-run
+          cd /tmp/release-smoke-run
+          /tmp/release-smoke/bin/ccs-sanitize --init
+          test -s .ccs-sanitize.example.yaml
+          # `--init` writes the schema-only example AND the live config. Only
+          # the example is asserted by name -- naming the live config in a
+          # committed file is what `.claude/hooks/block_secret_reads.py`
+          # exists to discourage -- so the count stands in for the other one.
+          written="$(find . -maxdepth 1 -type f | wc -l)"
+          if [ "$written" -ne 2 ]; then
+            echo "::error::--init produced $written files; expected the example and the live config"
+            ls -la
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  # Rehearsal. Reachable only by `workflow_dispatch`, and it can address no
+  # index other than TestPyPI.
+  publish-testpypi:
+    name: publish to TestPyPI (rehearsal)
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi-sanitizer
+      url: https://test.pypi.org/p/claude-code-sessions-sanitizer
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          attestations: true
+
+  publish-pypi:
+    name: publish to PyPI
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    # The environment is where the human approval and the deployment-tag
+    # policy live. Both are repo settings, so they survive a workflow file
+    # tampered with at a malicious tag -- which this `if:` and the trigger
+    # filter above, being file-resident, do not.
+    environment:
+      name: pypi-sanitizer
+      url: https://pypi.org/p/claude-code-sessions-sanitizer
+    permissions:
+      # The only elevated permission in this workflow, granted to the only
+      # job that needs it, for the length of one upload.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+
+      # SHA-pinned, unlike `actions/checkout@v6` and friends elsewhere in
+      # this repo. This is the one action that holds the minted OIDC token,
+      # so a moved tag on it is a publish-a-poisoned-sanitizer event rather
+      # than a broken build. The cost is that upgrades are manual; that is
+      # the intended trade. Keep this pin identical to the TestPyPI job's,
+      # or the rehearsal stops rehearsing the thing that ships.
+      #
+      # `attestations: true` is the action's current default. It is stated
+      # explicitly so that a future default flip shows up as a diff here
+      # instead of as provenance that quietly stopped being emitted.
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          attestations: true

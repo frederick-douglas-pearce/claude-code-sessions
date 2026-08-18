@@ -219,6 +219,15 @@ would be ambiguous, and a `v*` tag filter in the release workflow
 would fire the PyPI publish job on any future repo-level or Pages tag. The tag is
 `sanitizer-v<version>`, matching `__version__` and the CHANGELOG heading exactly.
 
+Pushing that tag starts [`sanitizer-release.yml`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/.github/workflows/sanitizer-release.yml),
+which publishes to PyPI through Trusted Publishing (OIDC, no stored API token) with
+[PEP 740](https://peps.python.org/pep-0740/) attestations. It re-runs the full test
+matrix and the packaging job against the tagged commit rather than inheriting a status
+from `main`, builds with a pinned backend, smoke-tests the artifact it is about to
+upload, and then waits on a protected environment for a human. The maintainer-facing
+runbook, including the TestPyPI rehearsal that has to happen before a real upload, is
+[RELEASING.md](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/sanitizer/RELEASING.md).
+
 ## Getting started
 
 The live `.ccs-sanitize.yaml` holds the literal PII strings the sanitizer
@@ -285,7 +294,10 @@ Version bumps follow [`CHANGELOG.md`](https://github.com/frederick-douglas-pearc
 byte-affecting change" checklist, because the value lands in every `.scrubbed` sidecar and
 downstream consumers gate on it. What each bump level promises to those consumers is
 [Stability and the determinism contract](#stability-and-the-determinism-contract) above.
-Cutting a release also means tagging `sanitizer-v<version>`.
+Cutting a release also means tagging `sanitizer-v<version>`, which is the trigger for
+the release workflow described in [Releases and tagging](#releases-and-tagging) above and
+walked through step by step in
+[RELEASING.md](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/sanitizer/RELEASING.md).
 
 ## Not in scope (for v0)
 
