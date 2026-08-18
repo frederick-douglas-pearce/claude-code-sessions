@@ -116,15 +116,32 @@ ccs-sanitize --init                 # writes .ccs-sanitize.example.yaml +
 $EDITOR .ccs-sanitize.yaml          # fill in your real match values
 ccs-sanitize <input> -o <output>    # the pre-run gitignore guard refuses
                                     # to scrub unless .ccs-sanitize.yaml is
-                                    # gitignored (opt out with --no-check)
+                                    # gitignored, when inside a git repo
 ```
 
-The pre-run gitignore guard is built in and runs on every invocation —
-exit code 3 with an actionable message if the resolved config is not
-gitignored. `--no-check` opts out (for CI environments without a `.git`
-directory and for the test suite). The threat model and the full layered
-defenses are documented in
+The pre-run gitignore guard is built in and runs on every invocation.
+If the resolved config lives inside a git repository and is not
+gitignored, the run stops with exit code 3 and an actionable message.
+`--no-check` opts out of the guard entirely. It is a deliberate
+override, used by the test suite and by anyone who has knowingly
+accepted the risk; it is not the remedy for exit 3, which is to
+gitignore the config. The threat model and the full layered defenses
+are documented in
 [PRD §12b](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/.claude/specs/prd-sanitizer.md#12b-config-storage-and-safety).
+
+### First run without a clone
+
+If you installed from PyPI and are scrubbing in a scratch directory
+that is not a git repository, the guard has no ignore rules to consult.
+It prints one warning line to stderr and the scrub proceeds normally.
+That warning does not mean the scrub was unsafe or incomplete. It means
+the `git add .` threat the guard defends against does not apply where
+there is no repository to stage into, so the guard had nothing to
+check. The same warn-and-proceed path covers a missing `git` binary and
+any other `git check-ignore` failure.
+
+Exit 3 is reachable only from inside a git repository. If you later
+move that config into a repo, gitignore it there.
 
 ## Development
 

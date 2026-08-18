@@ -162,9 +162,13 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Skip the pre-run check that the resolved config path is "
-            "gitignored. Default is fail-closed (exit 3) when the config "
-            "is not gitignored. Use only for CI environments without a "
-            ".git directory or for the test suite. PRD section 12b."
+            "gitignored. The guard fails closed (exit 3) only when the "
+            "config is inside a git repository and is not gitignored; "
+            "outside a repository it already warns and proceeds. This "
+            "flag is a deliberate override of the guard, used by the "
+            "test suite and by anyone who has knowingly accepted the "
+            "risk. It is not the fix for exit 3 -- gitignoring the "
+            "config is. PRD section 12b."
         ),
     )
     parser.add_argument(
@@ -273,7 +277,8 @@ def _run_init(verbose: bool) -> int:
         f"ccs-sanitize: reminder: add `{_CONFIG_FILENAME}` to your "
         f".gitignore before committing. See "
         f"`{_EXAMPLE_CONFIG_FILENAME}` for the recommended pattern; the "
-        "pre-run gitignore guard will refuse to run otherwise.",
+        "pre-run gitignore guard refuses to run otherwise, once this "
+        "directory is a git repository.",
         file=sys.stderr,
     )
     return 0
@@ -424,9 +429,11 @@ def _check_config_gitignored(config_path: Path, verbose: bool) -> None:
             f"  The sanitizer config holds literal PII match values and "
             f"would leak through `git add .`. Add `{_CONFIG_FILENAME}` "
             f"to your .gitignore and re-run. See "
-            f"`{_EXAMPLE_CONFIG_FILENAME}` for the recommended convention, "
-            "or pass --no-check to bypass (CI environments without a "
-            ".git directory only)."
+            f"`{_EXAMPLE_CONFIG_FILENAME}` for the recommended "
+            "convention.\n"
+            "  --no-check is a deliberate override of this guard, not a "
+            "fix for this error: it scrubs anyway, leaving the config "
+            "stageable."
         )
     # Anything else: not a git repo (128), broken index, etc. Treat as
     # "cannot check" rather than failing closed — the test suite and CI

@@ -348,6 +348,11 @@ def test_check_refuses_when_config_not_gitignored(
     # Actionable message names the file and points at the convention.
     assert _CONFIG_FILENAME in captured.err
     assert _EXAMPLE_CONFIG_FILENAME in captured.err
+    # The remedy is .gitignore, not --no-check (#164). The message must
+    # frame the flag as an override rather than steering a stranger who
+    # just hit exit 3 toward disabling the guard.
+    assert ".gitignore" in captured.err
+    assert "deliberate override" in captured.err
     # Fail-closed: no output, no sidecar (PRD §11 + §12b).
     assert not out.exists()
     assert not (tmp_path / "out.jsonl.scrubbed").exists()
@@ -385,8 +390,12 @@ def test_no_check_bypasses_gitignore_guard(
 ) -> None:
     """``--no-check`` opts out of the pre-run guard on a non-ignored config.
 
-    Required for CI environments without a .git directory and for the
-    sanitizer's own test suite (issue #45 architect review C-4).
+    A deliberate override, whose main legitimate user is the sanitizer's
+    own test suite (issue #45 architect review C-4). Note that a repo-less
+    environment does not need it: that path warns and proceeds on its own
+    (see ``test_check_warns_when_not_in_git_repo``), which is why the
+    flag's help text no longer advertises it as the CI accommodation
+    (issue #164).
     """
     _isolate_global_git(monkeypatch, tmp_path)
     _init_git_repo(tmp_path)

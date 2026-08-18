@@ -480,6 +480,7 @@ Titles below are conventional-commit style and match the filed issues.
 | Q5 | Force the secret-pattern dedup now, or defer? | **Defer.** The in-sync test holds and the hook copy is not shipped. Recorded as issue G. |
 | Q6 | New epic label `epic:sanitizer-pypi`, or file under existing `epic:sanitizer` (#1)? | **New label.** A coherent multi-issue initiative, distinct from epic #1 whose v0 implementation scope is complete. |
 | Q7 | Trusted Publishing (OIDC) vs API token? | **Trusted Publishing.** No standing credential to leak. Taken as settled, not a genuine trade-off for a tool in this category. |
+| Q9 | Should the sidecar carry a `sidecar_schema_version` independent of `sanitizer_version`? | **Yes. Add `sidecar_schema_version: 1` at `0.3.0`.** Ruled 2026-08-17. The asymmetry decides it: added now, every public-era sidecar carries it; added at `0.4.0`, consumers handle its absence forever. Unblocks #160. |
 
 ### Still open (not blocking the filed issues)
 
@@ -561,10 +562,16 @@ the fork-and-customize path is served by YAML config and additive `extra_secret_
 which is data rather than code, so no consumer needs to import `orchestrator` or
 `pipeline` in-process.
 
-### Q9 — open, needs a ruling before #160 is worked
+### Q9 — RULED 2026-08-17: yes, add `sidecar_schema_version: 1` at `0.3.0`
 
 Should the sidecar carry a `sidecar_schema_version` independent of `sanitizer_version`?
 Today it does not, so the tool version doubles as the schema key and consumers must map
 versions to shapes. **Recommendation: add `sidecar_schema_version: 1` at `0.3.0`.** The
 asymmetry decides it: added now, every public-era sidecar carries it; added at `0.4.0`,
-consumers handle its absence forever. Recorded as an open decision in #160.
+consumers handle its absence forever.
+
+**Ruled 2026-08-17: accepted.** `sidecar.py` emits `sidecar_schema_version: 1` from
+`0.3.0`, and the field is documented alongside the determinism contract as part of
+#160. It versions the sidecar *shape* only; `sanitizer_version` continues to key the
+byte-level determinism contract. PRD §9b jitter, which turns the `jitter` scalar into
+a structured value, is the first expected consumer of a bump to `2`.
