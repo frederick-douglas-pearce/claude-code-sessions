@@ -32,6 +32,17 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  # Callable so `sanitizer-release.yml` can re-run this entire gate against
+  # the tagged ref (issue #163). A local `uses: ./.github/workflows/...`
+  # call runs at the caller's commit, which is what makes "tests were green
+  # on the exact bytes being published" a structural property rather than a
+  # status lookup that has to remember to treat *absent* as failure.
+  #
+  # Note what this trigger does NOT change: a tag push still does not fire
+  # this workflow on its own (`push:` is branch-filtered), and the required
+  # `sanitizer-ci` check on pull requests is unaffected. When called, the
+  # gate job reports under the caller's job name (`ci / sanitizer-ci`).
+  workflow_call:
 
 permissions:
   contents: read
