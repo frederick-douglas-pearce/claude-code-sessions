@@ -13,8 +13,10 @@ Covers PRD section 10 (the ``.scrubbed`` sidecar contract):
   - Placeholder synthesis per architect-recommended Option A
     (``<git-branch>``, ``<uuid>``, ``<path-N>``, ``<identifier-N>``).
   - Field order in the rendered YAML matches the PRD section 10 example
-    (sanitizer_version first, residual_scan last) -- a determinism
+    (sidecar_schema_version first, residual_scan last) -- a determinism
     property the sidecar-diff workflow depends on.
+  - The sidecar schema version is emitted, is an integer, and is
+    independent of ``__version__`` (Q9).
   - The I-3 emit-time leak guard fires on a constructed leak.
 """
 
@@ -28,6 +30,7 @@ import yaml
 from ccs_sanitize import __version__
 from ccs_sanitize.orchestrator import sanitize_session
 from ccs_sanitize.sidecar import (
+    SIDECAR_SCHEMA_VERSION,
     SidecarLeakError,
     SidecarMetadata,
     build_sidecar,
@@ -130,6 +133,7 @@ def test_round_trip_all_required_fields_present(tmp_path: Path) -> None:
     payload = yaml.safe_load(sidecar_yaml)
 
     # Required scalar fields (PRD section 10).
+    assert payload["sidecar_schema_version"] == SIDECAR_SCHEMA_VERSION
     assert payload["sanitizer_version"] == __version__
     assert payload["scrubbed_at"] == _FIXED_TS
     assert payload["input_filename"] == "session.jsonl"
@@ -184,6 +188,7 @@ def test_field_order_matches_prd_section_10(tmp_path: Path) -> None:
         secret_counts=secret_counts,
     )
     expected_order = [
+        "sidecar_schema_version",
         "sanitizer_version",
         "scrubbed_at",
         "input_filename",
@@ -208,6 +213,34 @@ def test_field_order_matches_prd_section_10(tmp_path: Path) -> None:
         and ":" in line
     ]
     assert actual_order == expected_order
+
+
+def test_sidecar_schema_version_is_an_integer_and_independent(
+    tmp_path: Path,
+) -> None:
+    """The schema version versions the sidecar *shape*, not the tool (Q9,
+    ruled 2026-08-17). A consumer branches on one integer instead of
+    maintaining a sanitizer-version-to-shape table, so it must render as
+    an int (not a quoted string) and must not track ``__version__``."""
+    config = _config(tmp_path, _BASE_CONFIG)
+    lines = [_line({"type": "user", "cwd": _REAL_USER_HOME})]
+    out, counts, subtable, secret_counts = sanitize_session(lines, config)
+
+    sidecar_yaml = build_sidecar(
+        metadata=_metadata(),
+        config=config,
+        serialized_lines=out,
+        counts=counts,
+        subtable=subtable,
+        secret_counts=secret_counts,
+    )
+    payload = yaml.safe_load(sidecar_yaml)
+
+    assert payload["sidecar_schema_version"] == 1
+    assert isinstance(payload["sidecar_schema_version"], int)
+    assert not isinstance(payload["sidecar_schema_version"], bool)
+    # Independence: the schema key is not the tool version in disguise.
+    assert payload["sidecar_schema_version"] != payload["sanitizer_version"]
 
 
 # ----- the I-3 sidecar-never-leaks test (PRD section 14) -----------------

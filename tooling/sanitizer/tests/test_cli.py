@@ -175,6 +175,7 @@ def test_force_overwrites_existing_output(tmp_path: Path) -> None:
     )
     assert sidecar["residual_scan"] == "clean"
     assert sidecar["sanitizer_version"] == __version__
+    assert sidecar["sidecar_schema_version"] == 1
 
 
 # ----- config discovery and config errors --------------------------------
@@ -320,6 +321,7 @@ def test_dry_run_prints_sidecar_no_files(
     # Sidecar YAML is recognizable: required keys per PRD section 10.
     parsed = yaml.safe_load(captured.out)
     assert parsed["sanitizer_version"] == __version__
+    assert parsed["sidecar_schema_version"] == 1
     assert parsed["residual_scan"] == "clean"
     # Nothing on disk.
     assert not out.exists()
