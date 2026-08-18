@@ -107,6 +107,28 @@ jobs:
       - name: Run the sanitizer test suite
         run: python -m pytest tooling/sanitizer/tests -q
 
+      # A skipped test still reports green, so the step above cannot tell you
+      # whether the D-6 drift guard ran. It skips itself when it detects an
+      # unpacked sdist (issue #182), and that detection is the one property
+      # the skip's safety rests on. If it ever misfires in a checkout, the
+      # guard between the hook's SECRET_PATTERNS and the sanitizer's
+      # VENDORED_PATTERNS stops running and nothing goes red. This asserts
+      # the negative that the pass count cannot.
+      - name: Confirm the D-6 drift guard actually ran
+        run: |
+          # No `-e`: pytest's exit code is the signal here, not a reason to
+          # stop. Exit 5 means "no tests ran", which is what a module-level
+          # skip looks like from outside.
+          set -uo pipefail
+          python -m pytest tooling/sanitizer/tests/test_secret_patterns_in_sync.py \
+            -q -rs > /tmp/drift.txt 2>&1
+          status=$?
+          cat /tmp/drift.txt
+          if [ "$status" -ne 0 ] || grep -q 'skipped' /tmp/drift.txt; then
+            echo "::error::the D-6 drift guard did not run clean inside a checkout (pytest exit $status). If it skipped, its sdist condition is wrong and the hook/VENDORED_PATTERNS drift check is not running."
+            exit 1
+          fi
+
   package:
     name: build + twine check
     runs-on: ubuntu-latest

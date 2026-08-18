@@ -80,6 +80,14 @@ No version bump: nothing below changes the produced bytes.
   `test_the_hook_is_reachable_in_a_checkout` instead of surfacing as a
   `FileNotFoundError` several frames down. Pre-existing since issue #36; no
   behavior change to the sanitizer.
+- **`.github/workflows/sanitizer-ci.yml`** gained two assertions that make
+  the above hold on its own. The `package` job unpacks the sdist it just
+  built and runs the **shipped** suite from outside the checkout, so the next
+  test that reaches for a repo path it cannot see fails on a pull request
+  rather than in a stranger's terminal. The `tests` job asserts the drift
+  guard reported neither a skip nor a failure, because a skipped test still
+  reports green: without it, a misfiring sdist condition would silently stop
+  checking the hook against `VENDORED_PATTERNS` and nothing would go red.
 
 ## [0.3.0] — 2026-08-17
 
