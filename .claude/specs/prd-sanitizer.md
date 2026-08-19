@@ -706,7 +706,7 @@ with its resolution. All resolved 2026-05-29.
 | 3 | README | Jitter granularity (field/message/session) | **Deferred to v1**; designed as per-session offset | [D-3](#9b-layer-4-jitter-deferred-to-v1-but-designed) |
 | 4 | README | Validator: re-scan vs trust sidecar | **Independent re-scan**, never trust the sidecar | [D-4](#13-fixture-validator-integration) |
 | 5 | Roadmap | PyPI package vs in-repo | **In-repo only for v0** — _superseded 2026-08-16 by [D-5a](#d-5-amendment): publishes to PyPI at `0.3.0`_ | [D-5](#packaging--in-repo-only-for-v0), [D-5a](#d-5-amendment) |
-| 6 | Roadmap | Secret-pattern library: copy vs dependency | **Vendor (copy)** into the sanitizer; sync-test guards drift | [D-6](#decision-d-6--vendor-the-secret-pattern-library) |
+| 6 | Roadmap | Secret-pattern library: copy vs dependency | **Vendor (copy)** into the sanitizer; sync-test guards drift. _Publishing does not force collapsing it ([D-8](#decision-d-8--the-vendored-tier-1-duplication-does-not-block-the-publish), 2026-08-19)._ | [D-6](#decision-d-6--vendor-the-secret-pattern-library), [D-8](#decision-d-8--the-vendored-tier-1-duplication-does-not-block-the-publish) |
 | 7 | Review | High-risk line types (`file-history-snapshot`, `attachment`) | **Dropped wholesale in v0** via `--strip-types`; synthetic fixtures cover those surfaces | [D-7](#decision-d-7--v0-drops-high-risk-line-types) |
 
 ### Decision D-1 — rule configuration is hybrid
@@ -732,6 +732,42 @@ binary/image payloads) cannot be credibly scrubbed with pattern rules. v0 drops 
 (`--strip-types`, counted in the sidecar) rather than ship a false sense of safety. Surfaces
 that need those line types in a fixture are built synthetically. Content-level scrubbing is
 future work ([§17](#17-future-work-v1)). Surfaced by architect review (C-2), 2026-05-29.
+
+### Decision D-8 — the vendored Tier-1 duplication does not block the publish
+
+Recorded 2026-08-19 ([#165](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/165)). Publishing to PyPI does **not** force collapsing the Tier-1
+duplication between `rules/secrets.py` and the hook. Three reasons, in descending order of
+weight:
+
+1. **Only one copy ships.** The wheel packages `src/ccs_sanitize` only, and the sdist's
+   `include` allowlist does not carry `.claude/`. A published artifact therefore contains
+   exactly one pattern set. There is no installable state in which a user holds two divergent
+   copies.
+2. **The two in-repo copies are held identical by test.** `test_secret_patterns_in_sync.py`
+   compares them element-wise, order included ([§9](#9-layer-3-secrets), I-4), so the
+   published artifact cannot drift below the hook's detection floor without turning that test
+   red in this repo first.
+3. **The cost is maintenance, not correctness.** The duplication is a burden this repo
+   carries. It is not a risk its users carry. Only the second kind blocks a release.
+
+**Precondition, stated so it can be checked.** This deferral holds only while the sync test
+actually runs in CI. When #165 was filed that was aspirational, since no Python CI existed yet.
+It is now satisfied twice over: [#162](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/162) put the suite on a 3.11/3.12/3.13 matrix, and [#185](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/185) added a
+step asserting the drift guard *ran* rather than merely that the suite was green, because a
+skipped test still reports green.
+
+That second step carries more weight than it looks. [#182](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/182) established that the sync test skips
+itself when it detects an unpacked sdist, where `.claude/hooks/` does not exist. The skip is
+keyed to a `PKG-INFO` marker rather than to the hook's absence, precisely so a missing hook
+*inside a checkout* fails loudly instead of silently disabling this decision's precondition.
+
+If the sync test is dropped from the matrix, or its skip condition ever widens far enough to
+fire inside a checkout, **D-8 is void** and the duplication must be revisited before the next
+release.
+
+The [§17](#17-future-work-v1) "shared secret-pattern source" cleanup remains future work, neither blocked by nor
+blocking the publish. Tier 2 pattern evaluation ([#32](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/32)) touches the same library and should read
+this before reopening the question.
 
 ---
 
@@ -766,7 +802,9 @@ and the design is signed off.
   bodies (path-aware, per-file-type) instead of dropping the line wholesale (D-7), so sanitized
   fixtures can illustrate `/rewind` semantics.
 - **Shared secret-pattern source** — collapse the vendored Tier-1 duplication (§9) once the
-  canonical home is decided.
+  canonical home is decided. Still future work, and explicitly **not** forced by the PyPI
+  publish ([D-8](#decision-d-8--the-vendored-tier-1-duplication-does-not-block-the-publish)): only `rules/secrets.py` ships, and the sync test holds the two
+  in-repo copies identical.
 
 ---
 
@@ -774,6 +812,7 @@ and the design is signed off.
 
 | Date | Change |
 |---|---|
+| 2026-08-19 | **D-8** recorded ([#165](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/165)): the vendored Tier-1 duplication ([§9](#9-layer-3-secrets), [D-6](#decision-d-6--vendor-the-secret-pattern-library)) does not block the PyPI publish, because only `rules/secrets.py` ships and the sync test holds the in-repo copies identical. The deferral's precondition is now met: the suite runs on a 3.11/3.12/3.13 matrix ([#162](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/162)) and CI asserts the drift guard ran rather than skipped ([#185](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/185)). `0.3.0` published to PyPI the same day ([#163](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/163)), via Trusted Publishing with no API token in the chain. |
 | 2026-05-29 | PRD created. D-1 through D-6 decided (§15). Jitter deferred to v1. |
 | 2026-08-17 | Ruling **Q9** recorded ([#160](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/160)): the sidecar carries `sidecar_schema_version: 1` from `0.3.0`, versioning the sidecar shape independently of the tool version ([§10](#10-the-scrubbed-sidecar)). `0.3.0` cut as the first public release, with the determinism contract and the version-lifecycle / disclosure policy published in the sanitizer README and `SECURITY.md` respectively ([#161](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/161)). Release tags are component-scoped: `sanitizer-v<version>`. |
 | 2026-08-16 | **D-5 reversed** by [D-5a](#d-5-amendment) ([#158](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/158)): the sanitizer publishes to PyPI at `0.3.0`, triggered by the CCDC contributor audience ([#75](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/75)). Rulings Q1/Q2/Q3/Q5/Q7 recorded; supported public surface declared as CLI + sidecar format, modules private. Scoping doc: [`plan-sanitizer-pypi.md`](plan-sanitizer-pypi.md). |
