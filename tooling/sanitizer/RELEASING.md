@@ -112,8 +112,16 @@ the authority. Nothing should ever skip it because preflight was green.
    ```
 
    It runs preflight, prints the version, tag, target commit and its subject,
-   and requires you to type the tag before it pushes anything. Equivalent by
-   hand:
+   and requires you to type the tag before it pushes anything.
+
+   **This subcommand needs a real terminal.** The confirmation reads from stdin,
+   so anywhere without a TTY (a CI step, an agent session, a piped invocation) it
+   prints `confirmation needs an interactive terminal; nothing was pushed` and
+   exits non-zero. That is the gate working, not a failed release. It is easy to
+   misread as one, though, because it arrives after eight green preflight lines.
+   `tag` is the only subcommand with this constraint, which is not a coincidence:
+   it is also the only one that writes to `origin`. Without a terminal, use the
+   equivalent by hand:
 
    ```bash
    git checkout main && git pull

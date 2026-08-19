@@ -37,6 +37,12 @@ claim is worse than none:
 - **It never deletes or force-updates anything on `origin`.** Recovery paths
   print the exact commands and stop. A convenience wrapper that cleans up after
   you is where a mistake becomes destructive.
+- **`tag` requires an interactive terminal**, and is the only subcommand that
+  does. Its confirmation reads stdin, so under a non-TTY it exits with
+  `confirmation needs an interactive terminal; nothing was pushed`. That is the
+  gate working. There is deliberately no flag to skip it: a `--yes` would be
+  available to exactly the unattended contexts the confirmation exists to
+  exclude. RELEASING.md step 3 keeps the by-hand equivalent for that case.
 
 Four mechanics that are easy to get wrong and are load-bearing here:
 
@@ -626,7 +632,7 @@ def main(argv=None):
 
     sub.add_parser("preflight", help="read-only checks; run before you tag").set_defaults(func=cmd_preflight)
 
-    p_tag = sub.add_parser("tag", help="runbook step 3: create and push the release tag")
+    p_tag = sub.add_parser("tag", help="runbook step 3: create and push the release tag (needs a terminal)")
     p_tag.add_argument("--dry-run", action="store_true", help="show what would be pushed, push nothing")
     p_tag.set_defaults(func=cmd_tag)
 
