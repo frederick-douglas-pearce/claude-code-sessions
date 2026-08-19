@@ -77,6 +77,13 @@ pip install claude-code-sessions-sanitizer   # installs the `ccs-sanitize` conso
 The distribution is `claude-code-sessions-sanitizer`; the command it installs is
 `ccs-sanitize`. `0.3.0` is the first public release.
 
+**There is no `ccs-sanitize` distribution on PyPI, and this project does not publish one.**
+`ccs-sanitize` is a console script, not a package name. If you find a PyPI project under that
+name, it is not this tool, whatever its description claims. The short name is left unclaimed
+deliberately rather than by oversight; the reasoning is
+[D-9](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/.claude/specs/prd-sanitizer.md#decision-d-9--ccs-sanitize-is-deliberately-not-reserved-on-pypi).
+Install by the long name, or from this repository.
+
 The supported public surface is the **CLI** and the **`.scrubbed` sidecar format**. The
 Python module surface (`orchestrator`, `pipeline`, `rules`, …) is private and may change
 without a MAJOR bump. Customization is meant to happen through the YAML config and
