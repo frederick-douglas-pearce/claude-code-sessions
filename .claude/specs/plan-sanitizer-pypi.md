@@ -264,10 +264,17 @@ script stays `ccs-sanitize` (short, already the entry point). Renaming the distr
 is cheap now and breaking later, but there is no strong reason to rename: the long name
 is a feature for discoverability, not a bug.
 
-**Optional, cheap, defensive:** reserve `ccs-sanitize` as a PyPI project name too
+~~**Optional, cheap, defensive:** reserve `ccs-sanitize` as a PyPI project name too
 (publish a stub or a same-content alias) so a squatter cannot claim the obvious short
-name and ship a lookalike. Low effort, real supply-chain value. Flag as Decision Q3;
+name and ship a lookalike. Low effort, real supply-chain value.~~ Flag as Decision Q3;
 recommendation = keep long name, optionally reserve the short one.
+
+> **Superseded 2026-08-19 by [D-9](prd-sanitizer.md#decision-d-9--ccs-sanitize-is-deliberately-not-reserved-on-pypi)**
+> ([#166](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/166)). The reservation recommendation above was wrong on its own terms: PEP 541
+> treats a project with "no functionality or is empty" as name squatting, so an inert stub is
+> reclaimable rather than durable. The *stub* form is rejected; the *same-content alias* form
+> survives as a deferred escalation, in the narrower shape of a dependency-only package that
+> declares no console script. The long distribution name is unaffected and stands.
 
 ### 4.8 Post-publication burden — issue F
 

@@ -48,6 +48,18 @@ unrelated tags).
 
 No version bump: nothing below changes the produced bytes.
 
+### Changed (issue #166 — the `ccs-sanitize` name is deliberately unclaimed)
+- **README `Install`** now states that no `ccs-sanitize` distribution exists on
+  PyPI, that anything published under that name is not this tool, and that the
+  omission is deliberate. Reverses the reservation half of ruling Q3, recorded
+  as PRD decision D-9: an inert placeholder meets PEP 541's name-squatting
+  criterion ("package has no functionality or is empty") and is reclaimable, so
+  it would have been cheap to claim and revocable to hold.
+
+  Note for the next release: a README change reaches the PyPI project page only
+  when a version is published, so this note is invisible to a `pip` user until
+  then. That is the point at which the mitigation actually takes effect.
+
 ### Added (issue #162 — Python CI and the cross-interpreter golden fixture)
 - **`tests/golden/`** — a committed determinism artifact: a synthetic session,
   a pinned config, and the exact expected output and sidecar bytes.

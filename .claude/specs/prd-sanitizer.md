@@ -516,7 +516,7 @@ rather than as conversation:
 |---|---|---|
 | Q1 | Which standalone audience triggers the reversal? | CCDC contributors ([#75](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/75)). |
 | Q2 | First public version: `0.3.0` or `1.0.0`? | **`0.3.0`.** The package is `Development Status :: 3 - Alpha`, the CLI surface may still move, and `1.0.0` would over-promise against a determinism contract that only holds *within* a version. |
-| Q3 | Distribution name? | Keep **`claude-code-sessions-sanitizer`** (descriptive, namespaced, searchable); the console script stays `ccs-sanitize`. Reserve `ccs-sanitize` on PyPI defensively, as an inert placeholder that installs no console script. |
+| Q3 | Distribution name? | Keep **`claude-code-sessions-sanitizer`** (descriptive, namespaced, searchable); the console script stays `ccs-sanitize`. ~~Reserve `ccs-sanitize` on PyPI defensively, as an inert placeholder that installs no console script.~~ _The reservation half was **reversed 2026-08-19** by [D-9](#decision-d-9--ccs-sanitize-is-deliberately-not-reserved-on-pypi) ([#166](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/166)): an empty placeholder is PEP 541-reclaimable. The distribution name itself stands._ |
 | Q5 | Force the vendored secret-pattern dedup before publishing? | **Defer.** Only the sanitizer's copy ships; `test_secret_patterns_in_sync.py` keeps it element-wise identical to the hook copy, so the artifact cannot silently drift below the hook's floor. [§17](#17-future-work-v1) stands as future work, not a publish blocker. |
 | Q7 | Upload credential? | **PyPI Trusted Publishing (OIDC).** No long-lived API token at rest. A leaked token would let an attacker publish a poisoned sanitizer, and every user of that release is by definition handling raw session data. |
 | Q9 | Should the sidecar carry a `sidecar_schema_version` independent of `sanitizer_version`? | **Yes. `sidecar_schema_version: 1` ships at `0.3.0`** (ruled 2026-08-17, [#160](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/160)). The asymmetry decides it: added now, every public-era sidecar carries it; added at `0.4.0`, consumers handle its absence forever. It versions the sidecar *shape* only; `sanitizer_version` still keys byte-level determinism. See [§10](#10-the-scrubbed-sidecar). |
@@ -769,6 +769,58 @@ The [§17](#17-future-work-v1) "shared secret-pattern source" cleanup remains fu
 blocking the publish. Tier 2 pattern evaluation ([#32](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/32)) touches the same library and should read
 this before reopening the question.
 
+### Decision D-9 — `ccs-sanitize` is deliberately not reserved on PyPI
+
+Recorded 2026-08-19 ([#166](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/166)). The published distribution is
+`claude-code-sessions-sanitizer` ([D-5a](#d-5-amendment), ruling Q3) while the console script
+users actually type is `ccs-sanitize`. The Q3 ruling and
+[`plan-sanitizer-pypi.md`](plan-sanitizer-pypi.md) §4.7 both recommended reserving the short
+name as an inert placeholder, on the reasoning that claiming an unused name is cheap now and
+impossible later. **That half of the ruling is reversed.** The reasoning runs backwards for an
+empty project.
+
+[PEP 541](https://peps.python.org/pep-0541/) lists among its *invalid project* criteria,
+verbatim, "project is name squatting (package has no functionality or is empty)". It offers no
+exemption for a placeholder whose owner publishes a related real project, and none for an
+honest description. An inert stub is therefore reclaimable by the same mechanism it was meant
+to defend against: cheap to claim and revocable to hold, which is the opposite of the premise
+it rested on.
+
+Two further reasons, either sufficient alone:
+
+1. **A single name is false completeness.** PEP 503 normalization means one reservation covers
+   `ccs_sanitize` and `ccs.sanitize`, a real but narrow win. The semantic neighbours
+   (`ccs-sanitizer`, `claude-code-sanitizer`, `claude-sanitize`) are unbounded. PyPI's own
+   confusable-name guard keys on string similarity to existing projects, and the short name is
+   not string-similar to the long one, so it would not fire in either direction.
+2. **The blocker is not the credential.** Worth recording because it was the first objection
+   raised and it is wrong. PyPI's *pending* trusted-publisher flow is per project name, so a
+   second project could be created tokenlessly exactly as the first one was, leaving repo
+   secrets empty. The real cost is machinery: a third GitHub environment (the `sanitizer-v*`
+   deployment-tag rule is per-environment), a second publisher registration, and a duplicated
+   or parameterized release workflow, all maintained for a package that does nothing.
+
+**Alternatives considered.**
+
+- *Inert placeholder stub* — **rejected.** Non-durable under PEP 541, and pays the setup cost
+  without buying the protection.
+- *Functional dependency-only alias* — a real `ccs-sanitize` distribution declaring no console
+  script of its own, depending on `claude-code-sessions-sanitizer`. This avoids both traps: it
+  has functionality, so it is not squatting, and only the real package declares the entry
+  point, so two distributions never compete for one script name and shadow each other by
+  install order. **Deferred, not rejected.** It carries the same setup cost, so it is held as
+  the escalation play if a squatter appears or if CCDC adoption raises the stakes.
+- *Documentation plus monitoring* — **chosen.** The sanitizer README states that no
+  `ccs-sanitize` distribution exists and that anything found under that name is not this tool.
+  That lets a user detect a substitution, rather than relying on the name staying unavailable.
+
+**Threat model, stated plainly, because the blast radius is what makes this worth a decision
+rather than a shrug.** A lookalike sanitizer that under-scrubs leaks the victim's secrets while
+they believe they are protected. The risk is real. It is also low-frequency: every discovery
+path (this repo, the sanitizer README, the post series, the CCDC docs) names the real install
+target, so reaching the short name requires conflating a console script with a distribution
+name. If that assumption stops holding, escalate to the alias above rather than to a stub.
+
 ---
 
 ## 16. Phasing & acceptance criteria
@@ -812,6 +864,7 @@ and the design is signed off.
 
 | Date | Change |
 |---|---|
+| 2026-08-19 | **D-9** recorded ([#166](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/166)): `ccs-sanitize` is deliberately **not** reserved on PyPI, reversing the reservation half of ruling Q3. An inert placeholder meets PEP 541's name-squatting criterion and is reclaimable, one name is false completeness against an unbounded neighbour space, and the credential objection was unfounded (the pending-publisher flow is per project name). A functional dependency-only alias is held as the escalation. |
 | 2026-08-19 | **D-8** recorded ([#165](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/165)): the vendored Tier-1 duplication ([§9](#9-layer-3-secrets), [D-6](#decision-d-6--vendor-the-secret-pattern-library)) does not block the PyPI publish, because only `rules/secrets.py` ships and the sync test holds the in-repo copies identical. The deferral's precondition is now met: the suite runs on a 3.11/3.12/3.13 matrix ([#162](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/162)) and CI asserts the drift guard ran rather than skipped ([#185](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/185)). `0.3.0` published to PyPI the same day ([#163](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/163)), via Trusted Publishing with no API token in the chain. |
 | 2026-05-29 | PRD created. D-1 through D-6 decided (§15). Jitter deferred to v1. |
 | 2026-08-17 | Ruling **Q9** recorded ([#160](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/160)): the sidecar carries `sidecar_schema_version: 1` from `0.3.0`, versioning the sidecar shape independently of the tool version ([§10](#10-the-scrubbed-sidecar)). `0.3.0` cut as the first public release, with the determinism contract and the version-lifecycle / disclosure policy published in the sanitizer README and `SECURITY.md` respectively ([#161](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/161)). Release tags are component-scoped: `sanitizer-v<version>`. |
