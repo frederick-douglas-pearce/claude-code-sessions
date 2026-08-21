@@ -24,8 +24,11 @@ name: Sanitizer CI
 #      edit merge without the sanitizer side, which is the exact drift that
 #      test exists to catch.
 #
-# The suite runs in about a second. Running it unconditionally costs less
-# than either failure mode above.
+# The suite runs in a few seconds -- most of it the placement matrix in
+# `test_adversarial_placement.py`, which spawns one subprocess per cell.
+# Running it unconditionally still costs less than either failure mode
+# above. Keep this number honest: it is the stated basis for having no
+# `paths:` filter, so anyone reconsidering that filter reasons from it.
 
 on:
   pull_request:
@@ -130,6 +133,29 @@ jobs:
             exit 1
           fi
 
+      # The suite step above cannot tell you whether the placement matrix
+      # ran. It skips itself when `ccs_sanitize` is neither on PATH nor
+      # importable, and a `-m "not adversarial"` in a future `addopts` would
+      # deselect it outright -- both of which still report green with the
+      # file present, so the presence check above cannot see the difference.
+      # Assert the positive: the marker selects a non-empty set and none of
+      # it skipped.
+      - name: Confirm the placement matrix actually ran
+        run: |
+          set -uo pipefail
+          python -m pytest tooling/sanitizer/tests -m adversarial -q -rs \
+            > /tmp/adv.txt 2>&1
+          status=$?
+          cat /tmp/adv.txt
+          if [ "$status" -ne 0 ] || grep -q 'skipped' /tmp/adv.txt; then
+            echo "::error::the placement matrix did not run clean (pytest exit $status). Exit 5 means nothing was collected, which is a deselected or renamed marker; 'skipped' means the entry point did not resolve."
+            exit 1
+          fi
+          if ! grep -qE '[0-9]+ passed' /tmp/adv.txt; then
+            echo "::error::the placement matrix reported no passing tests"
+            exit 1
+          fi
+
   package:
     name: build + twine check
     runs-on: ubuntu-latest
@@ -195,9 +221,28 @@ jobs:
       # is the whole wiring.
       - name: Run the placement matrix against the built wheel
         run: |
-          set -euo pipefail
+          # No `set -e`: pytest's exit code is the signal, not a reason to
+          # stop before the skip check. This job installs only pip/build/
+          # twine/pytest, so `ccs_sanitize` is NOT importable here and
+          # `ccs-sanitize` is NOT on PATH -- both of the module's fallback
+          # tiers miss. If CCS_SANITIZE_BIN is ever misspelled or refactored
+          # away, the module skips all 57 assertions and pytest exits 0. That
+          # is the hollow gate this workflow exists to prevent, so the skip
+          # check below is what makes the step meaningful, not the exit code.
+          set -uo pipefail
           CCS_SANITIZE_BIN=/tmp/wheel-smoke/bin/ccs-sanitize \
-            python -m pytest tooling/sanitizer/tests/test_adversarial_placement.py -q
+            python -m pytest tooling/sanitizer/tests/test_adversarial_placement.py \
+            -q -rs > /tmp/wheel-adv.txt 2>&1
+          status=$?
+          cat /tmp/wheel-adv.txt
+          if [ "$status" -ne 0 ] || grep -q 'skipped' /tmp/wheel-adv.txt; then
+            echo "::error::the placement matrix did not run clean against the wheel (pytest exit $status). 'skipped' means CCS_SANITIZE_BIN did not resolve and the step proved nothing."
+            exit 1
+          fi
+          if ! grep -qE '[0-9]+ passed' /tmp/wheel-adv.txt; then
+            echo "::error::the placement matrix reported no passing tests against the wheel"
+            exit 1
+          fi
 
       # `tests` ships in the sdist so a packager or an auditor can re-run
       # the suite against the exact published source. That claim only stays

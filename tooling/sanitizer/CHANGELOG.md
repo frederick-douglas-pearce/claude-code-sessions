@@ -54,24 +54,45 @@ No version bump: nothing below changes the produced bytes.
   structural positions (nested tool inputs, `tool_result` content arrays,
   `toolUseResult` siblings, thinking blocks, JSON-inside-a-JSON-string, dict
   keys, URL query parameters) crossed with four payload families. Asserts on
-  the verdict (redacted / fail-closed / leaked) rather than on output bytes,
-  so the jitter work planned for v1 cannot turn it spuriously red.
-  Byte-exactness stays owned by `test_golden_determinism.py`.
-- Three cells land as `xfail(strict=True)` against **#190**: a config-driven
-  rule cannot reach a value sitting in a dict key, because the structural walk
-  transforms string leaves only. A secret in that position still trips the
-  residual scan and fails closed; a path or identifier leaks silently with a
-  sidecar reading `residual_scan: clean`. Strict, so closing #190 turns those
-  cells red and forces them out of `KNOWN_LEAKS`.
+  the verdict rather than on output bytes, so the jitter work planned for v1
+  cannot turn it spuriously red; byte-exactness stays owned by
+  `test_golden_determinism.py`.
+- **This is a coverage net, not the leak gate.** Enumerating positions cannot
+  be one — the position space is tool-defined and open — and this module
+  proved that itself by missing **#194** entirely, since its cells plant
+  payloads under innocuous key names and never collide with a skip-listed
+  name. The guarantee is **#195**, a total output-side check for the
+  path/identifier rules mirroring what `scan_residual` already does for
+  secrets. This module tells you which positions are *scrubbable*; the oracle
+  tells you that nothing leaked.
+- Four cells land as `xfail(strict=True)` against **#190**: a config-driven
+  rule cannot reach a value in a dict key, because the structural walk
+  transforms string leaves only. Strict, so closing #190 turns them red and
+  forces them out of `KNOWN_DEVIATIONS`.
+- The verdict is exact (`== "REDACTED"`), and every deviation is an explicit
+  issue-tagged entry. An earlier draft accepted `FAIL-CLOSED` as a pass,
+  which meant a stub binary consisting of `echo boom >&2; exit 1` passed 54
+  of 57 assertions. `FAIL-CLOSED` now additionally requires exit 2 (PRD
+  section 11), so a broken invocation cannot wear a safety outcome's clothes.
+- The verdict considers both files the CLI writes, `out.jsonl` and
+  `out.jsonl.scrubbed`. The sidecar is a committed artifact for every
+  sanitized fixture, and `SidecarLeakError` exists because originals reaching
+  it is a live risk.
 - The module drives the console script rather than importing `ccs_sanitize`,
   per D-5a, so one file covers both the source tree and the built artifact.
-  `CCS_SANITIZE_BIN` points it at a specific binary; CI uses that to run the
-  matrix against the wheel from `python -m build`, which is how #190 was found
-  in the first place. It falls back to `python -m ccs_sanitize.cli` rather than
-  skipping, because 57 silently-skipped security assertions reporting green is
-  the failure this workflow exists to prevent.
-- `test_adversarial_placement.py` joins the security-critical presence list in
-  `sanitizer-ci.yml`, so deleting or renaming it fails the build.
+  `CCS_SANITIZE_BIN` points it at a specific binary and is validated rather
+  than trusted; CI uses it to run the matrix against the wheel from
+  `python -m build`, which is how #190 was found in the first place. Failing
+  to resolve any entry point raises rather than skips.
+- `sanitizer-ci.yml` gained two guards that assert the matrix *ran*: a
+  `-m adversarial` step in the `tests` job and a skip check on the wheel run,
+  both failing on a zero-collection exit or on any reported skip. Without
+  them the `package` job reports green on `57 skipped` — nothing there
+  installs `ccs_sanitize`, so only `CCS_SANITIZE_BIN` can resolve, and a
+  typo in it would have silently emptied the step.
+- `test_adversarial_placement.py` joins the security-critical presence list,
+  so deleting or renaming it fails the build.
+
 ### Changed (issue #166 — the `ccs-sanitize` name is deliberately unclaimed)
 - **README `Install`** now states that no `ccs-sanitize` distribution exists on
   PyPI, that anything published under that name is not this tool, and that the
