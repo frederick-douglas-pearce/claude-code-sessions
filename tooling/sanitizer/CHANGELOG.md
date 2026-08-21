@@ -44,9 +44,79 @@ Releases are tagged `sanitizer-v<version>` (component-scoped, not a bare `v*`:
 this is a monorepo and a bare tag filter would fire the publish workflow on
 unrelated tags).
 
-## [Unreleased]
+## [0.4.0] — unreleased
 
-No version bump: nothing below changes the produced bytes.
+**MINOR.** Adds a new fail-closed refusal surface. Existing configs keep
+working, no sidecar field is removed, renamed or retyped
+(`sidecar_schema_version` stays `1`), and no built-in pattern is removed, so
+this is not MAJOR; it changes which inputs the tool refuses, so it is not
+PATCH. "Scrubs more / refuses more" is monotonically safer.
+
+**`test_golden_determinism.py` stays green, and that is expected.** Clean
+output is byte-identical, so the bump trigger described under Bump policy does
+**not** fire here. This is a deliberate hand-recorded MINOR justified by the
+new refusal path, not a response to a red golden. Do not go looking for a
+fixture that should have moved.
+
+**Publish is deliberately held.** `__version__` is 0.4.0 as of this change,
+but the PyPI release waits for #190 and #194 to land, so the first version a
+`pip` user sees carries *coverage* for the two known traversal gaps rather
+than only *refusal* on them. #195 anticipated this ("one 0.4.0 release covers
+both"); the decision to hold the publish rather than release twice is recorded
+here so a later reader does not read the version bump as a missed release.
+
+### Added (issue #195 — total output-side oracle for path/identifier rules)
+- **`residual.scan_residual_rules` + `ResidualRuleError`** — the config rule
+  family now gets the same total, output-side guarantee secrets have had since
+  v0. `scan_residual` re-reads the serialized output for secret patterns, so a
+  value the structural walk never reached is still in those bytes and still
+  aborts the run. Paths and identifiers had no such pass, so the same
+  traversal gap leaked **silently**: exit 0, output written, and a sidecar
+  affirmatively reporting `residual_scan: clean` on a file that still
+  contained the value. That is worse than no sidecar, because it turns the
+  README's human review step into a rubber stamp.
+- **It closes the class, not the instances.** #190 (dict keys are never
+  visited) and #194 (the skip-list exempts user data at any depth) are two
+  ways to end up outside the traversal's reach; the position space is
+  tool-defined and open-ended, so enumerating positions cannot close it —
+  `test_adversarial_placement.py` was built to map positional coverage and
+  missed #194 entirely.
+- **Exit 2 on a survivor**, alongside the existing safety failures. The scan
+  runs *after* the secret scan, so a surviving secret still reports as a
+  secret (the D-1 floor is the higher-severity class).
+- **The diagnostic names `section[index]`, never the rule or the match.**
+  Stricter than `ResidualSecretError`, deliberately: a secret pattern's `kind`
+  is a generic label, but a path/identifier rule's `match` value **is** the
+  literal PII the config exists to scrub. This gate fires on runs that look
+  successful — the ones that execute in CI and inside Claude Code sessions —
+  so a diagnostic carrying the value would write real PII into the artifact
+  class this tool exists to sanitize.
+- **Runtime-synthesized values are excused by exact span membership, not by
+  masking.** Load-time I-3 already forbids a rule from matching any
+  *configured* replacement, but `remap_uuids: true` synthesizes UUIDs the
+  loader never saw, so a broad rule would false-abort on the sanitizer's own
+  output. The scan therefore consults an allow-set of the replacements the run
+  actually recorded and tests whether the **matched span is exactly** one of
+  them. Deleting those strings from the line first was considered and
+  rejected: rule `match: abc123` / `replace: abc` passes I-3, so stripping
+  every `abc` from a line where `abc123` genuinely leaked leaves `123`, the
+  rule stops matching, and the leak ships clean. Exact membership cannot
+  produce that false negative, because a genuine leak is an *original* and
+  I-3 guarantees transitively that no replacement equals any original.
+- **No escape hatch.** There is no `--no-oracle`; an override would recreate
+  the silent-leak path this change closes, on the same reasoning that
+  `--no-check` is not the fix for exit 3.
+- **Forward constraint for v1 jitter (PRD section 9b):** the allow-set covers
+  jitter's synthesized values **iff** jitter records them into the
+  `SubstitutionTable`. A load-time-only guard would have silently failed to.
+- **`tests/test_residual_rules.py`** — added to the security-critical suite
+  presence list in `sanitizer-ci.yml`.
+- **Follow-up filed as #196.** The design review found the same leak class on
+  the config-load path: `_check_replacement_leak` prints the offending rule's
+  `match` value, which for paths/identifiers is the literal PII. Lower exposure
+  (exit 3, author editing their own config) but the same shape, and left as one
+  strict site plus one leaky site it invites copying the wrong one. Out of
+  scope here; tracked there.
 
 ### Added (issue #191 — adversarial placement matrix)
 - **`tests/test_adversarial_placement.py`** — the parametrized form of the

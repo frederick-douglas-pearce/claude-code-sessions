@@ -128,22 +128,36 @@ KNOWN_DEVIATIONS: dict[tuple[str, str], tuple[int, str]] = {
     ("13-dict-key-not-value", "pii-home"): (
         190,
         "dict keys are never transformed, so a config-driven rule cannot "
-        "reach this position; the value leaks with a clean sidecar",
+        "reach this position. As of #195 this fails closed rather than "
+        "leaking -- the output-side oracle catches the survivor and aborts "
+        "(exit 2, nothing written), so the verdict is FAIL-CLOSED, not "
+        "LEAKED. #190 stays open because the file is still unscrubbable: "
+        "safe, but the user cannot publish it at all",
     ),
     ("13-dict-key-not-value", "pii-email"): (
         190,
         "dict keys are never transformed, so a config-driven rule cannot "
-        "reach this position; the value leaks with a clean sidecar",
+        "reach this position. As of #195 this fails closed rather than "
+        "leaking -- the output-side oracle catches the survivor and aborts "
+        "(exit 2, nothing written), so the verdict is FAIL-CLOSED, not "
+        "LEAKED. #190 stays open because the file is still unscrubbable: "
+        "safe, but the user cannot publish it at all",
     ),
     ("13-dict-key-not-value", "pii-name"): (
         190,
         "dict keys are never transformed, so a config-driven rule cannot "
-        "reach this position; the value leaks with a clean sidecar",
+        "reach this position. As of #195 this fails closed rather than "
+        "leaking -- the output-side oracle catches the survivor and aborts "
+        "(exit 2, nothing written), so the verdict is FAIL-CLOSED, not "
+        "LEAKED. #190 stays open because the file is still unscrubbable: "
+        "safe, but the user cannot publish it at all",
     ),
     ("13-dict-key-not-value", "secret"): (
         190,
         "dict keys are never transformed, so the secret transform misses it "
-        "and the residual scan catches it instead -- safe, but degraded",
+        "and the residual scan catches it instead -- safe, but degraded. "
+        "Unchanged by #195: this cell already failed closed, via the secret "
+        "residual scan rather than the new rule oracle",
     ),
 }
 

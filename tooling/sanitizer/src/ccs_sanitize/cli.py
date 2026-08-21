@@ -7,8 +7,9 @@ Exit codes (PRD section 11):
     0 — success (output + sidecar written)
     1 — usage error (bad args, missing input/config file, output exists
         without --force)
-    2 — safety failure (PipelineError, ResidualSecretError, SidecarLeakError,
-        or any unexpected exception during the scrub pipeline)
+    2 — safety failure (PipelineError, ResidualSecretError, ResidualRuleError,
+        SidecarLeakError, or any unexpected exception during the scrub
+        pipeline)
     3 — config error (ConfigError: malformed YAML, schema violation, regex
         compile failure, I-3 replacement-leak)
 
@@ -49,7 +50,7 @@ from . import __version__
 from .config import Config, ConfigError, load_config
 from .orchestrator import sanitize_session
 from .pipeline import DEFAULT_STRIP_TYPES, PipelineError
-from .residual import ResidualSecretError
+from .residual import ResidualRuleError, ResidualSecretError
 from .sidecar import (
     SidecarLeakError,
     SidecarMetadata,
@@ -787,9 +788,18 @@ def main(argv: list[str] | None = None) -> int:
     except ConfigError as exc:
         print(f"{parser.prog}: config error: {exc}", file=sys.stderr)
         return 3
-    except (PipelineError, ResidualSecretError, SidecarLeakError) as exc:
-        # D-2 invariant: ResidualSecretError and SidecarLeakError carry only
-        # category labels, never the matched bytes. Printing str(exc) is safe.
+    except (
+        PipelineError,
+        ResidualSecretError,
+        ResidualRuleError,
+        SidecarLeakError,
+    ) as exc:
+        # D-2 invariant: these carry only category labels, never the matched
+        # bytes, so printing str(exc) is safe. ResidualRuleError is the
+        # strictest of the three (#195): it carries `section[index]` and not
+        # the rule's own `match` value, because for paths/identifiers that
+        # value IS the literal PII. Keeping the message span-free is also what
+        # makes the catch-all below safe -- it prints str(exc) too.
         print(f"{parser.prog}: safety failure: {exc}", file=sys.stderr)
         return 2
     except Exception as exc:  # pragma: no cover - defensive catch-all

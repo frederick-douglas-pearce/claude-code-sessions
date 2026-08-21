@@ -33,9 +33,9 @@ diagnostic distinguishing "input was malformed" (``PipelineError``) from
 
 from __future__ import annotations
 
-from typing import Iterable, Sequence
+from typing import AbstractSet, Iterable, Sequence
 
-from .config import ExtraSecretPattern
+from .config import ExtraSecretPattern, Rule
 from .rules.secrets import iter_all_secret_patterns
 
 
@@ -103,7 +103,124 @@ def scan_residual(
                 raise ResidualSecretError(kind)
 
 
+class ResidualRuleError(Exception):
+    """Raised when the residual rule scan finds a configured path/identifier
+    value in the serialized output.
+
+    Carries only ``section`` (``"paths"`` / ``"identifiers"``) and the rule's
+    zero-based ``index`` within that section -- never ``Rule.pattern`` and
+    never the matched span. This is stricter than ``ResidualSecretError``
+    needs to be, and deliberately so: a secret pattern's ``kind`` is a
+    generic label, but a path/identifier rule's ``match`` value **is** the
+    literal PII the config exists to scrub (real home dir, real name, real
+    email). That is why the config file itself is gitignored (PRD section 12b).
+
+    This gate fires on runs that otherwise look successful -- the ones that
+    execute in CI and inside Claude Code sessions -- so a diagnostic carrying
+    the match value would write real PII into exactly the artifact class this
+    repo exists to sanitize. ``section[index]`` is enough to find the rule in
+    a config the operator already has open.
+
+    The CLI (#26) maps this to exit code 2.
+    """
+
+    def __init__(self, section: str, index: int) -> None:
+        super().__init__(
+            f"residual rule scan matched {section}[{index}]; "
+            f"output was not written"
+        )
+        self.section = section
+        self.index = index
+
+
+def scan_residual_rules(
+    lines: Iterable[str],
+    paths: Sequence[Rule],
+    identifiers: Sequence[Rule],
+    allowed_replacements: AbstractSet[str],
+) -> None:
+    """Scan serialized output for surviving ``paths``/``identifiers`` values.
+
+    The output-side oracle for the config rule family (#195). ``scan_residual``
+    above gives the *secret* layer a total, position-agnostic guarantee: it
+    reads the serialized output, so a value the structural walk never reached
+    is still in those bytes and still aborts the run. Paths and identifiers
+    had no such pass, so any traversal gap leaked **silently** -- exit 0,
+    output written, sidecar reporting ``residual_scan: clean``. Two such gaps
+    are known (#190 dict keys are never visited, #194 the skip-list exempts
+    user data at any depth), and the position space is not ours to enumerate:
+    tool inputs are tool-defined and MCP servers define their own schemas.
+    This function closes the class rather than the instances.
+
+    Scans exactly the bytes that will be written. ``run_pipeline`` drops
+    strip-types lines before returning, so a configured value on a dropped
+    line is correctly **not** an abort -- it never reaches the output file.
+
+    Matching uses ``rule.compiled``, so literal and regex rules are covered on
+    identical footing (``_compile_rule`` stores literals ``re.escape``d).
+    Per-line, for the reasons ``scan_residual`` documents; the argument is
+    stronger here, since a path/identifier match is within-leaf and never
+    spans a JSONL record boundary.
+
+    **The allow-set, and why it is exact membership rather than masking.**
+    Load-time I-3 (``config.py`` ``_check_replacement_leak``) already forbids
+    any rule from matching any *configured* replacement, so on clean output
+    the configured replacements cannot trip this scan. It cannot cover values
+    **synthesized at runtime**: with ``remap_uuids: true`` the identifier layer
+    early-returns on a ``UUID_FIELDS`` leaf and substitutes a SHA-256-derived
+    UUID that no load-time check has ever seen, so a broad rule (say
+    ``re:[0-9a-f-]{36}``) would never fire during scrub yet would match that
+    UUID here -- a false abort on every run.
+
+    The fix is to consult an allow-set of the replacements the run actually
+    recorded, and to test **exact span membership** rather than deleting those
+    strings from the line first. Deletion would be unsafe in the one direction
+    a security tool cannot tolerate: rule ``match: abc123`` / ``replace: abc``
+    passes I-3, so stripping every ``abc`` from a line where ``abc123``
+    genuinely leaked leaves ``123``, the rule no longer matches, and the leak
+    ships with a clean sidecar. Exact membership cannot produce that false
+    negative -- a genuine leak is an *original*, and I-3's full cross-product
+    guarantees transitively that no replacement equals any original, so a real
+    leak's span is never in the allow-set.
+
+    Args:
+        lines: serialized output records (one per element). Iterated once.
+        paths: ``Config.paths``, scanned first.
+        identifiers: ``Config.identifiers``, scanned second. The order and the
+            ascending index within each section are part of the contract --
+            they determine which ``section[index]`` a multi-rule match
+            reports, so tests can assert on it.
+        allowed_replacements: every ``replacement`` the run's
+            ``SubstitutionTable`` recorded, including ``identifiers:uuid``
+            rows. A match whose span is exactly one of these is the
+            sanitizer's own output and is not a survivor.
+
+    Raises:
+        ResidualRuleError: a configured rule matched a span that is not a
+            recorded replacement. Carries the section and index only; the
+            matched bytes are never recorded (D-2).
+    """
+    rules = tuple(
+        (section, index, rule)
+        for section, section_rules in (("paths", paths), ("identifiers", identifiers))
+        for index, rule in enumerate(section_rules)
+    )
+    for line in lines:
+        for section, index, rule in rules:
+            # ``finditer`` rather than ``search``: the first match may be the
+            # sanitizer's own replacement while a later one on the same line
+            # is a genuine survivor. Zero-width patterns cannot stall this
+            # loop -- ``_reject_zero_width_pattern`` rejects them at config
+            # load, so every match advances.
+            for match in rule.compiled.finditer(line):
+                if match.group(0) in allowed_replacements:
+                    continue
+                raise ResidualRuleError(section, index)
+
+
 __all__ = [
+    "ResidualRuleError",
     "ResidualSecretError",
     "scan_residual",
+    "scan_residual_rules",
 ]

@@ -120,6 +120,43 @@ The residual scan is also why the fixture-validator re-scans independently rathe
 trusting the sidecar (see [§11](#11-fixture-validator-integration)) — defense in depth, the
 same check enforced at two layers owned by two tools.
 
+**Amendment 2026-08-21 (#195) — the guarantee is now total across all three rule families.**
+The scan described above covered only the *secret* layer, and that asymmetry was itself a
+defect. Secret patterns are re-run over the serialized output, so a value the structural walk
+never reached is still in those bytes and still aborts the run: any traversal gap fails
+**closed**. The `paths` and `identifiers` layers ran *inside* the walk with no output-side
+pass at all, so the same gap leaked **silently** — exit 0, output written, and a sidecar
+affirmatively reporting `residual_scan: clean` on a file that still contained the value. That
+is worse than no sidecar, because it converts the human review step this design depends on
+into a rubber stamp.
+
+Two instances were found by two different methods — [#190](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/190)
+(dict keys are never visited by the walk) and [#194](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/194)
+(the skip-list exempts user data at any depth) — but enumerating positions cannot close the
+class: tool inputs are tool-defined and MCP servers define their own schemas, so the position
+space grows without this project's involvement. As of 0.4.0 the configured `paths` and
+`identifiers` rules are re-run over the serialized output exactly as the secret patterns are.
+
+Two properties of that scan are load-bearing and are recorded here rather than only in the
+code:
+
+- **The abort names `section[index]`, never the rule and never the matched span.** A secret
+  pattern's `kind` is a generic label, but a path/identifier rule's `match` value *is* the
+  literal PII the config exists to scrub — which is why the config file is gitignored
+  ([§12b](#12b-config-storage-and-safety)). This gate fires on runs that otherwise look
+  successful, i.e. the ones that run in CI and inside Claude Code sessions, so a diagnostic
+  carrying the value would write real PII into the very artifact class this tool sanitizes.
+- **Runtime-synthesized values are excused by exact span membership, not by masking.** The
+  I-3 load-time guard already forbids a rule from matching any *configured* replacement, but
+  `remap_uuids: true` synthesizes UUIDs the loader never saw. The scan therefore consults an
+  allow-set of the replacements the run actually recorded and asks whether the **matched span
+  is exactly** one of them. Deleting those strings from the line before matching was
+  considered and rejected: a rule `match: abc123` / `replace: abc` passes I-3, so stripping
+  every `abc` from a line where `abc123` genuinely leaked leaves `123`, the rule stops
+  matching, and the leak ships clean. Exact membership cannot produce that false negative,
+  because a genuine leak is an *original* and I-3 guarantees transitively that no replacement
+  equals any original.
+
 ---
 
 ## 6. Architecture overview
@@ -426,7 +463,10 @@ Notes:
   their contents are never inspected or surfaced.
 - Secrets contribute only a count. No matched bytes, no kind-level original, nothing reversible.
 - `residual_scan: clean` is always present and always `clean` on a written file — if it were
-  not clean, the file would not have been written.
+  not clean, the file would not have been written. **As of 0.4.0 (#195) it attests to both
+  output-side scans**, the secret patterns and the configured `paths`/`identifiers` rules;
+  before that it attested only to the first, so it could appear on a file that still held a
+  configured path or identifier ([§5](#5-design-principles--the-role-of-the-post-scrub-residual-scan)).
 
 ---
 
@@ -452,7 +492,7 @@ Options:
 |---|---|---|
 | 0 | Success | yes (+ sidecar) |
 | 1 | Usage error (bad args, missing input, output exists without `--force`) | no |
-| 2 | **Safety failure** — rule raised, line failed to parse, or residual scan found a secret | **no** |
+| 2 | **Safety failure** — rule raised, line failed to parse, or either output-side scan found a survivor (a secret, or — as of 0.4.0, #195 — a configured `paths`/`identifiers` value) | **no** |
 | 3 | Config error (YAML invalid, regex won't compile, attempt to disable a built-in pattern) | no |
 
 **Atomicity & rename order (I-5).** Output and sidecar are written to temp files in the
