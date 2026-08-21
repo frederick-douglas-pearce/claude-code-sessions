@@ -48,6 +48,30 @@ unrelated tags).
 
 No version bump: nothing below changes the produced bytes.
 
+### Added (issue #191 — adversarial placement matrix)
+- **`tests/test_adversarial_placement.py`** — the parametrized form of the
+  structural-traversal test PRD section 14 calls C-1. One planted value at 14
+  structural positions (nested tool inputs, `tool_result` content arrays,
+  `toolUseResult` siblings, thinking blocks, JSON-inside-a-JSON-string, dict
+  keys, URL query parameters) crossed with four payload families. Asserts on
+  the verdict (redacted / fail-closed / leaked) rather than on output bytes,
+  so the jitter work planned for v1 cannot turn it spuriously red.
+  Byte-exactness stays owned by `test_golden_determinism.py`.
+- Three cells land as `xfail(strict=True)` against **#190**: a config-driven
+  rule cannot reach a value sitting in a dict key, because the structural walk
+  transforms string leaves only. A secret in that position still trips the
+  residual scan and fails closed; a path or identifier leaks silently with a
+  sidecar reading `residual_scan: clean`. Strict, so closing #190 turns those
+  cells red and forces them out of `KNOWN_LEAKS`.
+- The module drives the console script rather than importing `ccs_sanitize`,
+  per D-5a, so one file covers both the source tree and the built artifact.
+  `CCS_SANITIZE_BIN` points it at a specific binary; CI uses that to run the
+  matrix against the wheel from `python -m build`, which is how #190 was found
+  in the first place. It falls back to `python -m ccs_sanitize.cli` rather than
+  skipping, because 57 silently-skipped security assertions reporting green is
+  the failure this workflow exists to prevent.
+- `test_adversarial_placement.py` joins the security-critical presence list in
+  `sanitizer-ci.yml`, so deleting or renaming it fails the build.
 ### Changed (issue #166 — the `ccs-sanitize` name is deliberately unclaimed)
 - **README `Install`** now states that no `ccs-sanitize` distribution exists on
   PyPI, that anything published under that name is not this tool, and that the
