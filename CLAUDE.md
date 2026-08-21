@@ -77,11 +77,12 @@ Mechanical enforcement is in place via `.claude/hooks/block_secret_reads.py` (Pr
 - `docs:` — meta-docs (README, CLAUDE.md, CONTRIBUTING)
 - `chore:` — CI, scaffolding, dependencies
 - `refactor:` — restructuring without behavior change
+- `test:` — adding or reworking tests without changing shipped behavior
 
 Scopes:
 - `feat(posts):` / `fix(posts):` for post work
 - `feat(reference):` / `fix(reference):` for reference docs
-- `feat(sanitizer):` / `fix(sanitizer):` for tooling
+- `feat(sanitizer):` / `fix(sanitizer):` / `test(sanitizer):` for tooling
 - `chore(skills):` / `chore(specs):` for `.claude/` paths
 
 ## Branching & PR workflow

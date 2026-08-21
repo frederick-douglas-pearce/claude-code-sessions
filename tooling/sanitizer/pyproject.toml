@@ -63,3 +63,20 @@ include = [
     "LICENSE",
     "pyproject.toml",
 ]
+
+[tool.pytest.ini_options]
+# Registered so an unmarked-marker warning cannot mask a real one. The
+# adversarial matrix spawns one subprocess per cell, which is slower than
+# the rest of the suite by roughly an order of magnitude; `-m "not
+# adversarial"` deselects it for a fast inner loop.
+#
+# Do NOT put that flag in `addopts`, and do not add it to a CI step. The
+# marker is a convenience for local iteration only: deselecting drops 57
+# security assertions while still reporting green, and the workflow's
+# file-presence check cannot tell "present and running" from "present and
+# deselected". `sanitizer-ci.yml` runs a dedicated `-m adversarial` step
+# that fails on a zero-collection exit or on any skip, which is what makes
+# a deselect visible.
+markers = [
+    "adversarial: structural placement matrix (PRD section 14 C-1); one subprocess per cell",
+]
