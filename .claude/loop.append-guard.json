@@ -1,0 +1,3 @@
+[
+  { "suffix": ".claude/specs/decisions.md", "id_pattern": "^##\\s+([DO]\\d+)" }
+]

@@ -66,3 +66,6 @@ fixtures/_quarantine/
 # Scoped to drafts/ so curated/finalized social assets under social/ can be
 # tracked later if desired.
 social/drafts/
+
+# dev-loop ledger (local working state, never committed)
+.claude/loop/
