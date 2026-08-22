@@ -796,7 +796,7 @@ def main(argv: list[str] | None = None) -> int:
     ) as exc:
         # D-2 invariant: these carry only category labels, never the matched
         # bytes, so printing str(exc) is safe. ResidualRuleError is the
-        # strictest of the three (#195): it carries `section[index]` and not
+        # strictest of the four (#195): it carries `section[index]` and not
         # the rule's own `match` value, because for paths/identifiers that
         # value IS the literal PII.
         #
@@ -812,10 +812,17 @@ def main(argv: list[str] | None = None) -> int:
         # Defense-in-depth: any unexpected exception falls through to exit 2
         # (safety failure) rather than printing a traceback that may carry
         # local-variable bytes from a real session. The exception class name
-        # is included so a debugger has something to start from; the message
-        # itself comes from str(exc) and is printed only because every typed
-        # exception we raise structurally guards against putting originals
-        # in str().
+        # is included so a debugger has something to start from.
+        #
+        # str(exc) IS printed here and is NOT guaranteed span-free. An earlier
+        # version of this comment claimed every typed exception structurally
+        # guards against putting originals in str(); that is false and the
+        # counterexample is reachable. ``SubstitutionConflictError``
+        # (subtable.py) embeds the original value in its message and is a
+        # ValueError, so it lands right here. The exceptions handled ABOVE are
+        # span-free by construction; this handler catches the ones nobody
+        # audited. Tracked in #196 with the ConfigError message-side leak.
+        # Do not restore the stronger claim without making it true.
         print(
             f"{parser.prog}: safety failure ({type(exc).__name__}): {exc}",
             file=sys.stderr,

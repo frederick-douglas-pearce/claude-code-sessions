@@ -161,16 +161,12 @@ def sanitize_session(
     # ``scan_residual_rules`` carries the argument and PRD section 10 carries
     # what the sidecar may therefore claim.
     #
-    # The allow-set is every replacement this run actually recorded. It is
-    # needed because ``remap_uuids`` synthesizes UUIDs at runtime that the
-    # load-time I-3 guard has never seen; see ``scan_residual_rules`` for
-    # why membership is tested on the exact span rather than by masking.
-    scan_residual_rules(
-        out,
-        config.paths,
-        config.identifiers,
-        frozenset(entry.replacement for entry in subtable),
-    )
+    # No allow-set is passed, deliberately. Excusing spans that matched a
+    # recorded replacement leaked: a regex rule's replacement is produced at
+    # runtime by ``match.expand()`` and I-3 never vets it, so it could excuse
+    # a literal rule's own match value. ``scan_residual_rules`` carries the
+    # reproduction.
+    scan_residual_rules(out, config.paths, config.identifiers)
     return out, counts, subtable, secret_counts
 
 

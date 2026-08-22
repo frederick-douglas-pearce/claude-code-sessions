@@ -200,7 +200,7 @@ input.jsonl
 └─────────────────────────────────────────────┘
    │  accumulate substitution table + counts
    ▼  (all lines processed)
-residual secret scan over full output  ──► match? ABORT, no output
+residual scans: secrets over the output text, literal rules over the decoded tree (#195)  ──► match? ABORT, no output
    │  clean
    ▼
 atomic write: output.jsonl  +  output.jsonl.scrubbed
@@ -458,7 +458,7 @@ substitutions:                                    # placeholders + replacement, 
   - {rule: paths,       placeholder: "<home-dir>",     replacement: "/home/user",          occurrences: 9}
   - {rule: paths,       placeholder: "<project-slug>", replacement: "-home-user-project",  occurrences: 5}
   - {rule: identifiers, placeholder: "<email>",        replacement: "user@example.com",    occurrences: 6}
-residual_scan: clean                              # post-scrub secret re-scan result
+residual_scan: clean                              # post-scrub re-scans: secrets + literal rules (#195)
 ```
 
 Notes:

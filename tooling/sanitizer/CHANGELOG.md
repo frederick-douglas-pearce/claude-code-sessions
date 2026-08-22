@@ -65,7 +65,7 @@ than only *refusal* on them. #195 anticipated this ("one 0.4.0 release covers
 both"); the decision to hold the publish rather than release twice is recorded
 here so a later reader does not read the version bump as a missed release.
 
-### Added (issue #195 — total output-side oracle for path/identifier rules)
+### Added (issue #195 — output-side oracle for literal path/identifier rules)
 - **`residual.scan_residual_rules` + `ResidualRuleError`** — **literal**
   `paths`/`identifiers` rules now get an output-side guarantee of the kind
   secrets have had since v0. `scan_residual` re-reads the serialized output for secret patterns, so a
@@ -155,9 +155,9 @@ here so a later reader does not read the version bump as a missed release.
   be one — the position space is tool-defined and open — and this module
   proved that itself by missing **#194** entirely, since its cells plant
   payloads under innocuous key names and never collide with a skip-listed
-  name. The guarantee is **#195**, a total output-side check for the
+  name. The guarantee is **#195**, an output-side check for the **literal**
   path/identifier rules mirroring what `scan_residual` already does for
-  secrets. This module tells you which positions are *scrubbable*; the oracle
+  secrets. Literal only: regex rules are scrub-only, tracked in #198. This module tells you which positions are *scrubbable*; the oracle
   tells you that nothing leaked.
 - Four cells land as `xfail(strict=True)` against **#190**: a config-driven
   rule cannot reach a value in a dict key, because the structural walk

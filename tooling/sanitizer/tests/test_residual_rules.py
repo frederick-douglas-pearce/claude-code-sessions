@@ -56,20 +56,20 @@ def _rules(config):
 def test_clean_lines_return_none(tmp_path: Path) -> None:
     config = _config(tmp_path, _BASE_CONFIG)
     assert (
-        scan_residual_rules(['{"k": "nothing interesting here"}'], *_rules(config), frozenset())
+        scan_residual_rules(['{"k": "nothing interesting here"}'], *_rules(config))
         is None
     )
 
 
 def test_empty_lines_is_clean(tmp_path: Path) -> None:
     config = _config(tmp_path, _BASE_CONFIG)
-    assert scan_residual_rules([], *_rules(config), frozenset()) is None
+    assert scan_residual_rules([], *_rules(config)) is None
 
 
 def test_surviving_path_value_raises_naming_section_and_index(tmp_path: Path) -> None:
     config = _config(tmp_path, _BASE_CONFIG)
     with pytest.raises(ResidualRuleError) as exc:
-        scan_residual_rules([f'{{"k": "{_REAL_USER_HOME}/x"}}'], *_rules(config), frozenset())
+        scan_residual_rules([f'{{"k": "{_REAL_USER_HOME}/x"}}'], *_rules(config))
     assert exc.value.section == "paths"
     assert exc.value.index == 0
 
@@ -80,7 +80,7 @@ def test_exception_never_carries_the_match_or_the_span(tmp_path: Path) -> None:
     exception may name neither the pattern nor the matched span."""
     config = _config(tmp_path, _BASE_CONFIG)
     with pytest.raises(ResidualRuleError) as exc:
-        scan_residual_rules([f'{{"k": "{_REAL_USER_HOME}/secret"}}'], *_rules(config), frozenset())
+        scan_residual_rules([f'{{"k": "{_REAL_USER_HOME}/secret"}}'], *_rules(config))
     rendered = str(exc.value)
     assert _REAL_USER_HOME not in rendered
     assert "realuser" not in rendered
@@ -91,7 +91,7 @@ def test_replacement_in_output_does_not_trip_the_scan(tmp_path: Path) -> None:
     """The load-time I-3 guard already forbids a rule matching any configured
     replacement, so scrubbed output is clean without needing the allow-set."""
     config = _config(tmp_path, _BASE_CONFIG)
-    assert scan_residual_rules(['{"k": "/home/user/x"}'], *_rules(config), frozenset()) is None
+    assert scan_residual_rules(['{"k": "/home/user/x"}'], *_rules(config)) is None
 
 
 def test_regex_rules_are_not_scanned(tmp_path: Path) -> None:
@@ -114,7 +114,7 @@ identifiers:
 """,
     )
     assert (
-        scan_residual_rules(['{"ticket": "CORP-4821"}'], *_rules(config), frozenset())
+        scan_residual_rules(['{"ticket": "CORP-4821"}'], *_rules(config))
         is None
     )
 
@@ -132,9 +132,9 @@ identifiers:
 """,
     )
     # "axbQ" would match if the pattern were compiled raw; it must not.
-    assert scan_residual_rules(['{"k": "axbQ"}'], *_rules(config), frozenset()) is None
+    assert scan_residual_rules(['{"k": "axbQ"}'], *_rules(config)) is None
     with pytest.raises(ResidualRuleError):
-        scan_residual_rules(['{"k": "a.b[0]"}'], *_rules(config), frozenset())
+        scan_residual_rules(['{"k": "a.b[0]"}'], *_rules(config))
 
 
 def test_section_and_index_report_the_matching_rule(tmp_path: Path) -> None:
@@ -156,112 +156,72 @@ identifiers:
 """,
     )
     with pytest.raises(ResidualRuleError) as exc:
-        scan_residual_rules(['{"k": "/home/bravo"}'], *_rules(config), frozenset())
+        scan_residual_rules(['{"k": "/home/bravo"}'], *_rules(config))
     assert (exc.value.section, exc.value.index) == ("paths", 1)
 
     with pytest.raises(ResidualRuleError) as exc:
-        scan_residual_rules(['{"k": "charlie"}'], *_rules(config), frozenset())
+        scan_residual_rules(['{"k": "charlie"}'], *_rules(config))
     assert (exc.value.section, exc.value.index) == ("identifiers", 0)
 
 
-# ----- the allow-set: exact membership, not masking -----------------------
+# ----- why there is no allow-set ------------------------------------------
 
 
-# A literal rule whose match value happens to equal a value the run will
-# synthesize. Contrived, but it is the only way a LITERAL rule can collide with
-# the sanitizer's own output, which is what the allow-set exists to excuse.
-_SYNTHESIZED = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+def test_regex_expanded_replacement_does_not_excuse_a_literal_leak(
+    tmp_path: Path,
+) -> None:
+    """The reproduction that removed the allow-set. It leaked.
 
-_UUID_RULE_CONFIG = f"""
-version: 1
-identifiers:
-  - match: "{_SYNTHESIZED}"
-    replace: "<uuid>"
-"""
+    An earlier version excused a match whose span was exactly a replacement the
+    run had recorded, so a synthesized value could not trip the scan. But a
+    regex rule's replacement is produced at runtime by ``match.expand()``, and
+    I-3 vets only the literal ``replace`` template (``/home/\\1``), never the
+    expansion. So the identifiers layer mints ``/home/realuser``, records it,
+    and the allow-set then excused the ``paths`` rule whose ``match`` value that
+    IS -- exit 0, the operator's real home directory in the output, and a
+    sidecar reading ``residual_scan: clean``.
 
-
-def test_exact_replacement_span_is_excused(tmp_path: Path) -> None:
-    """The allow-set holds replacements the run recorded. A match whose span is
-    exactly one of them is the sanitizer's own output, not a survivor."""
-    config = _config(tmp_path, _UUID_RULE_CONFIG)
-    assert (
-        scan_residual_rules(
-            [f'{{"sessionId": "{_SYNTHESIZED}"}}'],
-            *_rules(config),
-            frozenset({_SYNTHESIZED}),
-        )
-        is None
-    )
-
-
-def test_leak_whose_span_is_not_in_the_allow_set_still_aborts(tmp_path: Path) -> None:
-    """Guards the exclusion from over-excusing. A populated allow-set must not
-    become a blanket amnesty for everything else on the line."""
-    config = _config(
-        tmp_path,
-        """
-version: 1
-identifiers:
-  - match: "allowed-value"
-    replace: "<a>"
-  - match: "realuser"
-    replace: "<b>"
-""",
-    )
-    with pytest.raises(ResidualRuleError) as exc:
-        scan_residual_rules(
-            ['{"a": "allowed-value", "b": "realuser"}'],
-            *_rules(config),
-            frozenset({"allowed-value"}),
-        )
-    assert (exc.value.section, exc.value.index) == ("identifiers", 1)
-
-
-def test_one_match_decides_a_literal_rule_for_a_string(tmp_path: Path) -> None:
-    """A literal is compiled ``re.escape``d, so every match of it has the same
-    span. Once the first occurrence is classified, later ones cannot be
-    classified differently -- which is why the scan uses ``search`` and needs no
-    zero-width guard. Pinned so a future regex treatment, where spans DO vary,
-    cannot inherit this shortcut silently."""
-    config = _config(
-        tmp_path,
-        """
-version: 1
-identifiers:
-  - match: "zebra"
-    replace: "<x>"
-""",
-    )
-    line = '{"k": "zebra and again zebra"}'
-    # Allow-listed: both occurrences share the span, so both are excused.
-    assert scan_residual_rules([line], *_rules(config), frozenset({"zebra"})) is None
-    # Not allow-listed: the first occurrence is enough to abort.
-    with pytest.raises(ResidualRuleError):
-        scan_residual_rules([line], *_rules(config), frozenset())
-
-
-def test_masking_counterexample_is_not_how_this_works(tmp_path: Path) -> None:
-    """The construction that ruled out masking-by-deletion (#195 design review).
-
-    Rule ``match: abc123`` / ``replace: abc`` passes the I-3 guard, because
-    neither string matches the other's rule. Had the scan deleted every
-    recorded replacement from the line before matching, a genuine ``abc123``
-    leak would become ``123``, the rule would stop matching, and the leak
-    would ship with a clean sidecar -- a **false negative**, the one direction
-    a security tool cannot tolerate. Exact-span membership cannot do that:
-    the span here is ``abc123``, which is not in the allow-set.
+    Note the layer order is what makes it reachable: paths run BEFORE
+    identifiers, so the paths rule never sees ``/home/realuser`` during scrub.
+    It exists only in the output, which is exactly what this gate is for.
     """
     config = _config(
         tmp_path,
-        """
+        r"""
 version: 1
+paths:
+  - match: "/home/realuser"
+    replace: "/home/user"
 identifiers:
-  - match: "abc123"
-    replace: "abc"
+  - match: 're:HOME_(\w+)'
+    replace: '/home/\1'
 """,
     )
-    with pytest.raises(ResidualRuleError):
-        scan_residual_rules(['{"k": "abc123"}'], *_rules(config), frozenset({"abc"}))
+    lines = [_line({"type": "user", "toolUseResult": {"stdout": "see HOME_realuser here"}})]
+    with pytest.raises(ResidualRuleError) as exc:
+        sanitize_session(lines, config)
+    assert (exc.value.section, exc.value.index) == ("paths", 0)
+
+
+def test_configured_replacements_cannot_trip_the_scan(tmp_path: Path) -> None:
+    """Why removing the allow-set costs nothing the config guard does not give.
+
+    I-3 forbids a rule from matching any *configured* replacement, so ordinary
+    scrubbed output is clean with no allow-list at all.
+    """
+    config = _config(tmp_path, _BASE_CONFIG)
+    lines = [_line({"type": "user", "toolUseResult": {"stdout": f"{_REAL_USER_HOME}/notes.md"}})]
+    out, _, _, _ = sanitize_session(lines, config)
+    assert "/home/user/notes.md" in out[0]
+
+
+def test_gitbranch_placeholder_does_not_trip_the_scan(tmp_path: Path) -> None:
+    """The other class I-3 already covers: a rule matching the gitBranch
+    placeholder is rejected at load, so the substituted value is safe here."""
+    config = _config(tmp_path, _BASE_CONFIG)
+    lines = [_line({"type": "user", "gitBranch": "feature/realuser-work", "toolUseResult": {"stdout": "ok"}})]
+    out, _, _, _ = sanitize_session(lines, config)
+    assert "feature/example" in out[0]
 
 
 # ----- integration: the two known traversal gaps now abort ----------------

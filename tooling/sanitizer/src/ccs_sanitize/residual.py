@@ -1,4 +1,11 @@
-"""Post-scrub residual secret scan -- the sanitizer's last safety gate.
+"""Post-scrub residual scans -- the sanitizer's last safety gates.
+
+Two of them as of #195, and they are not the same shape. ``scan_residual``
+re-runs the **secret** patterns over the serialized output lines.
+``scan_residual_rules`` re-runs the **literal** ``paths``/``identifiers``
+rules over the **decoded** output tree, keys included. Each function's own
+docstring carries its contract; the module preamble below describes the
+secret scan, which came first.
 
 PRD reference: section 5 (the residual-scan philosophy) and section 11
 (fail-closed posture / exit codes). The same ``COMPILED_SECRET_PATTERNS``
@@ -34,7 +41,7 @@ diagnostic distinguishing "input was malformed" (``PipelineError``) from
 from __future__ import annotations
 
 import json
-from typing import AbstractSet, Iterable, Iterator, Sequence
+from typing import Iterable, Iterator, Sequence
 
 from .config import ExtraSecretPattern, Rule
 from .rules.secrets import iter_all_secret_patterns
@@ -108,9 +115,10 @@ class ResidualRuleError(Exception):
     """Raised when the residual rule scan finds a configured path/identifier
     value in the serialized output.
 
-    Carries only ``section`` (``"paths"`` / ``"identifiers"``) and the rule's
-    zero-based ``index`` within that section -- never ``Rule.pattern`` and
-    never the matched span. This is stricter than ``ResidualSecretError``
+    Raised by ``scan_residual_rules`` when a literal rule matches the decoded
+    output. Carries only ``section`` (``"paths"`` / ``"identifiers"``) and the
+    rule's zero-based ``index`` within that section -- never ``Rule.pattern``
+    and never the matched span. This is stricter than ``ResidualSecretError``
     needs to be, and deliberately so: a secret pattern's ``kind`` is a
     generic label, but a path/identifier rule's ``match`` value **is** the
     literal PII the config exists to scrub (real home dir, real name, real
@@ -160,7 +168,6 @@ def scan_residual_rules(
     lines: Iterable[str],
     paths: Sequence[Rule],
     identifiers: Sequence[Rule],
-    allowed_replacements: AbstractSet[str],
 ) -> None:
     """Verify no **literal** ``paths``/``identifiers`` value survived into the output.
 
@@ -199,46 +206,55 @@ def scan_residual_rules(
     silently missed every value containing a backslash, a quote or a control
     character: a Windows home directory (``C:\\Users\\name``) is the canonical
     ``paths`` case and serializes with doubled backslashes, so the rule could
-    never match it and the value shipped with a clean sidecar. Re-parsing the
-    output lines scans exactly the bytes that will be written, in the domain the
-    rules were authored in.
+    never match it and the value shipped with a clean sidecar.
+
+    **One level of decoding, which is not the same as "the domain the rules
+    were authored in".** A value nested inside a JSON-encoded *string* leaf
+    carries its own escaping, so it is still missed here -- and by the scrub
+    itself, which has the same one-level behavior. That limit is pre-existing
+    rather than introduced by this scan, and it is recorded in #198 rather
+    than implied away.
+
+    **There is deliberately no allow-set.** An earlier version excused a match
+    whose span was exactly a replacement the run had recorded, to stop a
+    synthesized value tripping the scan. That was **unsafe and produced a real
+    leak**: a regex rule's replacement is computed at runtime by
+    ``match.expand()`` and is never vetted by I-3, which checks only the literal
+    ``replace`` template. With ``paths: /home/realuser -> /home/user`` and
+    ``identifiers: re:HOME_(\\w+) -> /home/\\1``, the input ``HOME_realuser``
+    makes the identifier layer mint ``/home/realuser`` and record it, and the
+    allow-set then excused the paths rule that would have caught it -- exit 0,
+    the operator's real home directory in the output, ``residual_scan: clean``.
+
+    Removing it costs nothing the config guard does not already provide.
+    Load-time I-3 (``config.py`` ``_check_replacement_leak``) forbids a rule
+    from matching any *configured* replacement, the gitBranch placeholder, or
+    any ``<REDACTED:kind>`` placeholder, so none of those can trip this scan.
+    The one case an allow-set uniquely covered -- a **literal** ``match`` value
+    that happens to equal a UUID this run synthesized -- is contrived, and
+    failing closed on it is the safe direction.
 
     ``run_pipeline`` drops strip-types lines before returning, so a configured
     value on a dropped line is correctly **not** an abort -- it never reaches
     the output file.
 
-    **The allow-set, and how little it has to do once regex rules are out of
-    scope.** Load-time I-3 (``config.py`` ``_check_replacement_leak``) already
-    forbids a rule from matching any *configured* replacement, so scrubbed
-    output cannot trip this scan on its own placeholders. It cannot cover values
-    synthesized at runtime -- ``remap_uuids: true`` produces UUIDs the loader
-    never saw -- so the scan consults the replacements this run actually
-    recorded and tests whether the **matched span is exactly** one of them.
-    Restricted to literals this is a narrow guard rather than the load-bearing
-    one it was when regex rules were in scope: the only way it can fire is a
-    literal rule whose ``match`` value happens to equal a synthesized
-    replacement. It is kept because that case is possible and silent, not
-    because it is common. Deleting those strings
-    from the text first would be unsafe in the one direction a security tool
-    cannot fail in: a rule ``match: abc123`` / ``replace: abc`` passes I-3, so
-    stripping every ``abc`` from a value where ``abc123`` genuinely leaked
-    leaves ``123``, the rule stops matching, and the leak ships clean. Exact
-    membership cannot produce that false negative.
-
     Args:
-        lines: serialized output records, one per element. Re-parsed here.
+        lines: serialized output records, one per element. Re-parsed here, so
+            each must be a JSON object; everything ``run_pipeline`` returns is.
         paths: ``Config.paths``. Regex entries are skipped; literals scanned first.
         identifiers: ``Config.identifiers``. Same treatment, scanned second.
             Section order and ascending index within a section are part of the
             contract -- they decide which ``section[index]`` a multi-rule match
             reports, so tests can assert on it.
-        allowed_replacements: every ``replacement`` the run's
-            ``SubstitutionTable`` recorded, including ``identifiers:uuid`` rows.
 
     Raises:
-        ResidualRuleError: a literal rule matched a span that is not a recorded
-            replacement. Carries the section and index only; neither the rule's
+        ResidualRuleError: a literal rule matched somewhere in the decoded
+            output. Carries the section and index only; neither the rule's
             ``match`` value nor the matched bytes are ever recorded (D-2).
+        json.JSONDecodeError: a line was not a JSON object. Unreachable through
+            ``sanitize_session`` -- every element comes from ``serialize_line``
+            -- and it fails closed at CLI exit 2 either way. Named here because
+            an undocumented raise is how a caller learns the wrong lesson.
     """
     rules = tuple(
         (section, index, rule)
@@ -252,21 +268,16 @@ def scan_residual_rules(
         strings = list(_iter_decoded_strings(json.loads(line)))
         for section, index, rule in rules:
             for text in strings:
-                found = rule.compiled.search(text)
-                if found is None:
-                    continue
-                # One match decides the rule for this string. A literal is
-                # compiled ``re.escape``d, so **every** match of it has the same
-                # span -- the literal itself -- and a second match could not be
-                # classified differently from the first. That also makes a
-                # zero-width match impossible here (an empty ``match`` is
-                # rejected in ``_build_rules``), which is why this loop needs no
-                # equivalent of the ``if not original`` guard that
+                # ``search`` suffices: a literal is compiled ``re.escape``d, so
+                # every match of it has the same span and a second occurrence
+                # could not be classified differently from the first. That also
+                # makes a zero-width match impossible here (an empty ``match``
+                # is rejected in ``_build_rules``), which is why this loop needs
+                # no equivalent of the ``if not original`` guard that
                 # ``rules/_engine.apply_rule`` carries for regex rules. A future
-                # regex treatment would need both that guard and ``finditer``.
-                if found.group(0) in allowed_replacements:
-                    continue
-                raise ResidualRuleError(section, index)
+                # regex treatment (#198) needs both that guard and ``finditer``.
+                if rule.compiled.search(text) is not None:
+                    raise ResidualRuleError(section, index)
 
 
 __all__ = [
