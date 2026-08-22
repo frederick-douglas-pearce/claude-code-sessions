@@ -120,7 +120,7 @@ The residual scan is also why the fixture-validator re-scans independently rathe
 trusting the sidecar (see [§11](#11-fixture-validator-integration)) — defense in depth, the
 same check enforced at two layers owned by two tools.
 
-**Amendment 2026-08-21 (#195) — the guarantee is now total across all three rule families.**
+**Amendment 2026-08-21 (#195) — the output-side guarantee is extended to LITERAL config rules.**
 The scan described above covered only the *secret* layer, and that asymmetry was itself a
 defect. Secret patterns are re-run over the serialized output, so a value the structural walk
 never reached is still in those bytes and still aborts the run: any traversal gap fails
@@ -134,8 +134,28 @@ Two instances were found by two different methods — [#190](https://github.com/
 (dict keys are never visited by the walk) and [#194](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/194)
 (the skip-list exempts user data at any depth) — but enumerating positions cannot close the
 class: tool inputs are tool-defined and MCP servers define their own schemas, so the position
-space grows without this project's involvement. As of 0.4.0 the configured `paths` and
-`identifiers` rules are re-run over the serialized output exactly as the secret patterns are.
+space grows without this project's involvement. As of 0.4.0 the configured **literal** `paths`
+and `identifiers` rules are re-run over the **decoded** output — every string leaf *and every dict
+key* — and a survivor aborts the run.
+
+**What this deliberately does not cover, stated plainly because the sidecar attests to it.**
+**Regex** `paths`/`identifiers` rules are covered by the in-walk scrub only and are **not**
+re-verified output-side. The restriction is semantic, not a shortcut. The property the scan
+asserts is *"presence in the output is a leak, unconditionally"*. That holds for a literal rule,
+whose `match` **is** a specific real-world string the operator wants gone. It does not hold for a
+regex rule, whose `match` is a *shape* — and shapes legitimately survive scrub. Two demonstrated
+cases: a runtime-synthesized value (`remap_uuids: true` mints UUIDs no load-time check has seen),
+and a field the pipeline preserves *on purpose* (at the default `remap_uuids: false` the UUID-graph
+fields are skip-listed so the parent/subagent graph stays linkable). Scanning regex rules aborted
+every such session at exit 2 with nothing mis-scrubbed, and with no override the config could never
+scrub any file at all.
+
+So for regex rules #190 and #194 remain open, and that is a known, recorded limit rather than a
+silent one. Scanning the **decoded** tree rather than the serialized text is the other half of this
+amendment and is not cosmetic: rules match decoded leaf values, so a serialized-domain scan was
+blind to every value containing a backslash, a quote or a control character — a Windows home
+directory (`C:\Users\name`) is the canonical `paths` case and serializes with doubled backslashes,
+so it shipped with a clean sidecar.
 
 Two properties of that scan are load-bearing and are recorded here rather than only in the
 code:
@@ -150,7 +170,9 @@ code:
   I-3 load-time guard already forbids a rule from matching any *configured* replacement, but
   `remap_uuids: true` synthesizes UUIDs the loader never saw. The scan therefore consults an
   allow-set of the replacements the run actually recorded and asks whether the **matched span
-  is exactly** one of them. Deleting those strings from the line before matching was
+  is exactly** one of them. Restricted to literals this is a narrow guard rather than a
+  load-bearing one — the only way it fires is a literal `match` value that happens to equal a
+  synthesized replacement — but the case is possible and silent, so it is kept. Deleting those strings from the line before matching was
   considered and rejected: a rule `match: abc123` / `replace: abc` passes I-3, so stripping
   every `abc` from a line where `abc123` genuinely leaked leaves `123`, the rule stops
   matching, and the leak ships clean. Exact membership cannot produce that false negative,
@@ -463,10 +485,17 @@ Notes:
   their contents are never inspected or surfaced.
 - Secrets contribute only a count. No matched bytes, no kind-level original, nothing reversible.
 - `residual_scan: clean` is always present and always `clean` on a written file — if it were
-  not clean, the file would not have been written. **As of 0.4.0 (#195) it attests to both
-  output-side scans**, the secret patterns and the configured `paths`/`identifiers` rules;
-  before that it attested only to the first, so it could appear on a file that still held a
-  configured path or identifier ([§5](#5-design-principles--the-role-of-the-post-scrub-residual-scan)).
+  not clean, the file would not have been written. **Be precise about what it attests to**, since
+  this line is the human review gate before publishing and an overclaim here is exactly the
+  rubber-stamp failure [§5](#5-design-principles--the-role-of-the-post-scrub-residual-scan)
+  describes. As of 0.4.0 (#195) it attests to: the secret patterns (total, position-agnostic) **and
+  the LITERAL `paths`/`identifiers` rules** (decoded output, leaves and dict keys). It does **not**
+  attest to **regex** `paths`/`identifiers` rules, which are scrub-only — for those, `clean` means
+  the walk scrubbed what it reached, not that nothing survived. Before 0.4.0 it attested to secrets
+  alone, so it could appear on a file that still held a configured path or identifier.
+  The planned fixture-validator ([§11](#11-fixture-validator-integration)) re-derives rather than
+  trusting this field, and must apply the same literal/regex split so the two tools do not diverge
+  on what `clean` means.
 
 ---
 
@@ -492,7 +521,7 @@ Options:
 |---|---|---|
 | 0 | Success | yes (+ sidecar) |
 | 1 | Usage error (bad args, missing input, output exists without `--force`) | no |
-| 2 | **Safety failure** — rule raised, line failed to parse, or either output-side scan found a survivor (a secret, or — as of 0.4.0, #195 — a configured `paths`/`identifiers` value) | **no** |
+| 2 | **Safety failure** — rule raised, line failed to parse, or either output-side scan found a survivor (a secret, or — as of 0.4.0, #195 — a **literal** `paths`/`identifiers` value) | **no** |
 | 3 | Config error (YAML invalid, regex won't compile, attempt to disable a built-in pattern) | no |
 
 **Atomicity & rename order (I-5).** Output and sidecar are written to temp files in the

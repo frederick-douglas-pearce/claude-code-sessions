@@ -798,8 +798,14 @@ def main(argv: list[str] | None = None) -> int:
         # bytes, so printing str(exc) is safe. ResidualRuleError is the
         # strictest of the three (#195): it carries `section[index]` and not
         # the rule's own `match` value, because for paths/identifiers that
-        # value IS the literal PII. Keeping the message span-free is also what
-        # makes the catch-all below safe -- it prints str(exc) too.
+        # value IS the literal PII.
+        #
+        # That discipline covers THIS handler only. It does NOT make the
+        # catch-all below safe: `SubstitutionConflictError` embeds the original
+        # value in its message and lands there, so a reachable config can still
+        # print an original to stderr. Tracked in #196 with the other
+        # message-side leak; do not read this comment as a claim that the
+        # catch-all is span-free.
         print(f"{parser.prog}: safety failure: {exc}", file=sys.stderr)
         return 2
     except Exception as exc:  # pragma: no cover - defensive catch-all

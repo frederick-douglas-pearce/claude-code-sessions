@@ -55,7 +55,10 @@ def _rules(config):
 
 def test_clean_lines_return_none(tmp_path: Path) -> None:
     config = _config(tmp_path, _BASE_CONFIG)
-    assert scan_residual_rules(["nothing interesting here"], *_rules(config), frozenset()) is None
+    assert (
+        scan_residual_rules(['{"k": "nothing interesting here"}'], *_rules(config), frozenset())
+        is None
+    )
 
 
 def test_empty_lines_is_clean(tmp_path: Path) -> None:
@@ -91,9 +94,16 @@ def test_replacement_in_output_does_not_trip_the_scan(tmp_path: Path) -> None:
     assert scan_residual_rules(['{"k": "/home/user/x"}'], *_rules(config), frozenset()) is None
 
 
-def test_regex_rule_is_scanned_via_its_compiled_form(tmp_path: Path) -> None:
-    """A regex rule must be matched by its compiled pattern, not by a literal
-    comparison against its source text."""
+def test_regex_rules_are_not_scanned(tmp_path: Path) -> None:
+    """Regex rules are deliberately out of this gate's scope.
+
+    "Present in the output means leaked" is true of a literal value and false
+    of a *shape*: shapes legitimately survive scrub. Scanning them
+    unconditionally aborted clean runs (see the two regressions below), so
+    regex rules are covered by the in-walk scrub only. PRD section 10 states
+    what the sidecar may therefore claim; the gap is tracked in the follow-up
+    issue, not silently accepted.
+    """
     config = _config(
         tmp_path,
         """
@@ -103,12 +113,28 @@ identifiers:
     replace: "<ticket>"
 """,
     )
-    # The literal source text "re:CORP-[0-9]{4}" is absent; a value the regex
-    # matches is present. Only compiled-form matching flags this.
-    with pytest.raises(ResidualRuleError) as exc:
+    assert (
         scan_residual_rules(['{"ticket": "CORP-4821"}'], *_rules(config), frozenset())
-    assert exc.value.section == "identifiers"
-    assert exc.value.index == 0
+        is None
+    )
+
+
+def test_literal_rule_matches_by_value_not_by_pattern_source(tmp_path: Path) -> None:
+    """A literal rule is compiled ``re.escape``d, so regex metacharacters in a
+    match value are matched literally rather than as a pattern."""
+    config = _config(
+        tmp_path,
+        """
+version: 1
+identifiers:
+  - match: "a.b[0]"
+    replace: "<id>"
+""",
+    )
+    # "axbQ" would match if the pattern were compiled raw; it must not.
+    assert scan_residual_rules(['{"k": "axbQ"}'], *_rules(config), frozenset()) is None
+    with pytest.raises(ResidualRuleError):
+        scan_residual_rules(['{"k": "a.b[0]"}'], *_rules(config), frozenset())
 
 
 def test_section_and_index_report_the_matching_rule(tmp_path: Path) -> None:
@@ -141,16 +167,17 @@ identifiers:
 # ----- the allow-set: exact membership, not masking -----------------------
 
 
-_UUID_RULE_CONFIG = """
+# A literal rule whose match value happens to equal a value the run will
+# synthesize. Contrived, but it is the only way a LITERAL rule can collide with
+# the sanitizer's own output, which is what the allow-set exists to excuse.
+_SYNTHESIZED = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+
+_UUID_RULE_CONFIG = f"""
 version: 1
 identifiers:
-  - match: "re:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+  - match: "{_SYNTHESIZED}"
     replace: "<uuid>"
 """
-
-# A value the rule above matches, standing in for what ``remap_uuids``
-# synthesizes at runtime. The load-time I-3 guard cannot have seen it.
-_SYNTHESIZED = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 
 
 def test_exact_replacement_span_is_excused(tmp_path: Path) -> None:
@@ -169,35 +196,48 @@ def test_exact_replacement_span_is_excused(tmp_path: Path) -> None:
 
 def test_leak_whose_span_is_not_in_the_allow_set_still_aborts(tmp_path: Path) -> None:
     """Guards the exclusion from over-excusing. A populated allow-set must not
-    become a blanket amnesty for every match on the line."""
-    config = _config(tmp_path, _UUID_RULE_CONFIG)
-    other = "99999999-8888-7777-6666-555555555555"
-    with pytest.raises(ResidualRuleError):
-        scan_residual_rules(
-            [f'{{"a": "{_SYNTHESIZED}", "b": "{other}"}}'],
-            *_rules(config),
-            frozenset({_SYNTHESIZED}),
-        )
-
-
-def test_later_match_on_a_line_is_reached_when_the_first_is_excused(
-    tmp_path: Path,
-) -> None:
-    """The scan uses ``finditer``, not ``search``. If it stopped at the first
-    match it would excuse the whole line whenever the sanitizer's own output
-    happened to appear before a genuine survivor."""
+    become a blanket amnesty for everything else on the line."""
     config = _config(
         tmp_path,
         """
 version: 1
 identifiers:
-  - match: "re:tok-[a-z]+"
-    replace: "<token>"
+  - match: "allowed-value"
+    replace: "<a>"
+  - match: "realuser"
+    replace: "<b>"
 """,
     )
-    line = '{"first": "tok-allowed", "second": "tok-leaked"}'
+    with pytest.raises(ResidualRuleError) as exc:
+        scan_residual_rules(
+            ['{"a": "allowed-value", "b": "realuser"}'],
+            *_rules(config),
+            frozenset({"allowed-value"}),
+        )
+    assert (exc.value.section, exc.value.index) == ("identifiers", 1)
+
+
+def test_one_match_decides_a_literal_rule_for_a_string(tmp_path: Path) -> None:
+    """A literal is compiled ``re.escape``d, so every match of it has the same
+    span. Once the first occurrence is classified, later ones cannot be
+    classified differently -- which is why the scan uses ``search`` and needs no
+    zero-width guard. Pinned so a future regex treatment, where spans DO vary,
+    cannot inherit this shortcut silently."""
+    config = _config(
+        tmp_path,
+        """
+version: 1
+identifiers:
+  - match: "zebra"
+    replace: "<x>"
+""",
+    )
+    line = '{"k": "zebra and again zebra"}'
+    # Allow-listed: both occurrences share the span, so both are excused.
+    assert scan_residual_rules([line], *_rules(config), frozenset({"zebra"})) is None
+    # Not allow-listed: the first occurrence is enough to abort.
     with pytest.raises(ResidualRuleError):
-        scan_residual_rules([line], *_rules(config), frozenset({"tok-allowed"}))
+        scan_residual_rules([line], *_rules(config), frozenset())
 
 
 def test_masking_counterexample_is_not_how_this_works(tmp_path: Path) -> None:
@@ -338,22 +378,96 @@ def test_value_on_a_stripped_line_does_not_abort(tmp_path: Path) -> None:
     assert dict(counts.stripped_lines) == {"file-history-snapshot": 1}
 
 
-# ----- the remap_uuids regression the issue's test plan omitted -----------
+# ----- regressions for the three findings the code review reproduced ------
 
 
-def test_remap_uuids_with_a_broad_uuid_rule_does_not_false_abort(
+def test_escaped_value_in_a_dict_key_is_not_invisible(tmp_path: Path) -> None:
+    """Code-review finding A, the one that broke the headline claim.
+
+    Rules match DECODED leaf values; the first implementation scanned the
+    SERIALIZED line. A Windows home directory -- the canonical ``paths`` case --
+    serializes with doubled backslashes, so ``C:\\Users\\realuser`` in the output
+    bytes never matched a rule authored as ``C:\\Users\\realuser`` decoded. It
+    shipped at exit 0 with ``residual_scan: clean``, in the #190 dict-key
+    position: the exact silent leak this gate exists to close.
+    """
+    config = _config(
+        tmp_path,
+        r"""
+version: 1
+paths:
+  - match: "C:\\Users\\realuser"
+    replace: "C:\\Users\\user"
+""",
+    )
+    lines = [_line({"type": "user", "toolUseResult": {"C:\\Users\\realuser\\notes.md": {"size": 1}}})]
+    with pytest.raises(ResidualRuleError) as exc:
+        sanitize_session(lines, config)
+    assert exc.value.section == "paths"
+
+
+def test_value_containing_a_quote_is_not_invisible(tmp_path: Path) -> None:
+    """Same root cause as the test above, different escape. A quote in a match
+    value is another byte whose serialized and decoded forms differ."""
+    config = _config(
+        tmp_path,
+        """
+version: 1
+identifiers:
+  - match: 'real"user'
+    replace: "user"
+""",
+    )
+    # A dict key -- the #190 position the scrub cannot reach. In a reachable
+    # leaf the transform would simply scrub it and there would be nothing for
+    # this gate to catch.
+    lines = [_line({"type": "user", "toolUseResult": {'real"user': {"size": 1}}})]
+    with pytest.raises(ResidualRuleError):
+        sanitize_session(lines, config)
+
+
+def test_default_remap_uuids_with_a_uuid_shaped_rule_does_not_abort(
     tmp_path: Path,
 ) -> None:
-    """The Q2 regression, and the reason the allow-set exists at all.
+    """Code-review finding C, and the reason regex rules are out of scope.
 
-    With ``remap_uuids: true`` the identifier layer early-returns on a
-    ``UUID_FIELDS`` leaf and substitutes a SHA-256-derived UUID. That value is
-    synthesized at runtime, so the load-time I-3 guard has never seen it: a
-    broad rule like ``re:[0-9a-f-]{36}`` never fires on that leaf during scrub
-    and *would* match the synthesized UUID in the output. Without the allow-set
-    this aborts every run that remaps a UUID -- the tool would refuse to scrub
-    anything at all for such a config.
+    Under the DEFAULT ``remap_uuids: false`` the UUID-graph fields are
+    skip-listed **deliberately**, so the parent/subagent graph stays linkable.
+    A UUID-shaped identifier rule therefore matches a value the sanitizer
+    preserved on purpose. Scanning regex rules aborted every such session at
+    exit 2 though nothing had been mis-scrubbed, and with no override the
+    config could never scrub any file.
     """
+    config = _config(
+        tmp_path,
+        """
+version: 1
+identifiers:
+  - match: "re:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+    replace: "<uuid>"
+""",
+    )
+    assert config.options.remap_uuids is False
+    lines = [
+        _line(
+            {
+                "type": "user",
+                "sessionId": "11111111-2222-3333-4444-555555555555",
+                "toolUseResult": {"stdout": "clean"},
+            }
+        )
+    ]
+    out, _, _, _ = sanitize_session(lines, config)
+    assert len(out) == 1
+    assert "11111111-2222-3333-4444-555555555555" in out[0]
+
+
+def test_remap_uuids_true_with_a_uuid_shaped_rule_does_not_abort(
+    tmp_path: Path,
+) -> None:
+    """The other half of finding C. With remapping on, the synthesized UUID is a
+    value no load-time check ever saw, so a UUID-shaped rule would match the
+    sanitizer's own output."""
     config = _config(
         tmp_path,
         """
@@ -365,19 +479,58 @@ identifiers:
     replace: "<uuid>"
 """,
     )
-    assert config.options.remap_uuids is True
     original = "11111111-2222-3333-4444-555555555555"
     lines = [_line({"type": "user", "sessionId": original, "message": {"role": "user"}})]
-
     out, _, subtable, _ = sanitize_session(lines, config)
-
-    # The run completed rather than aborting, the original is gone, and what
-    # replaced it is the synthesized remap -- which is exactly the value the
-    # allow-set excused.
     assert original not in out[0]
     remapped = {e.replacement for e in subtable if e.label == "identifiers:uuid"}
     assert remapped, "expected a uuid remap entry in the substitution table"
-    assert any(value in out[0] for value in remapped)
+
+
+def test_zero_width_regex_does_not_abort_a_clean_run(tmp_path: Path) -> None:
+    """Code-review finding B. An input-dependent zero-width match (a lookahead,
+    ``\\b``) produces an empty span, which is never in the allow-set, so the
+    first one aborted a run with no PII in it at all. ``_reject_zero_width_pattern``
+    does not cover these -- it only tests ``compiled.match("")`` -- which is why
+    ``rules/_engine.apply_rule`` carries its own guard. Unreachable now that only
+    literal rules are scanned (an empty literal is rejected at load), and pinned
+    so a future regex treatment cannot reintroduce it silently."""
+    config = _config(
+        tmp_path,
+        """
+version: 1
+identifiers:
+  - match: "re:(?=hello)"
+    replace: ""
+""",
+    )
+    lines = [_line({"type": "user", "toolUseResult": {"stdout": "hello world"}})]
+    out, _, _, _ = sanitize_session(lines, config)
+    assert len(out) == 1
+
+
+def test_literal_rule_still_covered_when_a_regex_rule_is_present(
+    tmp_path: Path,
+) -> None:
+    """Narrowing to literals must not be a way to switch the whole gate off: a
+    config holding both kinds keeps the literal guarantee, and the reported
+    index is the rule's position in its own section, not its position among the
+    literals."""
+    config = _config(
+        tmp_path,
+        """
+version: 1
+identifiers:
+  - match: "re:CORP-[0-9]{4}"
+    replace: "<ticket>"
+  - match: "realuser"
+    replace: "user"
+""",
+    )
+    lines = [_line({"type": "user", "toolUseResult": {"realuser": {"size": 1}}})]
+    with pytest.raises(ResidualRuleError) as exc:
+        sanitize_session(lines, config)
+    assert (exc.value.section, exc.value.index) == ("identifiers", 1)
 
 
 # ----- CLI level: the sidecar cannot certify what was never written -------

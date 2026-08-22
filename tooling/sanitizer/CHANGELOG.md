@@ -66,9 +66,9 @@ both"); the decision to hold the publish rather than release twice is recorded
 here so a later reader does not read the version bump as a missed release.
 
 ### Added (issue #195 — total output-side oracle for path/identifier rules)
-- **`residual.scan_residual_rules` + `ResidualRuleError`** — the config rule
-  family now gets the same total, output-side guarantee secrets have had since
-  v0. `scan_residual` re-reads the serialized output for secret patterns, so a
+- **`residual.scan_residual_rules` + `ResidualRuleError`** — **literal**
+  `paths`/`identifiers` rules now get an output-side guarantee of the kind
+  secrets have had since v0. `scan_residual` re-reads the serialized output for secret patterns, so a
   value the structural walk never reached is still in those bytes and still
   aborts the run. Paths and identifiers had no such pass, so the same
   traversal gap leaked **silently**: exit 0, output written, and a sidecar
@@ -84,6 +84,24 @@ here so a later reader does not read the version bump as a missed release.
 - **Exit 2 on a survivor**, alongside the existing safety failures. The scan
   runs *after* the secret scan, so a surviving secret still reports as a
   secret (the D-1 floor is the higher-severity class).
+- **Scans the DECODED output tree — every string leaf and every dict key — not
+  the serialized text.** Rules match decoded leaf values, so a serialized-domain
+  scan is blind to every value containing a backslash, a quote or a control
+  character. A Windows home directory is the canonical `paths` case and
+  serializes with doubled backslashes, so it would have shipped with a clean
+  sidecar. Dict keys are scanned because keys are the whole of #190: the scrub
+  walk recurses into a dict's values and copies its keys verbatim.
+- **Regex `paths`/`identifiers` rules are deliberately NOT re-verified**, and
+  the restriction is semantic rather than a shortcut. The property the scan
+  asserts — *presence in the output is a leak, unconditionally* — is true of a
+  literal value and false of a *shape*: shapes legitimately survive scrub. Two
+  demonstrated cases: a runtime-synthesized value (`remap_uuids: true` mints
+  UUIDs no load-time check saw), and a field the pipeline preserves on purpose
+  (at the default `remap_uuids: false` the UUID-graph fields are skip-listed so
+  the parent/subagent graph stays linkable). Scanning regex rules aborted every
+  such session at exit 2 with nothing mis-scrubbed, and with no override that
+  config could never scrub any file. For regex rules #190 and #194 stay open;
+  tracked in **#198**, not silently accepted.
 - **The diagnostic names `section[index]`, never the rule or the match.**
   Stricter than `ResidualSecretError`, deliberately: a secret pattern's `kind`
   is a generic label, but a path/identifier rule's `match` value **is** the
@@ -91,6 +109,12 @@ here so a later reader does not read the version bump as a missed release.
   successful — the ones that execute in CI and inside Claude Code sessions —
   so a diagnostic carrying the value would write real PII into the artifact
   class this tool exists to sanitize.
+- **`residual_scan: clean` now means more than it did, but not everything.** It
+  attests to the secret patterns (total) **and** the literal path/identifier
+  rules (decoded output). It does **not** attest to regex path/identifier rules.
+  Stated in PRD section 10 as well, because this field is the human review gate
+  before publishing and an overclaim there is the rubber-stamp failure the whole
+  issue is about.
 - **Runtime-synthesized values are excused by exact span membership, not by
   masking.** Load-time I-3 already forbids a rule from matching any
   *configured* replacement, but `remap_uuids: true` synthesizes UUIDs the
