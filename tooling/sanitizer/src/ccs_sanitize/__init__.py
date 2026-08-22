@@ -10,6 +10,6 @@ README.md ("Stability and the determinism contract") for the public
 statement of what each bump level promises.
 """
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = ["__version__"]

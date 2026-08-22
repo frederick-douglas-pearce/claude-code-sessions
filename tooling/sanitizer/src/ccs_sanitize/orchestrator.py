@@ -3,7 +3,8 @@
 PRD reference:
 
   - section 5 -- the residual scan is the single most important safety
-    mechanism; it must run after every successful pipeline pass.
+    mechanism; it must run after every successful pipeline pass. As of
+    #195 there are two: secrets, then the LITERAL config rules.
   - section 6 -- architecture overview shows the three-layer ordering
     (paths -> identifiers -> secrets) feeding into the residual scan.
   - section 11 -- fail-closed posture: any failure (pipeline parse error,
@@ -47,7 +48,7 @@ from .pipeline import (
     make_skip_predicate,
     run_pipeline,
 )
-from .residual import scan_residual
+from .residual import scan_residual, scan_residual_rules
 from .rules.identifiers import build_identifier_transform
 from .rules.paths import build_path_transform
 from .rules.secrets import SecretCounts, build_secret_transform
@@ -64,10 +65,20 @@ def sanitize_session(
 
     Builds the three transform layers from ``config``, composes them in the
     PRD-mandated order (paths -> identifiers -> secrets), feeds them through
-    ``run_pipeline``, and runs the residual secret scan over the joined
-    output. If this function returns, the residual scan passed -- the
-    sidecar (#25) can unconditionally record ``residual_scan: clean`` on
-    every result it consumes from here.
+    ``run_pipeline``, and runs **both** output-side scans over the result.
+    If this function returns, both passed -- the sidecar (#25) can
+    unconditionally record ``residual_scan: clean`` on every result it
+    consumes from here.
+
+    The two scans are complementary, not redundant (#195): ``scan_residual``
+    re-runs the *secret* patterns over the serialized lines, and
+    ``scan_residual_rules`` re-runs the **literal** ``paths``/``identifiers``
+    rules over the decoded tree. Before the second existed, a value the
+    structural walk could not reach was caught for secrets and leaked silently
+    for the other two layers. **Regex** path/identifier rules are covered by
+    the in-walk scrub only -- see ``scan_residual_rules`` for why an
+    unconditional output-side abort is sound for a literal value and not for a
+    shape.
 
     Args:
         lines: input JSONL records. Iterated exactly once.
@@ -93,6 +104,10 @@ def sanitize_session(
             Maps to CLI exit 2. The exception's ``kind`` field names the
             matching pattern label; the matched bytes are never recorded
             (D-2 invariant).
+        ResidualRuleError: a **literal** ``paths``/``identifiers`` rule matched
+            the decoded output (#195). Maps to CLI exit 2. Carries only
+            ``section`` and ``index`` -- never the rule's ``match`` value,
+            which is itself the literal PII, and never the matched span.
     """
     subtable = SubstitutionTable()
     secret_counts = SecretCounts()
@@ -133,6 +148,25 @@ def sanitize_session(
     # avoids any cross-line spillover from join-separator interaction with
     # patterns that match across whitespace.
     scan_residual(out, config.extra_secret_patterns)
+    # #195: the same treatment for the config rule family, for LITERAL rules.
+    # The secret scan above is position-agnostic, so a traversal gap fails
+    # CLOSED for secrets; paths and identifiers had no output-side pass at
+    # all, so the same gap leaked SILENTLY with a sidecar reporting a clean
+    # run. Runs second so a surviving secret still reports as a secret (D-1 is
+    # the higher-severity floor); both map to CLI exit 2, so the only
+    # observable difference is which diagnostic prints.
+    #
+    # Regex rules are deliberately NOT re-verified here: "present in the
+    # output" means "leaked" for a literal value and does not for a shape.
+    # ``scan_residual_rules`` carries the argument and PRD section 10 carries
+    # what the sidecar may therefore claim.
+    #
+    # No allow-set is passed, deliberately. Excusing spans that matched a
+    # recorded replacement leaked: a regex rule's replacement is produced at
+    # runtime by ``match.expand()`` and I-3 never vets it, so it could excuse
+    # a literal rule's own match value. ``scan_residual_rules`` carries the
+    # reproduction.
+    scan_residual_rules(out, config.paths, config.identifiers)
     return out, counts, subtable, secret_counts
 
 

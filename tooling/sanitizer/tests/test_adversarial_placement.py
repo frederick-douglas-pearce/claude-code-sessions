@@ -14,9 +14,11 @@ This module demonstrated that itself -- it was built to map positional
 coverage and missed #194 entirely, because its cells plant payloads under
 innocuous key names and never collide with a skip-listed name.
 
-The guarantee lives in #195: a total, position-agnostic output-side check
-for the path/identifier rules, mirroring what `scan_residual` already does
-for secrets. This module is the coverage net BEHIND that guarantee -- it
+The guarantee lives in #195: an output-side check for the **literal**
+path/identifier rules, mirroring what `scan_residual` already does for
+secrets. Literal only -- regex rules are scrub-only, tracked in #198 -- so
+this net still covers positions the oracle does not speak for. This module is
+the coverage net BEHIND that guarantee -- it
 tells you which positions are scrubbable, where the oracle only tells you
 that nothing leaked.
 
@@ -128,22 +130,36 @@ KNOWN_DEVIATIONS: dict[tuple[str, str], tuple[int, str]] = {
     ("13-dict-key-not-value", "pii-home"): (
         190,
         "dict keys are never transformed, so a config-driven rule cannot "
-        "reach this position; the value leaks with a clean sidecar",
+        "reach this position. As of #195 this fails closed rather than "
+        "leaking -- the output-side oracle catches the survivor and aborts "
+        "(exit 2, nothing written), so the verdict is FAIL-CLOSED, not "
+        "LEAKED. #190 stays open because the file is still unscrubbable: "
+        "safe, but the user cannot publish it at all",
     ),
     ("13-dict-key-not-value", "pii-email"): (
         190,
         "dict keys are never transformed, so a config-driven rule cannot "
-        "reach this position; the value leaks with a clean sidecar",
+        "reach this position. As of #195 this fails closed rather than "
+        "leaking -- the output-side oracle catches the survivor and aborts "
+        "(exit 2, nothing written), so the verdict is FAIL-CLOSED, not "
+        "LEAKED. #190 stays open because the file is still unscrubbable: "
+        "safe, but the user cannot publish it at all",
     ),
     ("13-dict-key-not-value", "pii-name"): (
         190,
         "dict keys are never transformed, so a config-driven rule cannot "
-        "reach this position; the value leaks with a clean sidecar",
+        "reach this position. As of #195 this fails closed rather than "
+        "leaking -- the output-side oracle catches the survivor and aborts "
+        "(exit 2, nothing written), so the verdict is FAIL-CLOSED, not "
+        "LEAKED. #190 stays open because the file is still unscrubbable: "
+        "safe, but the user cannot publish it at all",
     ),
     ("13-dict-key-not-value", "secret"): (
         190,
         "dict keys are never transformed, so the secret transform misses it "
-        "and the residual scan catches it instead -- safe, but degraded",
+        "and the residual scan catches it instead -- safe, but degraded. "
+        "Unchanged by #195: this cell already failed closed, via the secret "
+        "residual scan rather than the new rule oracle",
     ),
 }
 

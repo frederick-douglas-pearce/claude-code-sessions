@@ -117,8 +117,85 @@ mistake:
    output. A match here is a failure condition, not a normal event.
 
 The residual scan is also why the fixture-validator re-scans independently rather than
-trusting the sidecar (see [§11](#11-fixture-validator-integration)) — defense in depth, the
+trusting the sidecar (see [§13](#13-fixture-validator-integration)) — defense in depth, the
 same check enforced at two layers owned by two tools.
+
+**Amendment 2026-08-21 (#195) — the output-side guarantee is extended to LITERAL config rules.**
+The scan described above covered only the *secret* layer, and that asymmetry was itself a
+defect. Secret patterns are re-run over the serialized output, so a value the structural walk
+never reached is still in those bytes and still aborts the run: any traversal gap fails
+**closed**. The `paths` and `identifiers` layers ran *inside* the walk with no output-side
+pass at all, so the same gap leaked **silently** — exit 0, output written, and a sidecar
+affirmatively reporting `residual_scan: clean` on a file that still contained the value. That
+is worse than no sidecar, because it converts the human review step this design depends on
+into a rubber stamp.
+
+Two instances were found by two different methods — [#190](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/190)
+(dict keys are never visited by the walk) and [#194](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/194)
+(the skip-list exempts user data at any depth) — but enumerating positions cannot close the
+class: tool inputs are tool-defined and MCP servers define their own schemas, so the position
+space grows without this project's involvement. As of 0.4.0 the configured **literal** `paths`
+and `identifiers` rules are re-run over the **decoded** output — every string leaf *and every dict
+key* — and a survivor aborts the run.
+
+**What this deliberately does not cover, stated plainly because the sidecar attests to it.**
+**Regex** `paths`/`identifiers` rules are covered by the in-walk scrub only and are **not**
+re-verified output-side. The restriction is semantic, not a shortcut. The property the scan
+asserts is *"presence in the output is a leak, unconditionally"*. That holds for a literal rule,
+whose `match` **is** a specific real-world string the operator wants gone. It does not hold for a
+regex rule, whose `match` is a *shape* — and shapes legitimately survive scrub. Two demonstrated
+cases: a runtime-synthesized value (`remap_uuids: true` mints UUIDs no load-time check has seen),
+and a field the pipeline preserves *on purpose* (at the default `remap_uuids: false` the UUID-graph
+fields are skip-listed so the parent/subagent graph stays linkable). Scanning regex rules aborted
+every such session at exit 2 with nothing mis-scrubbed, and with no override the config could never
+scrub any file at all.
+
+So for regex rules #190 and #194 remain open, and that is a known, recorded limit rather than a
+silent one. Scanning the **decoded** tree rather than the serialized text is the other half of this
+amendment and is not cosmetic: rules match decoded leaf values, so a serialized-domain scan was
+blind to every value containing a backslash, a quote or a control character — a Windows home
+directory (`C:\Users\name`) is the canonical `paths` case and serializes with doubled backslashes,
+so it shipped with a clean sidecar.
+
+Two properties of that scan are load-bearing and are recorded here rather than only in the
+code:
+
+- **The abort names `section[index]`, never the rule and never the matched span.** A secret
+  pattern's `kind` is a generic label, but a path/identifier rule's `match` value *is* the
+  literal PII the config exists to scrub — which is why the config file is gitignored
+  ([§12b](#12b-config-storage-and-safety)). This gate fires on runs that otherwise look
+  successful, i.e. the ones that run in CI and inside Claude Code sessions, so a diagnostic
+  carrying the value would write real PII into the very artifact class this tool sanitizes.
+- **There is no mechanism that excuses a match, and that is a deliberate negative
+  requirement.** The scan asks one question — does a literal rule match anywhere in the decoded
+  output? — and any match aborts. It consults no allow-list of the sanitizer's own replacements.
+
+  This is recorded here because the obvious design is the wrong one and it was built and shipped
+  once before being caught. The reasoning that justified it was: I-3 forbids a rule from matching
+  any *configured* replacement, so transitively no replacement can equal any original, so a match
+  whose span is exactly a recorded replacement must be the sanitizer's own output and can be
+  excused safely. **That transitive step is false.** I-3 vets the literal `replace` *template*; a
+  regex rule's actual replacement is produced at runtime by `match.expand()` and no load-time check
+  ever sees it. With `paths: /home/realuser → /home/user` and `identifiers: re:HOME_(\w+) →
+  /home/\1`, the input `HOME_realuser` makes the identifier layer mint `/home/realuser`, record it,
+  and the allow-set then excused the paths rule whose `match` value that *is* — exit 0, the
+  operator's real home directory in the output, `residual_scan: clean`. Layer order is what makes it
+  reachable: paths run before identifiers, so the paths rule never sees the value during scrub. It
+  exists only in the output, which is precisely what this gate is for. `rules/paths.py` documents
+  the same backreference blind spot from the transform side.
+
+  **Do not re-derive an allow-set from the premise that the config guard covers it.** What the
+  config guard does cover is enough on its own: I-3 forbids a rule from matching any configured
+  replacement, the `gitBranch` placeholder, or any `<REDACTED:kind>` placeholder, so none of those
+  can trip this scan without an exemption. What an allow-set uniquely bought was excusing a literal
+  `match` value that happens to equal a UUID a run synthesized — contrived, and failing closed on it
+  costs availability rather than safety.
+
+  Masking — deleting recorded replacements from the text before matching — was considered and
+  rejected earlier for a separate reason worth keeping: a rule `match: abc123` / `replace: abc`
+  passes I-3, so stripping every `abc` from a value where `abc123` genuinely leaked leaves `123`,
+  the rule stops matching, and the leak ships clean. Both mechanisms fail in the same direction,
+  which is the one a security tool cannot afford.
 
 ---
 
@@ -141,7 +218,7 @@ input.jsonl
 └─────────────────────────────────────────────┘
    │  accumulate substitution table + counts
    ▼  (all lines processed)
-residual secret scan over full output  ──► match? ABORT, no output
+residual scans: secrets over the output text, literal rules over the decoded tree (#195)  ──► match? ABORT, no output
    │  clean
    ▼
 atomic write: output.jsonl  +  output.jsonl.scrubbed
@@ -399,7 +476,7 @@ substitutions:                                    # placeholders + replacement, 
   - {rule: paths,       placeholder: "<home-dir>",     replacement: "/home/user",          occurrences: 9}
   - {rule: paths,       placeholder: "<project-slug>", replacement: "-home-user-project",  occurrences: 5}
   - {rule: identifiers, placeholder: "<email>",        replacement: "user@example.com",    occurrences: 6}
-residual_scan: clean                              # post-scrub secret re-scan result
+residual_scan: clean                              # post-scrub re-scans: secrets + literal rules (#195)
 ```
 
 Notes:
@@ -426,7 +503,45 @@ Notes:
   their contents are never inspected or surfaced.
 - Secrets contribute only a count. No matched bytes, no kind-level original, nothing reversible.
 - `residual_scan: clean` is always present and always `clean` on a written file — if it were
-  not clean, the file would not have been written.
+  not clean, the file would not have been written. **Be precise about what it attests to**, since
+  this line is the human review gate before publishing and an overclaim here is exactly the
+  rubber-stamp failure [§5](#5-design-principles--the-role-of-the-post-scrub-residual-scan)
+  describes. As of 0.4.0 (#195) it attests to: the secret patterns (position-agnostic over the
+  serialized output) **and the LITERAL `paths`/`identifiers` rules** (decoded output, leaves and
+  dict keys).
+
+  It does **not** attest to the four things below. The list is written out because an unstated
+  exclusion is how this line starts overclaiming again — and it is **not** a closed set: add to it
+  whenever a new limit is found, rather than letting the omission do the claiming.
+
+  - **Regex `paths`/`identifiers` rules**, which are scrub-only — for those, `clean` means the walk
+    scrubbed what it reached, not that nothing survived (#198).
+  - **Values nested inside a JSON-encoded string leaf.** Both the scrub and the rule scan decode one
+    level, so a value carrying its own escaping inside an inner JSON document is missed by both. A
+    plain nested value *is* caught; it is the inner escaping that defeats it. A pre-existing limit
+    of the transform rather than of the scan, tracked in #198.
+  - **A configured value that appears as a JSON number rather than a string.** The structural walk
+    transforms string leaves, and the rule scan walks decoded strings, so neither sees a numeric
+    leaf: `{"account_id": 1004728391}` survives a rule whose match is `1004728391`. This one is
+    worth watching rather than filing away, because [#126](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/126)
+    (numeric GitHub user ids) is exactly that shape. Tracked in #198.
+  - **A secret whose bytes differ between the serialized and decoded forms.** `scan_residual` reads
+    serialized text, so an escapable byte (backslash, quote, control character) inside a match makes
+    the serialized and decoded forms diverge. **The built-in floor is not encoding-complete**, and
+    the set has not been audited pattern by pattern for this — one confirmed gap is enough to
+    retire the claim that it is. `bearer-token` is
+    `(?i)authorization:\s*bearer\s+[A-Za-z0-9._-]+`, and `\s` matches a newline or tab, which JSON
+    escapes, so a bearer token whose separator is a newline, in a position the walk cannot reach, is
+    missed by both layers. Reproduced. Do **not** replace this with a generalization about the
+    built-ins being alphanumeric: `conn-string-pw` matches its user and password through negated
+    classes (`[^:\s/]+`, `[^@\s]+`) that accept quotes and backslashes, and `pem-private-key` is a
+    literal containing spaces and dashes. Those two happen to still match in serialized form, but
+    the reason is per-pattern rather than structural. Auditing the set is #198's.
+
+  Before 0.4.0 this field attested to secrets alone, so it could appear on a file that still held a
+  configured path or identifier. The planned fixture-validator
+  ([§13](#13-fixture-validator-integration)) re-derives rather than trusting this field, and must
+  apply the same literal/regex split so the two tools do not diverge on what `clean` means.
 
 ---
 
@@ -452,7 +567,7 @@ Options:
 |---|---|---|
 | 0 | Success | yes (+ sidecar) |
 | 1 | Usage error (bad args, missing input, output exists without `--force`) | no |
-| 2 | **Safety failure** — rule raised, line failed to parse, or residual scan found a secret | **no** |
+| 2 | **Safety failure** — rule raised, line failed to parse, or either output-side scan found a survivor (a secret, or — as of 0.4.0, #195 — a **literal** `paths`/`identifiers` value) | **no** |
 | 3 | Config error (YAML invalid, regex won't compile, attempt to disable a built-in pattern) | no |
 
 **Atomicity & rename order (I-5).** Output and sidecar are written to temp files in the

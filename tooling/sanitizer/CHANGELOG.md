@@ -44,9 +44,119 @@ Releases are tagged `sanitizer-v<version>` (component-scoped, not a bare `v*`:
 this is a monorepo and a bare tag filter would fire the publish workflow on
 unrelated tags).
 
-## [Unreleased]
+## [0.4.0] — unreleased
 
-No version bump: nothing below changes the produced bytes.
+**MINOR.** Adds a new fail-closed refusal surface. Existing configs keep
+working, no sidecar field is removed, renamed or retyped
+(`sidecar_schema_version` stays `1`), and no built-in pattern is removed, so
+this is not MAJOR; it changes which inputs the tool refuses, so it is not
+PATCH. "Scrubs more / refuses more" is monotonically safer.
+
+**`test_golden_determinism.py` stays green, and that is expected.** Clean
+output is byte-identical, so the bump trigger described under Bump policy does
+**not** fire here. This is a deliberate hand-recorded MINOR justified by the
+new refusal path, not a response to a red golden. Do not go looking for a
+fixture that should have moved.
+
+**Publish is deliberately held.** `__version__` is 0.4.0 as of this change,
+but the PyPI release waits for #190 and #194 to land, so the first version a
+`pip` user sees carries *coverage* for the two known traversal gaps rather
+than only *refusal* on them. #195 anticipated this ("one 0.4.0 release covers
+both"); the decision to hold the publish rather than release twice is recorded
+here so a later reader does not read the version bump as a missed release.
+
+### Added (issue #195 — output-side oracle for literal path/identifier rules)
+- **`residual.scan_residual_rules` + `ResidualRuleError`** — **literal**
+  `paths`/`identifiers` rules now get an output-side guarantee of the kind
+  secrets have had since v0. `scan_residual` re-reads the serialized output for secret patterns, so a
+  value the structural walk never reached is still in those bytes and still
+  aborts the run. Paths and identifiers had no such pass, so the same
+  traversal gap leaked **silently**: exit 0, output written, and a sidecar
+  affirmatively reporting `residual_scan: clean` on a file that still
+  contained the value. That is worse than no sidecar, because it turns the
+  README's human review step into a rubber stamp.
+- **It closes the class, not the instances.** #190 (dict keys are never
+  visited) and #194 (the skip-list exempts user data at any depth) are two
+  ways to end up outside the traversal's reach; the position space is
+  tool-defined and open-ended, so enumerating positions cannot close it —
+  `test_adversarial_placement.py` was built to map positional coverage and
+  missed #194 entirely.
+- **Exit 2 on a survivor**, alongside the existing safety failures. The scan
+  runs *after* the secret scan, so a surviving secret still reports as a
+  secret (the D-1 floor is the higher-severity class).
+- **Scans the DECODED output tree — every string leaf and every dict key — not
+  the serialized text.** Rules match decoded leaf values, so a serialized-domain
+  scan is blind to every value containing a backslash, a quote or a control
+  character. A Windows home directory is the canonical `paths` case and
+  serializes with doubled backslashes, so it would have shipped with a clean
+  sidecar. Dict keys are scanned because keys are the whole of #190: the scrub
+  walk recurses into a dict's values and copies its keys verbatim.
+- **Regex `paths`/`identifiers` rules are deliberately NOT re-verified**, and
+  the restriction is semantic rather than a shortcut. The property the scan
+  asserts — *presence in the output is a leak, unconditionally* — is true of a
+  literal value and false of a *shape*: shapes legitimately survive scrub. Two
+  demonstrated cases: a runtime-synthesized value (`remap_uuids: true` mints
+  UUIDs no load-time check saw), and a field the pipeline preserves on purpose
+  (at the default `remap_uuids: false` the UUID-graph fields are skip-listed so
+  the parent/subagent graph stays linkable). Scanning regex rules aborted every
+  such session at exit 2 with nothing mis-scrubbed, and with no override that
+  config could never scrub any file. For regex rules #190 and #194 stay open;
+  tracked in **#198**, not silently accepted.
+- **The diagnostic names `section[index]`, never the rule or the match.**
+  Stricter than `ResidualSecretError`, deliberately: a secret pattern's `kind`
+  is a generic label, but a path/identifier rule's `match` value **is** the
+  literal PII the config exists to scrub. This gate fires on runs that look
+  successful — the ones that execute in CI and inside Claude Code sessions —
+  so a diagnostic carrying the value would write real PII into the artifact
+  class this tool exists to sanitize.
+- **`residual_scan: clean` now means more than it did, but not everything.** It
+  attests to the secret patterns (position-agnostic over the serialized output,
+  which is not the same as encoding-complete: `bearer-token` matches across
+  `\s`, and a newline there is JSON-escaped, so that built-in has the same
+  blind spot — #198) **and** the literal path/identifier rules (decoded
+  output). PRD section 10 enumerates the four things it does not attest to.
+  It does **not** attest to regex path/identifier rules.
+  Stated in PRD section 10 as well, because this field is the human review gate
+  before publishing and an overclaim there is the rubber-stamp failure the whole
+  issue is about.
+- **No mechanism excuses a match.** Any literal-rule match in the decoded
+  output aborts; the scan consults no allow-list of the sanitizer's own
+  replacements. An earlier revision of this branch did, on the reasoning that
+  I-3 transitively guarantees no replacement equals any original. That step is
+  false — I-3 vets the literal `replace` template, while a regex rule's actual
+  replacement comes from a runtime `match.expand()` no load-time check sees —
+  and it leaked: `paths: /home/realuser → /home/user` with
+  `identifiers: re:HOME_(\w+) → /home/\1` on input `HOME_realuser` had the
+  identifier layer mint `/home/realuser`, record it, and the allow-set excuse
+  the paths rule whose match value that is. Exit 0, real home directory in the
+  output, `residual_scan: clean`. PRD section 5 records the full rationale so
+  the mechanism is not re-derived.
+- **No escape hatch.** There is no `--no-oracle`; an override would recreate
+  the silent-leak path this change closes, on the same reasoning that
+  `--no-check` is not the fix for exit 3.
+- **Forward constraint for v1 jitter (PRD section 9b):** there is no allow-set,
+  so jitter's synthesized values get no residual-scan exemption — they are
+  re-scanned on the output side like any other string content (secrets by
+  `scan_residual`, literal path/identifier collisions by
+  `scan_residual_rules`). Jittered **token counts** are the exception: they are
+  JSON numbers, and neither the structural walk nor the rule scan visits a
+  numeric leaf, so only `scan_residual` sees them at all. That is stricter and safer than the "record into the
+  `SubstitutionTable`" coupling earlier drafts of this entry described:
+  residual coverage no longer depends on whether jitter records a value. The
+  consequence flips accordingly. Recording is still required for sidecar
+  accounting and determinism, but the live risk is now a false-abort rather
+  than a leak: a jittered value that coincidentally matches a literal rule
+  aborts the run, the same deterministic availability-only collision documented
+  for synthesized UUIDs (#198). The jitter design should avoid emitting
+  literal-rule-matchable shapes.
+- **`tests/test_residual_rules.py`** — added to the security-critical suite
+  presence list in `sanitizer-ci.yml`.
+- **Follow-up filed as #196.** The design review found the same leak class on
+  the config-load path: `_check_replacement_leak` prints the offending rule's
+  `match` value, which for paths/identifiers is the literal PII. Lower exposure
+  (exit 3, author editing their own config) but the same shape, and left as one
+  strict site plus one leaky site it invites copying the wrong one. Out of
+  scope here; tracked there.
 
 ### Added (issue #191 — adversarial placement matrix)
 - **`tests/test_adversarial_placement.py`** — the parametrized form of the
@@ -61,9 +171,10 @@ No version bump: nothing below changes the produced bytes.
   be one — the position space is tool-defined and open — and this module
   proved that itself by missing **#194** entirely, since its cells plant
   payloads under innocuous key names and never collide with a skip-listed
-  name. The guarantee is **#195**, a total output-side check for the
+  name. The guarantee is **#195**, an output-side check for the **literal**
   path/identifier rules mirroring what `scan_residual` already does for
-  secrets. This module tells you which positions are *scrubbable*; the oracle
+  secrets. Literal only: regex rules are scrub-only, tracked in #198. This
+  module tells you which positions are *scrubbable*; the oracle
   tells you that nothing leaked.
 - Four cells land as `xfail(strict=True)` against **#190**: a config-driven
   rule cannot reach a value in a dict key, because the structural walk

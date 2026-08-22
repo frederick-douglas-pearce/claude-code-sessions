@@ -99,7 +99,8 @@ jobs:
             test_sidecar.py \
             test_golden_determinism.py \
             test_release.py \
-            test_adversarial_placement.py
+            test_adversarial_placement.py \
+            test_residual_rules.py
           do
             path="tooling/sanitizer/tests/$suite"
             if [ ! -f "$path" ]; then

@@ -7,8 +7,9 @@ Exit codes (PRD section 11):
     0 — success (output + sidecar written)
     1 — usage error (bad args, missing input/config file, output exists
         without --force)
-    2 — safety failure (PipelineError, ResidualSecretError, SidecarLeakError,
-        or any unexpected exception during the scrub pipeline)
+    2 — safety failure (PipelineError, ResidualSecretError, ResidualRuleError,
+        SidecarLeakError, or any unexpected exception during the scrub
+        pipeline)
     3 — config error (ConfigError: malformed YAML, schema violation, regex
         compile failure, I-3 replacement-leak)
 
@@ -49,7 +50,7 @@ from . import __version__
 from .config import Config, ConfigError, load_config
 from .orchestrator import sanitize_session
 from .pipeline import DEFAULT_STRIP_TYPES, PipelineError
-from .residual import ResidualSecretError
+from .residual import ResidualRuleError, ResidualSecretError
 from .sidecar import (
     SidecarLeakError,
     SidecarMetadata,
@@ -787,19 +788,41 @@ def main(argv: list[str] | None = None) -> int:
     except ConfigError as exc:
         print(f"{parser.prog}: config error: {exc}", file=sys.stderr)
         return 3
-    except (PipelineError, ResidualSecretError, SidecarLeakError) as exc:
-        # D-2 invariant: ResidualSecretError and SidecarLeakError carry only
-        # category labels, never the matched bytes. Printing str(exc) is safe.
+    except (
+        PipelineError,
+        ResidualSecretError,
+        ResidualRuleError,
+        SidecarLeakError,
+    ) as exc:
+        # D-2 invariant: these carry only category labels, never the matched
+        # bytes, so printing str(exc) is safe. ResidualRuleError is the
+        # strictest of the four (#195): it carries `section[index]` and not
+        # the rule's own `match` value, because for paths/identifiers that
+        # value IS the literal PII.
+        #
+        # That discipline covers THIS handler only. It does NOT make the
+        # catch-all below safe: `SubstitutionConflictError` embeds the original
+        # value in its message and lands there, so a reachable config can still
+        # print an original to stderr. Tracked in #196 with the other
+        # message-side leak; do not read this comment as a claim that the
+        # catch-all is span-free.
         print(f"{parser.prog}: safety failure: {exc}", file=sys.stderr)
         return 2
     except Exception as exc:  # pragma: no cover - defensive catch-all
         # Defense-in-depth: any unexpected exception falls through to exit 2
         # (safety failure) rather than printing a traceback that may carry
         # local-variable bytes from a real session. The exception class name
-        # is included so a debugger has something to start from; the message
-        # itself comes from str(exc) and is printed only because every typed
-        # exception we raise structurally guards against putting originals
-        # in str().
+        # is included so a debugger has something to start from.
+        #
+        # str(exc) IS printed here and is NOT guaranteed span-free. An earlier
+        # version of this comment claimed every typed exception structurally
+        # guards against putting originals in str(); that is false and the
+        # counterexample is reachable. ``SubstitutionConflictError``
+        # (subtable.py) embeds the original value in its message and is a
+        # ValueError, so it lands right here. The exceptions handled ABOVE are
+        # span-free by construction; this handler catches the ones nobody
+        # audited. Tracked in #196 with the ConfigError message-side leak.
+        # Do not restore the stronger claim without making it true.
         print(
             f"{parser.prog}: safety failure ({type(exc).__name__}): {exc}",
             file=sys.stderr,
