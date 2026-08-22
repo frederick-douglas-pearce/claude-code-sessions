@@ -34,8 +34,10 @@ stops honoring an entry:
      against a config whose rule matches the value at that position.
 
 What NONE of them catches is a genuinely new format position whose name is
-not already on the list -- the format-watch queue and human review are what
-cover that, and no test here should be read as covering it.
+not already on the list. That gap is OPEN: #194's AC-10 asked for a
+``format-scan`` drift check as a fast-follow and it is owed. Human review is
+what currently happens there; it is not coverage, and no test here should be
+read as covering it.
 
 No test here reads session data outside ``fixtures/`` -- per CLAUDE.md the
 repo's own fixtures are the only corpus anything here may read.
@@ -112,8 +114,11 @@ def _corpus_files() -> list[Path]:
 def _string_leaf_paths(files: list[Path]) -> set[JsonPath]:
     """Every rooted string-leaf path in the corpus, list indices elided.
 
-    Index elision matches ``walk_strings``: the skip-list is keyed on field
-    names, so a path must be comparable to what the predicate actually sees.
+    Index elision matches ``walk_strings``, and it is load-bearing rather
+    than cosmetic: eliding is what lets one entry like
+    ``("message","content","id")`` cover every tool_use block in the content
+    array. A path built any other way would not be comparable to what the
+    predicate actually sees.
     """
     found: set[JsonPath] = set()
 
@@ -291,8 +296,8 @@ def test_each_allow_list_entry_actually_protects_its_position(
 
     The control leaf is what stops this passing for the wrong reason. Without
     it a broken config, an unmatched regex or a transform that never ran
-    would leave the marker in place everywhere and read as 30 protected
-    positions."""
+    would leave the marker in place everywhere and read as a fully protected
+    list."""
     config = _config(tmp_path, _ABLATION_CONFIG)
     out, _, _, _ = sanitize_session(
         [serialize_line(_record_with(path, _MARKER))], config

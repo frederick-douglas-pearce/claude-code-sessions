@@ -328,7 +328,7 @@ later reader does not read the version bump as a missed release.
 - `sanitizer-ci.yml` gained two guards that assert the matrix *ran*: a
   `-m adversarial` step in the `tests` job and a skip check on the wheel run,
   both failing on a zero-collection exit or on any reported skip. Without
-  them the `package` job reports green on `57 skipped` — nothing there
+  them the `package` job reports green on a fully skipped module — nothing there
   installs `ccs_sanitize`, so only `CCS_SANITIZE_BIN` can resolve, and a
   typo in it would have silently emptied the step.
 - `test_adversarial_placement.py` joins the security-critical presence list,

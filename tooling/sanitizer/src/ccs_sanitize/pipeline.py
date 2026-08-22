@@ -103,7 +103,18 @@ DEFAULT_STRIP_TYPES: frozenset[str] = frozenset({"file-history-snapshot", "attac
 # whose rule matches the value at that position, and the set of allow-listed
 # NAMES appearing at non-allow-listed PATHS is pinned. What none of them
 # catches is a genuinely new format position with a name nothing on the list
-# uses -- that is what the format-watch queue and human review are for.
+# uses.
+#
+# THAT GAP IS OPEN, NOT COVERED. Earlier wording here said the format-watch
+# queue and human review "are for" that, which reads as a mechanical check
+# considered and declined in favour of people. The real state is that #194's
+# AC-10 asked for a ``format-scan`` drift check as a fast-follow and it is
+# owed. There is live evidence the human process is the leaky link: the
+# corpus carries UUID-graph edges (``sourceToolAssistantUUID``, ``leafUuid``)
+# that no list here enumerates, and finding them by hand took four review
+# rounds and a mutation pass. A mechanical corpus-vs-list diff would have
+# surfaced them on day one. Until that check exists, treat human review as
+# what is actually happening, not as coverage.
 #
 # NO SUBTREE PREFIXES. An entry is an exact path. A "skip everything under
 # X" rule is the ``"usage" in path`` membership test this module already
@@ -229,12 +240,18 @@ _IDENTIFIER_PATHS: frozenset[JsonPath] = frozenset({
 # design chose.
 #
 # ONE HONEST WEAKNESS in the ownership rule, stated rather than papered over:
-# it is human judgment read off format docs that are themselves incomplete.
-# ``caller`` is the live example -- ``reference/data-dictionary.md`` does not
-# document it at all, so its "format-owned" premise currently rests on the
-# structural argument above rather than on the reference. The mitigation is
-# the conservative default already built in: when ownership is unclear, LEAVE
-# IT UNLISTED and let it be scrubbed. Over-scrub is the cheap direction.
+# it is human judgment, and it is usually read off format docs that are
+# themselves incomplete. When ownership is genuinely unclear the rule is to
+# LEAVE THE POSITION UNLISTED and let it be scrubbed -- over-scrub is the
+# cheap direction.
+#
+# ``caller`` is worth distinguishing carefully, because it looks like a
+# counterexample to that default and is not. Its ownership is NOT unclear: the
+# structural argument above settles it, since a tool cannot write a sibling of
+# ``input``. What is missing is the REFERENCE, not the proof --
+# ``reference/data-dictionary.md`` does not document ``caller`` at all, so the
+# premise lives here rather than in the format doc where it belongs. That is a
+# documentation gap to close, not grounds to unlist the position.
 #
 # NOTE what this does NOT say. It is not "nothing under ``toolUseResult`` is
 # exempt": five entries above sit there (``agentId`` and the four ``usage``
@@ -243,6 +260,16 @@ _IDENTIFIER_PATHS: frozenset[JsonPath] = frozenset({
 # output. The line is drawn per position, which is the whole point of a path
 # allow-list; a blanket per-subtree rule in either direction is what this
 # design rejects.
+#
+# The residual there is ACCEPTED, not overlooked, and it is worth naming since
+# the opposite decision (``toolUseResult.type`` coming off) is documented at
+# length above. A nonconforming tool that wrote user data into one of those
+# five exact keys would carry it past the exemption. It stays exempt because
+# scrubbing the runtime's billing rollup and its graph link corrupts
+# format-owned fields -- the #199 failure mode -- and because the residual
+# secret scan still sweeps those positions for literal secrets regardless of
+# the skip. The reachable shape is narrow: a tool would have to name a field
+# one of four exact enum names under a ``usage`` key.
 #
 # ``message.content.content.type`` is the closer call, and an earlier version
 # of this comment got the reason wrong: it called the ``type`` KEY arbitrary
@@ -407,9 +434,18 @@ def walk_strings(
         if isinstance(value, dict):
             return {key: _walk(sub, path + (key,)) for key, sub in value.items()}
         if isinstance(value, list):
-            # List indices are intentionally not part of the JSON path — the
-            # skip-list is keyed on field names only, and rule layers should
-            # not rely on positional addressing of array elements.
+            # LIST INDICES ARE ELIDED, and the allow-list depends on it:
+            # ``("message","content","id")`` is what a tool_use block's ``id``
+            # looks like at any position in the content array, so eliding is
+            # what lets one entry cover ``message.content[3].id``. Rule layers
+            # must not rely on positional addressing of array elements either.
+            #
+            # This comment used to say "the skip-list is keyed on field names
+            # only", which was true of the bare-name design #194 replaced. The
+            # comment that DID explain elision lived on
+            # ``_ANCHORED_PARENT_LAST_SKIPS`` and was deleted with it, leaving
+            # the mechanism the whole allow-list rests on explained only by a
+            # sentence describing the mechanism it replaced.
             return [_walk(item, path) for item in value]
         return value
 

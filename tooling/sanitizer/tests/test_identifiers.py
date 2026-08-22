@@ -573,10 +573,58 @@ def test_uuid_transform_positions_match_pipeline_allow_list() -> None:
     assert UUID_PATHS == _UUID_PATHS
 
 
+def test_anchored_substitutions_are_terminal_and_do_not_fall_through(
+    tmp_path: Path,
+) -> None:
+    """The module docstring calls the anchored branches TERMINAL. Nothing checked it.
+
+    Changing either ``return table.record(...)`` to ``leaf = table.record(...)``
+    -- letting control fall through to the ``config.identifiers`` rule loop --
+    passed the entire suite. It is not a harmless mutation: the remapped UUID
+    is generated at runtime, so the config-time replacement-leak guard (I-3)
+    never sees it, and an ordinary identifier regex will happily chew a chunk
+    out of the freshly synthesized value. The sidecar then gains a row for a
+    substring that was never in the input, which makes the substitution table
+    describe an edit that did not happen to data that did not exist.
+
+    Both halves are pinned: the value must be exactly the anchored
+    substitution, and the table must not carry a phantom row."""
+    real = "509ed4f6-895a-45d1-838a-4145352c2d5f"
+    # A rule that WILL match inside any remapped UUID's hex, so a fall-through
+    # cannot hide behind a non-matching rule.
+    config = _config(
+        tmp_path,
+        'version: 1\nidentifiers:\n  - match: "re:[0-9a-f]{12}"\n    replace: "ZZZZ"\n',
+    )
+    lines = [
+        serialize_line(
+            {"type": "assistant", "uuid": real, "gitBranch": "feature/real-work"}
+        ),
+    ]
+    out, _, table = _run(config.identifiers, lines, remap_uuids=True)
+
+    remapped = table.get(real)
+    assert remapped is not None, "the anchored UUID branch did not run at all"
+    # Terminal: the emitted value is the remap, not the remap chewed by the rule.
+    assert f'"uuid":"{remapped}"' in out[0], (
+        "the remapped UUID was further rewritten, so the anchored branch fell "
+        "through to the identifier rule loop"
+    )
+    assert "ZZZZ" not in out[0].split('"gitBranch"')[0]
+    # Terminal for gitBranch too, on the same reasoning.
+    assert f'"gitBranch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
+    # No phantom row: every recorded original must have been in the input.
+    for entry in table:
+        assert entry.original in lines[0], (
+            f"sidecar records a substitution for {entry.original!r}, which never "
+            f"appeared in the input -- the signature of a fall-through rewrite"
+        )
+
+
 def test_uuid_paths_include_the_parent_side_agent_link() -> None:
     """``toolUseResult.agentId`` is the parent-side link to a subagent's
     top-level ``agentId``, and the two must remap identically or the graph
-    ``uuid_seed`` exists to keep coherent breaks.
+    that ``uuid_seed`` exists to keep coherent is broken.
 
     The link is cross-FILE -- a parent session names a subagent whose own
     trace is a different file -- so do not expect the corpus to show the two

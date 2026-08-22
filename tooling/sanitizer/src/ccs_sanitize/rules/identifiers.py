@@ -1,9 +1,23 @@
 """Layer 2: identifier scrubbing (emails, gitBranch, optional UUID remap).
 
 PRD reference: section 8 (Layer 2: identifiers). UUID remapping is off by
-default -- ``uuid``/``parentUuid``/``sessionId``/``agentId`` are
-high-entropy random values that leak nothing on their own; remapping
-requires preserving graph links.
+default -- ``uuid``/``parentUuid``/``sessionId``/``agentId`` and
+``toolUseResult.agentId`` (see :data:`UUID_PATHS`) are high-entropy random
+values that leak nothing on their own; remapping requires preserving graph
+links.
+
+**This set is not a claim of graph completeness, and must not be read as one.**
+It enumerates the positions the two sides agree to remap. The corpus carries at
+least two further UUID-graph edges that are on NEITHER side --
+``sourceToolAssistantUUID`` and ``leafUuid``, both top-level, both resolving to
+record ``uuid`` values -- so under ``remap_uuids: true`` they ship verbatim
+while their referents are remapped, leaving references that no longer resolve.
+That is a real defect, it predates the path-anchoring work, and it affects only
+the opt-in remap mode (``remap_uuids`` defaults to False), which is why it is
+not fixed here. It is NOT yet tracked by an issue -- it was found in review of
+this change and is awaiting one, and saying "tracked" before that is true would
+be the same kind of unbacked claim this module's history is full of. Nothing
+here should be read as asserting that every graph edge remaps.
 
 This module ships ``build_identifier_transform`` -- a factory that returns
 a :data:`ccs_sanitize.pipeline.TransformCallback` ready to plug into

@@ -376,6 +376,10 @@ def test_nested_value_under_tool_input_is_redacted(tmp_path: Path, config_body: 
     ]
     out, _, _, _ = sanitize_session(lines, config)
     assert _REAL_USER_HOME not in out[0]
+    # Absence alone would also hold if the value never reached the output at
+    # all. The replacement's presence is what says the scrub actually ran --
+    # the sibling test above has always asserted both halves.
+    assert "/home/user/deep" in out[0]
 
 
 @pytest.mark.parametrize(
@@ -419,6 +423,9 @@ def test_value_under_a_formerly_anchored_pair_in_tool_input_is_redacted(
     ]
     out, _, _, _ = sanitize_session(lines, config)
     assert _REAL_USER_HOME not in out[0]
+    # Positive half, same reason as above: absence is satisfiable by a value
+    # that never arrived, presence is not.
+    assert "/home/user/app" in out[0]
 
 
 def test_format_markers_are_still_skipped_at_their_real_positions(tmp_path: Path) -> None:

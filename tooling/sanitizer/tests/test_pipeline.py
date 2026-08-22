@@ -398,6 +398,32 @@ def test_skip_predicate_no_longer_has_a_tokens_suffix_rule() -> None:
     assert default_skip_predicate(("message", "content", "input", "max_tokens")) is False
 
 
+def test_error_subtree_is_visited_leaf_by_leaf_not_prefixed() -> None:
+    """``pipeline.py``'s NO-SUBTREE-PREFIXES argument, asserted rather than stated.
+
+    That comment rejects ``error.*`` as a prefix by naming the leaves such a
+    prefix would exempt. The argument was true and nothing checked it: an
+    ``if path[:1] == ("error",): return True`` mutant passed the entire suite.
+    These are the exact paths the comment cites, and each carries real data --
+    a session cookie, a tenant identifier, an upstream error message.
+
+    Only ``error.type`` and the two nested ``error.*.type`` discriminators are
+    exempt, and they are listed individually."""
+    for leaf in (
+        ("error", "headers", "set-cookie"),
+        ("error", "headers", "anthropic-organization-id"),
+        ("error", "error", "request_id"),
+        ("error", "error", "error", "message"),
+        ("error", "requestID"),
+    ):
+        assert default_skip_predicate(leaf) is False, ".".join(leaf)
+    # The discriminators that ARE exempt, so this test pins the line rather
+    # than just one side of it.
+    assert default_skip_predicate(("error", "type")) is True
+    assert default_skip_predicate(("error", "error", "type")) is True
+    assert default_skip_predicate(("error", "error", "error", "type")) is True
+
+
 def test_skip_predicate_allows_the_usage_string_leaves_by_rooted_path() -> None:
     """The usage subtree is enumerated, NOT prefixed. A "skip everything
     under usage" rule is the ``"usage" in path`` membership test this module
@@ -409,8 +435,13 @@ def test_skip_predicate_allows_the_usage_string_leaves_by_rooted_path() -> None:
         assert default_skip_predicate(parent + ("usage", "speed")) is True
         assert default_skip_predicate(parent + ("usage", "inference_geo")) is True
         assert default_skip_predicate(parent + ("usage", "iterations", "type")) is True
-    # Anything else under usage is NEW and is scrubbed, not assumed safe.
-    assert default_skip_predicate(("message", "usage", "some_future_field")) is False
+        # Anything else under usage is NEW and is scrubbed, not assumed safe.
+        # This assertion used to sit OUTSIDE the loop, so it only ever covered
+        # the ``message`` parent: a ``toolUseResult.usage`` subtree PREFIX
+        # passed the whole suite while the ``message.usage`` equivalent was
+        # caught. Found by mutation testing, and it is the same asymmetry a
+        # prefix rule would exploit.
+        assert default_skip_predicate(parent + ("usage", "some_future_field")) is False
 
 
 def test_skip_predicate_does_not_exempt_a_user_field_named_usage() -> None:

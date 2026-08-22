@@ -122,10 +122,21 @@ jobs:
       # the negative that the pass count cannot.
       - name: Confirm the D-6 drift guard actually ran
         run: |
-          # No `-e`: pytest's exit code is the signal here, not a reason to
-          # stop. Exit 5 means "no tests ran", which is what a module-level
-          # skip looks like from outside.
+          # `set +e` is load-bearing and easy to get wrong. GitHub Actions
+          # runs a `run:` block as `bash -e {0}`, and `set -uo pipefail` does
+          # NOT clear that inherited `-e` -- only `set +e` does. Without it
+          # this step dies on the pytest line, so `status`, the `cat` and the
+          # `::error::` annotation below never run, and because pytest's
+          # output went to a file the step fails with NO output at all. The
+          # gate still held (the skip branch is only reachable on exit 0), but
+          # the diagnostic was unreachable on exactly the path it exists for.
+          # An earlier version of this comment asserted "No `-e`" as though
+          # the inherited flag were already gone.
+          #
+          # Exit 5 means "no tests ran", which is what a module-level skip
+          # looks like from outside.
           set -uo pipefail
+          set +e
           python -m pytest tooling/sanitizer/tests/test_secret_patterns_in_sync.py \
             -q -rs > /tmp/drift.txt 2>&1
           status=$?
@@ -145,6 +156,7 @@ jobs:
       - name: Confirm the placement matrix actually ran
         run: |
           set -uo pipefail
+          set +e  # see the D-6 step above: GHA's `bash -e {0}` survives `set -uo`
           python -m pytest tooling/sanitizer/tests -m adversarial -q -rs \
             > /tmp/adv.txt 2>&1
           status=$?
@@ -164,7 +176,7 @@ jobs:
       # the dead-entry check, the name-collision pin, and the "collisions are
       # actually visited" check -- the CORPUS-DRIFT half of AC-10, which is what
       # notices a new format position colliding with an allow-listed name. The
-      # literal contents pin and the 30 per-entry ablation cells do NOT take the
+      # literal contents pin and the per-entry ablation cells do NOT take the
       # corpus and run regardless, so the boundary itself stays pinned even in a
       # fixtures-less checkout. A silent skip costs the drift detection, not the
       # boundary pin -- and only a repo checkout ever has fixtures/, so this is
@@ -172,6 +184,7 @@ jobs:
       - name: Confirm the skip allow-list corpus-drift checks actually ran
         run: |
           set -uo pipefail
+          set +e  # see the D-6 step above: GHA's `bash -e {0}` survives `set -uo`
           python -m pytest tooling/sanitizer/tests/test_skip_allow_list_corpus.py \
             -q -rs > /tmp/allowlist.txt 2>&1
           status=$?
@@ -252,10 +265,11 @@ jobs:
           # twine/pytest, so `ccs_sanitize` is NOT importable here and
           # `ccs-sanitize` is NOT on PATH -- both of the module's fallback
           # tiers miss. If CCS_SANITIZE_BIN is ever misspelled or refactored
-          # away, the module skips all 57 assertions and pytest exits 0. That
+          # away, the module skips every placement assertion and pytest exits 0. That
           # is the hollow gate this workflow exists to prevent, so the skip
           # check below is what makes the step meaningful, not the exit code.
           set -uo pipefail
+          set +e  # see the D-6 step above: GHA's `bash -e {0}` survives `set -uo`
           CCS_SANITIZE_BIN=/tmp/wheel-smoke/bin/ccs-sanitize \
             python -m pytest tooling/sanitizer/tests/test_adversarial_placement.py \
             -q -rs > /tmp/wheel-adv.txt 2>&1

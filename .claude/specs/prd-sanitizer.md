@@ -324,9 +324,13 @@ fields left untouched:
     space #194 is about, one level in. It is now scrubbable like the rest of that envelope's
     tool output. (The corpus corroborates with three tool-varying values, `text` 41 / `create`
     29 / `update` 9 — fewer than either counterexample above, which is precisely why the count
-    is not the test.) Same reasoning already excluded `toolUseResult.content.type` and
-    `message.content.content.type`; all three are pinned as known name collisions in
-    `tests/test_skip_allow_list_corpus.py` so the decision is recorded rather than re-litigated.
+    is not the test.) `toolUseResult.content.type` and `message.content.content.type` are
+    excluded too, but on a **related, not identical** argument: their values *are* format-owned
+    enums, and what disqualifies them is position — they sit inside a tool_result payload, so
+    exempting a key there widens the exempt surface into tool-shaped data. Ownership of the
+    value decides `toolUseResult.type`; ownership of the surrounding envelope decides those two.
+    All three are pinned as known name collisions in `tests/test_skip_allow_list_corpus.py` so
+    the decision is recorded rather than re-litigated.
 
     `message.content.caller.type` is exempt on the opposite side of the same test, and the
     argument is **structural, not statistical**: `caller` is a sibling of `input` on the

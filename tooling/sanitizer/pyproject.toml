@@ -71,7 +71,7 @@ include = [
 # adversarial"` deselects it for a fast inner loop.
 #
 # Do NOT put that flag in `addopts`, and do not add it to a CI step. The
-# marker is a convenience for local iteration only: deselecting drops 57
+# marker is a convenience for local iteration only: deselecting drops every
 # security assertions while still reporting green, and the workflow's
 # file-presence check cannot tell "present and running" from "present and
 # deselected". `sanitizer-ci.yml` runs a dedicated `-m adversarial` step
