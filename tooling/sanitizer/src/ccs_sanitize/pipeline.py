@@ -177,11 +177,21 @@ _IDENTIFIER_PATHS: frozenset[JsonPath] = frozenset({
     ("message", "content", "tool_use_id"), # tool_result -> its tool_use
 })
 
-# Tier C -- enum discriminators. A configured path/identifier rule does not
-# match "assistant" or "standard", so visiting these is a NO-OP TODAY. They
-# are listed to pin intent, not because they are load-bearing: a rule that
-# did collide would otherwise rewrite a format marker. Listed EXACTLY, never
-# as a subtree, for the reason in the header comment.
+# Tier C -- format-owned leaves, most of them enum discriminators. A
+# configured path/identifier rule does not match "assistant" or "standard", so
+# visiting these is a NO-OP TODAY. They are listed to pin intent, not because
+# they are load-bearing: a rule that did collide would otherwise rewrite a
+# format marker. Listed EXACTLY, never as a subtree, for the reason in the
+# header comment.
+#
+# THE TEST FOR THIS TIER IS OWNERSHIP, NOT CARDINALITY -- who writes the
+# value, the format or a tool. "Enum" describes most members, not the rule,
+# and two members disprove the cardinality reading outright: ``version``
+# (4 distinct values in the corpus, a new one every release) and
+# ``message.model`` (4, a new one every model) are wide open and still belong
+# here, because the runtime writes them. Reaching for "is it a closed enum?"
+# is the test the ``toolUseResult.type`` removal below explicitly discarded --
+# it had FEWER distinct values (3) than either of those and still came off.
 #
 # Deliberately absent: ``message.content.content.type`` and
 # ``toolUseResult.content.type``. Both are content-block ``type``
@@ -195,17 +205,36 @@ _IDENTIFIER_PATHS: frozenset[JsonPath] = frozenset({
 #
 # Also deliberately absent, and removed during review rather than never added:
 # ``toolUseResult.type``. It reads like the line-level ``type`` but it is not
-# one. The data dictionary calls it a "tool-specific subtype indicator" and
-# says the envelope's shape is tool-dependent, and the corpus agrees -- three
-# distinct values (``text`` 41, ``create`` 29, ``update`` 9), varying by which
-# tool produced the result. That is a value a TOOL chooses, not one the format
-# fixes, so it is not a closed enum and exempting it is a #194-shaped
-# exemption in an unbounded space. Contrast ``message.content.caller.type``,
-# which is listed: one value, ``direct``, 342 occurrences, chosen by the
-# format. Scrubbing ``toolUseResult.type`` is still a no-op under every
-# shipped config -- no rule matches those three values -- so the cost of
-# removing it is a position that BECOMES scrubbable, which is the visible
-# failure direction this whole design chose.
+# one. THE REASON IS OWNERSHIP: the data dictionary calls it a "tool-specific
+# subtype indicator" and documents the envelope's shape as tool-dependent, so
+# the value is chosen by whichever tool produced the result. That puts it in
+# the same unbounded space #194 is about, and exempting it is the #194 shape
+# one level in. The corpus corroborates rather than decides -- three values
+# varying by tool (``text`` 41, ``create`` 29, ``update`` 9) -- and note that
+# the count alone would have argued the WRONG way against ``version`` and
+# ``message.model`` above.
+#
+# Contrast ``message.content.caller.type``, which is listed, and NOT because
+# it has one value. It is listed because of where it sits: ``caller`` is a
+# sibling of ``input`` on the ``tool_use`` content block (342/342 occurrences
+# in the corpus, key set ``{type,id,name,input,caller}``, every one on a
+# ``tool_use`` block). A tool controls the CONTENTS OF ``input`` and nothing
+# else on that envelope, so a tool cannot reach ``caller`` at all. That
+# exemption would stand even if a second caller kind appeared tomorrow. The
+# single observed value (``direct``, 342) is corroboration.
+#
+# Scrubbing ``toolUseResult.type`` is a no-op under every shipped config -- no
+# rule matches those three values -- so the cost of removing it is a position
+# that BECOMES scrubbable, which is the visible failure direction this whole
+# design chose.
+#
+# ONE HONEST WEAKNESS in the ownership rule, stated rather than papered over:
+# it is human judgment read off format docs that are themselves incomplete.
+# ``caller`` is the live example -- ``reference/data-dictionary.md`` does not
+# document it at all, so its "format-owned" premise currently rests on the
+# structural argument above rather than on the reference. The mitigation is
+# the conservative default already built in: when ownership is unclear, LEAVE
+# IT UNLISTED and let it be scrubbed. Over-scrub is the cheap direction.
 #
 # NOTE what this does NOT say. It is not "nothing under ``toolUseResult`` is
 # exempt": five entries above sit there (``agentId`` and the four ``usage``

@@ -312,16 +312,36 @@ fields left untouched:
     `"assistant"` or `"standard"`, so visiting these is a **no-op today**; they are listed to
     pin intent against a rule that did collide, not because they protect anything on their own.
 
-    **The test for this tier is who chooses the value, not whether it is named `type`.**
-    `message.content.caller.type` qualifies: one value in the corpus (`direct`, 342), fixed by
-    the format. `toolUseResult.type` does **not**, and was removed from the list during review
-    of this change — the data dictionary calls it a "tool-specific subtype indicator" and the
-    corpus carries three values that vary by tool (`text` 41, `create` 29, `update` 9). A value
-    the *tool* chooses sits in the same unbounded space #194 is about, so exempting it is the
-    #194 shape one level in, and it is now scrubbable like the rest of that envelope's tool
-    output. Same reasoning already excluded `toolUseResult.content.type` and
-    `message.content.content.type`. All three are pinned as known name collisions in
+    **The test for this tier is ownership — who writes the value, the format or a tool — not
+    whether the key is named `type` and not how many values it takes.** The cardinality reading
+    is wrong and two members of the tier disprove it: `version` (4 distinct values in the
+    corpus, a new one every release) and `message.model` (4, a new one every model) are wide
+    open and correctly exempt, because the runtime writes them.
+
+    `toolUseResult.type` was removed from the list during review of this change. The data
+    dictionary calls it a "tool-specific subtype indicator" on an envelope it documents as
+    tool-dependent, so whichever tool produced the result picks the value — the same unbounded
+    space #194 is about, one level in. It is now scrubbable like the rest of that envelope's
+    tool output. (The corpus corroborates with three tool-varying values, `text` 41 / `create`
+    29 / `update` 9 — fewer than either counterexample above, which is precisely why the count
+    is not the test.) Same reasoning already excluded `toolUseResult.content.type` and
+    `message.content.content.type`; all three are pinned as known name collisions in
     `tests/test_skip_allow_list_corpus.py` so the decision is recorded rather than re-litigated.
+
+    `message.content.caller.type` is exempt on the opposite side of the same test, and the
+    argument is **structural, not statistical**: `caller` is a sibling of `input` on the
+    `tool_use` content block (342/342 corpus occurrences, key set `{type,id,name,input,caller}`,
+    every one on a `tool_use` block). A tool controls the *contents of `input`* and nothing else
+    on that envelope, so it cannot reach `caller`. The exemption would stand if a second caller
+    kind shipped tomorrow.
+
+    **Known weakness of an unmechanized rule.** Ownership is human judgment read off format docs
+    that are themselves incomplete — `caller` is not documented in `reference/data-dictionary.md`
+    at all, so that exemption's premise currently rests on the structural argument rather than on
+    the reference. No mechanical proxy is proposed: pinning each entry's observed value-set would
+    fire constantly on `version`/`model` and stay silent on the cases that matter. The mitigation
+    is the conservative default the failure direction already makes cheap: **when ownership is
+    unclear, leave the position unlisted and let it be scrubbed.**
 
   **No subtree prefixes.** A "skip everything under X" entry is the `"usage" in path`
   membership test this spec's implementation already deleted once, merely rooted, and it fails

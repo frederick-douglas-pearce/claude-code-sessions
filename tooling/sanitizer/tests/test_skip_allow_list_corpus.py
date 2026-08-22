@@ -86,16 +86,15 @@ _FIXTURES = Path(__file__).resolve().parents[3] / "fixtures"
 #                                 and the concrete proof that `id` cannot be
 #                                 allow-listed by name.
 #   toolUseResult.type            allow-listed in the first cut of this PR and
-#                                 REMOVED during review. It reads like the
-#                                 line-level `type` but the data dictionary
-#                                 calls it a tool-specific subtype indicator,
-#                                 and the corpus shows three values varying by
-#                                 tool (`text` 41, `create` 29, `update` 9) --
-#                                 so it is tool-chosen, not a closed enum, and
-#                                 exempting it is the #194 shape. Contrast
-#                                 `message.content.caller.type`, which stays
-#                                 listed: one value (`direct`, 342), chosen by
-#                                 the format.
+#                                 REMOVED during review. The data dictionary
+#                                 calls it a tool-specific subtype indicator on
+#                                 a tool-dependent envelope, so the TOOL picks
+#                                 the value -- the #194 shape one level in. The
+#                                 deciding test is ownership, not how many
+#                                 values it takes; `_ENUM_PATHS` in pipeline.py
+#                                 carries the full argument and the `version` /
+#                                 `message.model` counterexamples that rule out
+#                                 the cardinality reading.
 _KNOWN_NAME_COLLISIONS: frozenset[JsonPath] = frozenset({
     ("message", "content", "content", "type"),
     ("toolUseResult", "content", "type"),

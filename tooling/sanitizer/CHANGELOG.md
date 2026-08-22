@@ -110,13 +110,14 @@ than had been checked:
 `toolUseResult.type` was on the first cut of the allow-list and is **not** in
 the shipped one, so that position is now visited and scrubbable. It reads like
 the line-level `type`, but the data dictionary calls it a "tool-specific
-subtype indicator" and the corpus carries three values that vary by tool
-(`text` 41, `create` 29, `update` 9) — a value the *tool* chooses, which is the
-unbounded space #194 is about. Under every shipped config this changes no
-bytes (no rule matches those three values), so the practical effect is only
-that a future rule which *did* match them would now apply there instead of
-being silently skipped. `message.content.caller.type` stays listed on the
-opposite evidence: one value (`direct`, 342), fixed by the format.
+subtype indicator" on an envelope it documents as tool-dependent — the value
+is chosen by whichever tool produced the result, which is the unbounded space
+#194 is about. Under every shipped config this changes no bytes (no rule
+matches its values), so the practical effect is only that a future rule which
+*did* match them would now apply there instead of being silently skipped.
+`message.content.caller.type` stays listed, on the opposite side of the same
+ownership test rather than on a value count: `caller` is a sibling of `input`
+on the `tool_use` content block, so a tool cannot reach it.
 
 What does guard the allow-list is `tests/test_skip_allow_list_corpus.py`,
 which pins the contents literally, requires every entry to exist in the
