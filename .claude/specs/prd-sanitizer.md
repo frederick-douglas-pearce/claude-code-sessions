@@ -132,8 +132,8 @@ into a rubber stamp.
 
 Two instances were found by two different methods — [#190](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/190)
 (dict keys are never visited by the walk) and [#194](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/194)
-(the skip-list exempts user data at any depth) — but enumerating positions cannot close the
-class: tool inputs are tool-defined and MCP servers define their own schemas, so the position
+(the skip-list exempted user data at any depth, since fixed in 0.4.0) — but enumerating positions
+cannot close the class: tool inputs are tool-defined and MCP servers define their own schemas, so the position
 space grows without this project's involvement. As of 0.4.0 the configured **literal** `paths`
 and `identifiers` rules are re-run over the **decoded** output — every string leaf *and every dict
 key* — and a survivor aborts the run.
@@ -150,8 +150,10 @@ fields are skip-listed so the parent/subagent graph stays linkable). Scanning re
 every such session at exit 2 with nothing mis-scrubbed, and with no override the config could never
 scrub any file at all.
 
-So for regex rules #190 and #194 remain open, and that is a known, recorded limit rather than a
-silent one. Scanning the **decoded** tree rather than the serialized text is the other half of this
+So for regex rules #190 remains open — dict keys are still never visited, and the oracle does not
+re-verify a `re:` rule, so a value in a key survives silently — and that is a known, recorded limit
+rather than a silent one. (#194 is closed: its positions are now visited and scrubbed in-walk under
+both rule kinds.) Scanning the **decoded** tree rather than the serialized text is the other half of this
 amendment and is not cosmetic: rules match decoded leaf values, so a serialized-domain scan was
 blind to every value containing a backslash, a quote or a control character — a Windows home
 directory (`C:\Users\name`) is the canonical `paths` case and serializes with doubled backslashes,

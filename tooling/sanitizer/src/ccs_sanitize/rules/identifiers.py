@@ -106,9 +106,11 @@ UUID_PATHS: frozenset[JsonPath] = frozenset({
     ("agentId",),
     # The parent side of a CROSS-FILE link: this names a subagent whose own
     # top-level ``agentId`` is in another file, so the two must remap
-    # identically or the graph breaks. Expect zero same-file overlap in the
-    # corpus -- that is the shape, not a counterexample. See ``_UUID_PATHS``
-    # in pipeline.py for the counts.
+    # identically or the graph breaks. The authority is the format contract
+    # (reference/data-dictionary.md + subagent-traces.md), not the corpus,
+    # whose only cross-file match is the synthetic fixture pair this repo
+    # authored. Expect zero same-file overlap -- that is the shape, not a
+    # counterexample. See ``_UUID_PATHS`` in pipeline.py.
     ("toolUseResult", "agentId"),
 })
 

@@ -70,10 +70,18 @@ _FIXTURES = Path(__file__).resolve().parents[3] / "fixtures"
 # Corpus paths carrying an allow-listed leaf NAME at a position the allow-list
 # deliberately does not cover. Every member is a decision, not an oversight:
 #
-#   message.content.content.type  the tool_result content array. The data
-#   toolUseResult.content.type    dictionary documents both as arbitrary
-#                                 tool output, so exempting a `type` key
-#                                 inside them would be #194 one level deeper.
+#   message.content.content.type  content-block `type` discriminators nested
+#   toolUseResult.content.type    inside a tool_result payload. Enum-shaped, so
+#                                 scrubbing them is a no-op today, but left OFF
+#                                 on purpose: they sit on the tool-controlled
+#                                 side of the format boundary, so exempting a
+#                                 `type` key here would widen the exempt surface
+#                                 into tool-shaped data -- #194 one level
+#                                 deeper. The deciding line is that boundary,
+#                                 NOT nesting depth: the outer sibling
+#                                 `message.content.type` discriminates the rigid
+#                                 Anthropic-API block and IS allow-listed. The
+#                                 sibling text/payload is scrubbed regardless.
 #   toolUseResult.task.id         a TodoWrite task id -- genuine user data,
 #                                 and the concrete proof that `id` cannot be
 #                                 allow-listed by name.

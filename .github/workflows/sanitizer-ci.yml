@@ -142,25 +142,6 @@ jobs:
       # file present, so the presence check above cannot see the difference.
       # Assert the positive: the marker selects a non-empty set and none of
       # it skipped.
-      # Same lesson a third time. The skip allow-list drift suite skips itself
-      # when `fixtures/` is absent (it lives at the repo root, outside the
-      # sdist), and that suite is the only thing standing between a silently
-      # edited scrub boundary and a green build: it pins the allow-list
-      # contents literally and ablation-tests every entry. A path change, a
-      # rename, or a checkout that somehow lacks fixtures makes AC-10 vanish
-      # while the suite step above still reports green.
-      - name: Confirm the skip allow-list drift suite actually ran
-        run: |
-          set -uo pipefail
-          python -m pytest tooling/sanitizer/tests/test_skip_allow_list_corpus.py \
-            -q -rs > /tmp/allowlist.txt 2>&1
-          status=$?
-          cat /tmp/allowlist.txt
-          if [ "$status" -ne 0 ] || grep -q 'skipped' /tmp/allowlist.txt; then
-            echo "::error::the skip allow-list drift suite did not run clean inside a checkout (pytest exit $status). If it skipped, fixtures/ was not found and the scrub boundary is unguarded."
-            exit 1
-          fi
-
       - name: Confirm the placement matrix actually ran
         run: |
           set -uo pipefail
@@ -176,6 +157,30 @@ jobs:
             echo "::error::the placement matrix reported no passing tests"
             exit 1
           fi
+
+      # Same lesson a third time, but a narrower target than the two above.
+      # Three of this suite's tests take the corpus fixture and skip when
+      # `fixtures/` is absent (it lives at the repo root, outside the sdist):
+      # the dead-entry check, the name-collision pin, and the "collisions are
+      # actually visited" check -- the CORPUS-DRIFT half of AC-10, which is what
+      # notices a new format position colliding with an allow-listed name. The
+      # literal contents pin and the 30 per-entry ablation cells do NOT take the
+      # corpus and run regardless, so the boundary itself stays pinned even in a
+      # fixtures-less checkout. A silent skip costs the drift detection, not the
+      # boundary pin -- and only a repo checkout ever has fixtures/, so this is
+      # exactly where we want the drift half asserted green.
+      - name: Confirm the skip allow-list corpus-drift checks actually ran
+        run: |
+          set -uo pipefail
+          python -m pytest tooling/sanitizer/tests/test_skip_allow_list_corpus.py \
+            -q -rs > /tmp/allowlist.txt 2>&1
+          status=$?
+          cat /tmp/allowlist.txt
+          if [ "$status" -ne 0 ] || grep -q 'skipped' /tmp/allowlist.txt; then
+            echo "::error::the skip allow-list corpus-drift checks did not run clean inside a checkout (pytest exit $status). If they skipped, fixtures/ was not found, so drift detection (new format positions colliding with allow-listed names) did not run. The literal contents pin and ablation cells still ran, so the boundary is pinned -- but drift against the corpus is unverified."
+            exit 1
+          fi
+
 
   package:
     name: build + twine check

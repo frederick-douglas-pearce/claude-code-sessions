@@ -51,22 +51,34 @@ identifiers:
 """
 
 
-# _BASE_CONFIG's two rules, expressed as regexes -- BOTH of them, so the
-# regex half of every #194 cell exercises the identifiers layer as well as the
-# paths layer. (An earlier version carried only the paths rule while claiming
-# parity, which would have left AC-5 covering one layer.)
+# _BASE_CONFIG's PATHS rule as a regex, so the regex half of every #194 cell
+# drives a `re:` config through the now-visited positions. Only the paths rule
+# is carried, on purpose -- and the reason is worth stating, because an earlier
+# version of this config added an identifiers rule and claimed it gave the
+# cells identifiers-layer coverage. It did not.
 #
-# The oracle deliberately does not re-verify a ``re:`` rule, so this config is
-# the one that leaked SILENTLY at every position #194 names: exit 0, value
-# present, sidecar reporting clean.
+# Every #194 cell plants a value under _REAL_USER_HOME. The paths layer runs
+# FIRST (orchestrator.py) and scrubs it, so an identifiers rule matching the
+# same substring never fires -- verified by instrumenting the substitution
+# table, which records only `paths` labels, under the LITERAL config as much as
+# this one. Worse, `re:realuser -> user` over `/home/realuser/app` yields
+# `/home/user/app`, byte-identical to what the paths rule produces: a redundant
+# second scrubber that would MASK a paths-layer regression in exactly these
+# cells. Inert and harmful is strictly worse than absent.
+#
+# That is not a gap in what these cells are for. #194 is a skip-LIST bug in the
+# pipeline -- whether a position is visited at all -- and which rule layer does
+# the scrubbing once it is visited is irrelevant to it. The identifiers layer's
+# own regex behavior is covered by the identifiers unit tests.
+#
+# The oracle deliberately does not re-verify a `re:` rule, so this config is the
+# one that leaked SILENTLY at every position #194 names: exit 0, value present,
+# sidecar reporting clean.
 _REGEX_CONFIG = """
 version: 1
 paths:
   - match: "re:/home/real[a-z]+"
     replace: "/home/user"
-identifiers:
-  - match: "re:realuser"
-    replace: "user"
 """
 
 

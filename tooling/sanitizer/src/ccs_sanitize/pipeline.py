@@ -130,14 +130,21 @@ DEFAULT_STRIP_TYPES: frozenset[str] = frozenset({"file-history-snapshot", "attac
 # lives in a different file. The two must remap to the same value or the graph
 # breaks, which is exactly what a shared ``uuid_seed`` is for.
 #
-# Do not expect the corpus to show them matching WITHIN a file -- it does not,
-# and an earlier version of this comment said "carries the same value as the
+# THE AUTHORITY IS THE FORMAT CONTRACT, NOT THE CORPUS: the reference docs
+# state that a parent's ``toolUseResult.agentId`` equals the invoked subagent's
+# own top-level ``agentId`` in a different file (reference/data-dictionary.md,
+# the overflow-subdirectory section; reference/subagent-traces.md). That is why
+# both positions remap under one ``uuid_seed``.
+#
+# The corpus is only consistent with that, not evidence for it -- its single
+# cross-file match lives in the synthetic parent/subagent fixture pair THIS
+# repo authored, so it illustrates the link rather than confirming it in the
+# wild. Do not read the rest as proof either: 2 distinct line-level values
+# against 25 distinct ``toolUseResult`` ones with zero same-file overlap is the
+# EXPECTED shape, since they live in different files, not a counterexample. An
+# earlier version of this comment said "carries the same value as the
 # line-level agentId (25 records)", which conflated an occurrence count with a
-# match count and is not reproducible. What the corpus actually shows: 2
-# distinct line-level values against 25 distinct ``toolUseResult`` ones, zero
-# same-file overlap in all six files, and exactly one cross-file match, in the
-# synthetic parent/subagent fixture pair. Zero same-file overlap is the
-# expected shape, not a counterexample.
+# match count and is not reproducible.
 _UUID_PATHS: frozenset[JsonPath] = frozenset({
     ("uuid",),
     ("parentUuid",),
@@ -176,9 +183,25 @@ _IDENTIFIER_PATHS: frozenset[JsonPath] = frozenset({
 # did collide would otherwise rewrite a format marker. Listed EXACTLY, never
 # as a subtree, for the reason in the header comment.
 #
-# Deliberately absent: ``message.content.content.type``. That is the
-# tool_result content array, which the data dictionary documents as arbitrary
-# tool output -- exempting it would be #194 one level deeper.
+# Deliberately absent: ``message.content.content.type`` and
+# ``toolUseResult.content.type``. Both are content-block ``type``
+# discriminators (values like "text"/"tool_reference"), so scrubbing them is a
+# no-op today -- but unlike the entries above they sit INSIDE a tool_result
+# payload: ``message.content[i]`` is a ``tool_result`` block whose ``content``
+# array even carries CC-injected wrappers, and ``toolUseResult`` is the
+# Claude-Code-side result envelope. That is the tool-controlled side of the
+# boundary this fix polices, so the exempt list stops here and everything under
+# a tool result over-scrubs. Exempting a ``type`` key there buys nothing and
+# widens the exempt surface into tool-shaped data -- #194 one level deeper.
+#
+# ``message.content.content.type`` is the closer call, and an earlier version
+# of this comment got the reason wrong: it called the ``type`` KEY arbitrary
+# tool output, which the data dictionary contradicts -- that array carries
+# content blocks. The deciding line is the FORMAT BOUNDARY, not nesting depth.
+# Its outer sibling ``message.content.type`` discriminates the rigid
+# Anthropic-API content block and IS listed; this one exists only under a
+# tool_result. The arbitrary payload at the sibling ``text`` key is scrubbed
+# either way, so exclusion costs no coverage.
 _ENUM_PATHS: frozenset[JsonPath] = frozenset({
     ("type",),                                              # line-level kind
     ("version",),                                           # line-level format marker

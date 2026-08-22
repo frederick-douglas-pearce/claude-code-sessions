@@ -97,12 +97,13 @@ corpus, and ablation-tests each entry against a config whose rule matches the
 value at that position. What nothing here catches is a genuinely new format
 position with an unfamiliar name.
 
-**Publish is deliberately held.** `__version__` is 0.4.0 as of this change,
-but the PyPI release waits for #190 and #194 to land, so the first version a
-`pip` user sees carries *coverage* for the two known traversal gaps rather
-than only *refusal* on them. #195 anticipated this ("one 0.4.0 release covers
-both"); the decision to hold the publish rather than release twice is recorded
-here so a later reader does not read the version bump as a missed release.
+**Publish is deliberately held.** `__version__` is 0.4.0 as of this change.
+The PyPI release waits for both known traversal gaps to carry *coverage*
+rather than only *refusal*, so that is what the first version a `pip` user
+sees. **#194 has landed** (this release); **#190 has not**, so the hold stands
+on #190 alone. #195 anticipated this ("one 0.4.0 release covers both"); the
+decision to hold the publish rather than release twice is recorded here so a
+later reader does not read the version bump as a missed release.
 
 ### Fixed (issue #194 — the skip-list exempted user data inside tool inputs)
 - **The traversal skip-list is now an allow-list of ROOT-ANCHORED paths.** It
@@ -168,8 +169,9 @@ here so a later reader does not read the version bump as a missed release.
   contained the value. That is worse than no sidecar, because it turns the
   README's human review step into a rubber stamp.
 - **It closes the class, not the instances.** #190 (dict keys are never
-  visited) and #194 (the skip-list exempts user data at any depth) are two
-  ways to end up outside the traversal's reach; the position space is
+  visited) and #194 (the skip-list exempted user data at any depth, fixed in
+  this same 0.4.0 release) were two ways to end up outside the traversal's
+  reach; the position space is
   tool-defined and open-ended, so enumerating positions cannot close it —
   `test_adversarial_placement.py` was built to map positional coverage and
   missed #194 entirely.
@@ -192,8 +194,11 @@ here so a later reader does not read the version bump as a missed release.
   (at the default `remap_uuids: false` the UUID-graph fields are skip-listed so
   the parent/subagent graph stays linkable). Scanning regex rules aborted every
   such session at exit 2 with nothing mis-scrubbed, and with no override that
-  config could never scrub any file. For regex rules #190 and #194 stay open;
-  tracked in **#198**, not silently accepted.
+  config could never scrub any file. For regex rules #190 stays open — dict keys
+  are never visited and the oracle skips regex, so a value in a key still leaks
+  silently; tracked in **#198**, not silently accepted. (#194 is closed in this
+  release: its positions are now visited and scrubbed in-walk under both rule
+  kinds.)
 - **The diagnostic names `section[index]`, never the rule or the match.**
   Stricter than `ResidualSecretError`, deliberately: a secret pattern's `kind`
   is a generic label, but a path/identifier rule's `match` value **is** the
