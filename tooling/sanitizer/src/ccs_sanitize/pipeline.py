@@ -188,11 +188,18 @@ _IDENTIFIER_PATHS: frozenset[JsonPath] = frozenset({
 # discriminators (values like "text"/"tool_reference"), so scrubbing them is a
 # no-op today -- but unlike the entries above they sit INSIDE a tool_result
 # payload: ``message.content[i]`` is a ``tool_result`` block whose ``content``
-# array even carries CC-injected wrappers, and ``toolUseResult`` is the
-# Claude-Code-side result envelope. That is the tool-controlled side of the
-# boundary this fix polices, so the exempt list stops here and everything under
-# a tool result over-scrubs. Exempting a ``type`` key there buys nothing and
-# widens the exempt surface into tool-shaped data -- #194 one level deeper.
+# array even carries CC-injected wrappers. Exempting a ``type`` key inside a
+# tool's own output buys nothing -- it is enum-shaped, so scrubbing it changes
+# no bytes today -- while widening the exempt surface into tool-shaped data,
+# which is #194 one level deeper.
+#
+# NOTE what this does NOT say. It is not "nothing under ``toolUseResult`` is
+# exempt": six entries above sit there (``agentId``, ``type``, and the four
+# ``usage`` leaves), because that envelope is MIXED -- the data dictionary
+# documents those as format metadata while ``stdout``/``content``/``task`` are
+# tool output. The line is drawn per position, which is the whole point of a
+# path allow-list; a blanket per-subtree rule in either direction is what this
+# design rejects.
 #
 # ``message.content.content.type`` is the closer call, and an earlier version
 # of this comment got the reason wrong: it called the ``type`` KEY arbitrary

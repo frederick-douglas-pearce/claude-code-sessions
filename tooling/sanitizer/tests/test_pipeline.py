@@ -259,13 +259,18 @@ def test_walk_strings_visits_skip_listed_names_outside_their_format_position() -
     )
     leaves = {leaf for leaf, _ in visited}
     planted = {v for v in leaves if v.startswith("PAYLOAD-")}
-    assert planted == {
+    expected = {
         "PAYLOAD-version", "PAYLOAD-type", "PAYLOAD-role", "PAYLOAD-requestId",
         "PAYLOAD-tool_use_id", "PAYLOAD-sessionId", "PAYLOAD-uuid",
         "PAYLOAD-agentId", "PAYLOAD-parentUuid", "PAYLOAD-tokens-suffix",
         "PAYLOAD-usage-child", "PAYLOAD-content-id", "PAYLOAD-content-signature",
         "PAYLOAD-message-model", "PAYLOAD-message-id",
-    }, f"not visited: {planted}"
+    }
+    # Report the DIFFERENCE, not the set that passed. An earlier version
+    # printed `planted` -- the payloads that WERE visited -- under the heading
+    # "not visited", which points a debugger at the wrong leaves on exactly the
+    # regression this test exists to catch.
+    assert planted == expected, f"not visited: {sorted(expected - planted)}"
 
 
 def test_walk_strings_visits_a_nested_skip_listed_name_in_tool_input() -> None:

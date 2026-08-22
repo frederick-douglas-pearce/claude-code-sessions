@@ -56,14 +56,29 @@ because "refuses more" alone would misdescribe it after #194:
 
 - #195 **adds** a fail-closed refusal surface — the output-side oracle for
   literal path/identifier rules.
-- #194 and #199 **remove** refusals at the traversal positions #195 was
-  catching, by making those positions scrubbable in the first place, and
-  scrub **more** leaves than before. #194 also closes a *silent* leak for
-  regex configs, which the oracle never covered.
+- #194 **removes** refusals at the traversal positions #195 was catching, by
+  making those positions scrubbable in the first place, and visits **more**
+  leaves than before. It also closes a *silent* leak for regex configs, which
+  the oracle never covered.
+- #199 does something different, and the distinction matters on upgrade: it
+  **stops applying a transform** at positions that were never format fields.
 
-Both are monotonically safer: more values get scrubbed, and the values that
-previously forced an abort now redact instead. What a consumer must not
-assume is byte-stability across the bump — see the golden note below.
+**Read #199's direction carefully — it is not "scrubs more".** At an anchored
+position it scrubs **less**. Under 0.3.x a tool parameter at
+`tool_use.input.gitBranch` was matched by bare name and blanket-replaced with
+`feature/example`; under 0.4.0 it falls through to the ordinary identifier
+rules and, if none match it, is emitted **verbatim**. Same for
+`tool_use.input.sessionId` under `remap_uuids: true`, which used to be
+rewritten as a synthesized UUID. That replacement was **corruption of user
+data**, not protection — it destroyed a value the config never asked to touch
+— so removing it is correct. But an upgrader whose tool inputs carry a
+parameter with one of those names will see a value in 0.4.0 output that 0.3.x
+had overwritten. **If such a value is sensitive, it needs a config rule; it was
+never being scrubbed on purpose.**
+
+So: #194 and #195 are monotonically safer, #199 trades an accidental
+overwrite for correctness, and a consumer must not assume byte-stability
+across the bump — see the golden note below.
 
 **`test_golden_determinism.py` stays green, and that is expected.** Clean
 output is byte-identical, so the bump trigger described under Bump policy does
@@ -124,9 +139,10 @@ later reader does not read the version bump as a missed release.
   `residual_scan: clean`. Reproduced on merged `main` across 16 positions, with
   a positive control, before the fix; all 16 now redact under both rule kinds.
 - **An unlisted position is now visited and scrubbed**, which inverts the
-  failure direction: a format field the list forgets is over-scrubbed
-  (visible, and caught by the golden test) rather than user data being silently
-  skipped. There are **no subtree prefixes** — a "skip everything under X"
+  failure direction: a format field the list forgets is over-scrubbed rather
+  than user data being silently skipped. **Not caught by the golden test** —
+  see the retraction above; what catches it is
+  `tests/test_skip_allow_list_corpus.py`. There are **no subtree prefixes** — a "skip everything under X"
   entry is the `"usage" in path` membership test this package already deleted
   once, and `error.*` alone carries `set-cookie`, an organization id and a
   free-text error message that are all scrubbed today.
@@ -194,7 +210,7 @@ later reader does not read the version bump as a missed release.
   (at the default `remap_uuids: false` the UUID-graph fields are skip-listed so
   the parent/subagent graph stays linkable). Scanning regex rules aborted every
   such session at exit 2 with nothing mis-scrubbed, and with no override that
-  config could never scrub any file. For regex rules #190 stays open — dict keys
+  config could never scrub any file. For regex rules, #190 stays open — dict keys
   are never visited and the oracle skips regex, so a value in a key still leaks
   silently; tracked in **#198**, not silently accepted. (#194 is closed in this
   release: its positions are now visited and scrubbed in-walk under both rule
@@ -260,15 +276,19 @@ later reader does not read the version bump as a missed release.
   structural-traversal test PRD section 14 calls C-1. One planted value at 14
   structural positions (nested tool inputs, `tool_result` content arrays,
   `toolUseResult` siblings, thinking blocks, JSON-inside-a-JSON-string, dict
-  keys, URL query parameters) crossed with four payload families. Asserts on
+  keys, URL query parameters) crossed with four payload families — **19
+  positions as of the #194 work below**, which added one cell per skip
+  mechanism. Asserts on
   the verdict rather than on output bytes, so the jitter work planned for v1
   cannot turn it spuriously red; byte-exactness stays owned by
   `test_golden_determinism.py`.
 - **This is a coverage net, not the leak gate.** Enumerating positions cannot
   be one — the position space is tool-defined and open — and this module
-  proved that itself by missing **#194** entirely, since its cells plant
-  payloads under innocuous key names and never collide with a skip-listed
-  name. The guarantee is **#195**, an output-side check for the **literal**
+  proved that itself by missing **#194** entirely, since cells 01-14 plant
+  payloads under innocuous key names and never collided with a skip-listed
+  name. (Cells 15-19, added by the #194 work below, do collide — one per skip
+  mechanism. That closes a blind spot that was known by name; it does not make
+  the module a leak gate.) The guarantee is **#195**, an output-side check for the **literal**
   path/identifier rules mirroring what `scan_residual` already does for
   secrets. Literal only: regex rules are scrub-only, tracked in #198. This
   module tells you which positions are *scrubbable*; the oracle
