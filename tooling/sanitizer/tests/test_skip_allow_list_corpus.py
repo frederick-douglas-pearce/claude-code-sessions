@@ -34,10 +34,10 @@ stops honoring an entry:
      against a config whose rule matches the value at that position.
 
 What NONE of them catches is a genuinely new format position whose name is
-not already on the list. That gap is OPEN: #194's AC-10 asked for a
-``format-scan`` drift check as a fast-follow and it is owed. Human review is
-what currently happens there; it is not coverage, and no test here should be
-read as covering it.
+not already on the list. That gap is OPEN and tracked in #201, which is the
+``format-scan`` drift check #194's AC-10 asked for as a fast-follow. Human
+review is what currently happens there; it is not coverage, and no test here
+should be read as covering it.
 
 No test here reads session data outside ``fixtures/`` -- per CLAUDE.md the
 repo's own fixtures are the only corpus anything here may read.

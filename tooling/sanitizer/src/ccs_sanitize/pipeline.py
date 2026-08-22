@@ -105,16 +105,16 @@ DEFAULT_STRIP_TYPES: frozenset[str] = frozenset({"file-history-snapshot", "attac
 # catches is a genuinely new format position with a name nothing on the list
 # uses.
 #
-# THAT GAP IS OPEN, NOT COVERED. Earlier wording here said the format-watch
-# queue and human review "are for" that, which reads as a mechanical check
-# considered and declined in favour of people. The real state is that #194's
-# AC-10 asked for a ``format-scan`` drift check as a fast-follow and it is
-# owed. There is live evidence the human process is the leaky link: the
-# corpus carries UUID-graph edges (``sourceToolAssistantUUID``, ``leafUuid``)
-# that no list here enumerates, and finding them by hand took four review
-# rounds and a mutation pass. A mechanical corpus-vs-list diff would have
-# surfaced them on day one. Until that check exists, treat human review as
-# what is actually happening, not as coverage.
+# THAT GAP IS OPEN, NOT COVERED, and it is tracked in #201. Earlier wording
+# here said the format-watch queue and human review "are for" that, which
+# reads as a mechanical check considered and declined in favour of people.
+# The real state is that #194's AC-10 asked for a ``format-scan`` drift check
+# as a fast-follow. There is live evidence the human process is the leaky
+# link: the corpus carries UUID-graph edges (``sourceToolAssistantUUID``,
+# ``leafUuid`` -- #202) that no list here enumerates, and finding them by hand
+# took four review rounds and a mutation pass. A mechanical corpus-vs-list
+# diff would have surfaced them on day one. Until #201 ships, treat human
+# review as what is actually happening, not as coverage.
 #
 # NO SUBTREE PREFIXES. An entry is an exact path. A "skip everything under
 # X" rule is the ``"usage" in path`` membership test this module already

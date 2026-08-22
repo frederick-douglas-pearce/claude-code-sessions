@@ -14,10 +14,12 @@ record ``uuid`` values -- so under ``remap_uuids: true`` they ship verbatim
 while their referents are remapped, leaving references that no longer resolve.
 That is a real defect, it predates the path-anchoring work, and it affects only
 the opt-in remap mode (``remap_uuids`` defaults to False), which is why it is
-not fixed here. It is NOT yet tracked by an issue -- it was found in review of
-this change and is awaiting one, and saying "tracked" before that is true would
-be the same kind of unbacked claim this module's history is full of. Nothing
-here should be read as asserting that every graph edge remaps.
+not fixed here. It is tracked in #202, which also carries the reason the fix
+belongs in THIS set alone: both fields are already visited in both modes, so
+adding them here changes nothing under the default config, whereas adding them
+to ``pipeline._UUID_PATHS`` too would make them skipped by default and widen
+the exempt surface. Nothing here should be read as asserting that every graph
+edge remaps.
 
 This module ships ``build_identifier_transform`` -- a factory that returns
 a :data:`ccs_sanitize.pipeline.TransformCallback` ready to plug into
