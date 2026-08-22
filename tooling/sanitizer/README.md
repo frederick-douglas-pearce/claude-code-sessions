@@ -132,7 +132,7 @@ substitutions: # placeholder + replacement, never the original
 residual_scan: clean # post-scrub re-scans: secret patterns (position-agnostic
                      # over the serialized output) AND the LITERAL
                      # paths/identifiers rules (decoded output, #195). Regex
-                     # rules are scrub-only; see PRD section 10 for the three
+                     # rules are scrub-only; see PRD section 10 for the four
                      # things this does NOT attest to. Not clean is never written.
 ```
 

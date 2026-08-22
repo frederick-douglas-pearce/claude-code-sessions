@@ -16,9 +16,9 @@ Two halves, and both matter:
     orchestrator calls the scan on the real output at all, and a gate that is
     never reached is the way this goes quietly soft.
 
-Per PRD section 14 the fixtures here use synthetic identifiers only --
-`/home/realuser` and RFC-2606 reserved `.test` / `.example` names, never real
-personal data (CLAUDE.md, "Security posture").
+Per PRD section 14 every value planted here is synthetic -- `/home/realuser`,
+`realuser`, and invented tokens -- never real personal data (CLAUDE.md,
+"Security posture").
 """
 
 from __future__ import annotations
@@ -132,8 +132,13 @@ identifiers:
     replace: "<id>"
 """,
     )
-    # "axbQ" would match if the pattern were compiled raw; it must not.
-    assert scan_residual_rules(['{"k": "axbQ"}'], *_rules(config)) is None
+    # "axb0" is the discriminator: read as a raw pattern, ``a.b[0]`` means
+    # a-anychar-b-then-the-class-[0], which "axb0" satisfies. Escaped, it means
+    # the six literal characters, which "axb0" does not. So this line fails if
+    # the rule is ever compiled raw. (An earlier version used "axbQ", which
+    # matches under neither reading and so discriminated nothing.)
+    assert scan_residual_rules(['{"k": "axb0"}'], *_rules(config)) is None
+    # The literal itself must still abort.
     with pytest.raises(ResidualRuleError):
         scan_residual_rules(['{"k": "a.b[0]"}'], *_rules(config))
 
@@ -263,10 +268,12 @@ def test_value_under_a_skip_listed_name_in_tool_input_aborts(
     are arbitrary tool-defined JSON, so a tool whose parameter happens to carry
     one of these names puts user data where the walker declines to look.
 
-    The set here is the one the #195 acceptance criteria name, and it spans
-    three distinct skip mechanisms, not one: the bare-name list, the UUID-name
-    list (bare while ``remap_uuids`` is off), and the ``_tokens`` **suffix**
-    rule. The suffix rule is the broadest of the three -- it exempts a name
+    The set here is not identical to the one #195's test plan names -- it adds
+    ``role``, ``requestId`` and ``tool_use_id`` from ``_SKIP_LEAF_NAMES``, and
+    covers #195's ``usage.x`` in ``test_nested_value_under_tool_input_aborts``
+    instead. What it spans is three distinct skip *mechanisms*, not one: the
+    bare-name list, the UUID-name list (bare while ``remap_uuids`` is off), and
+    the ``_tokens`` **suffix** rule. The suffix rule is the broadest of the three -- it exempts a name
     nobody enumerated -- which is the argument for closing the class rather
     than the instances."""
     config = _config(tmp_path, _BASE_CONFIG)

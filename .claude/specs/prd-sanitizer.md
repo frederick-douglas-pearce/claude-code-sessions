@@ -527,11 +527,16 @@ Notes:
     (numeric GitHub user ids) is exactly that shape. Tracked in #198.
   - **A secret whose bytes differ between the serialized and decoded forms.** `scan_residual` reads
     serialized text, so an escapable byte (backslash, quote, control character) inside a match makes
-    the serialized and decoded forms diverge. The pattern *bodies* of the built-ins are
-    alphanumeric, but that is **not** the same as the built-in floor being complete: `bearer-token`
-    is `(?i)authorization:\s*bearer\s+[A-Za-z0-9._-]+`, and `\s` matches a newline or tab, which
-    JSON escapes. A bearer token whose separator is a newline, in a position the walk cannot reach,
-    is therefore missed by both layers. Reproduced; tracked in #198.
+    the serialized and decoded forms diverge. **The built-in floor is not encoding-complete**, and
+    the set has not been audited pattern by pattern for this — one confirmed gap is enough to
+    retire the claim that it is. `bearer-token` is
+    `(?i)authorization:\s*bearer\s+[A-Za-z0-9._-]+`, and `\s` matches a newline or tab, which JSON
+    escapes, so a bearer token whose separator is a newline, in a position the walk cannot reach, is
+    missed by both layers. Reproduced. Do **not** replace this with a generalization about the
+    built-ins being alphanumeric: `conn-string-pw` matches its user and password through negated
+    classes (`[^:\s/]+`, `[^@\s]+`) that accept quotes and backslashes, and `pem-private-key` is a
+    literal containing spaces and dashes. Those two happen to still match in serialized form, but
+    the reason is per-pattern rather than structural. Auditing the set is #198's.
 
   Before 0.4.0 this field attested to secrets alone, so it could appear on a file that still held a
   configured path or identifier. The planned fixture-validator
