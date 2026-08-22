@@ -1,6 +1,6 @@
 """Tests for the output-side oracle over the config rule family (issue #195).
 
-`scan_residual` gives the *secret* layer a total, position-agnostic guarantee:
+`scan_residual` gives the *secret* layer a position-agnostic guarantee:
 it re-reads the serialized output, so a value the structural walk never reached
 is still in those bytes and still aborts the run. Paths and identifiers had no
 such pass, so the same traversal gap leaked **silently** -- exit 0, output
@@ -13,8 +13,8 @@ Two halves, and both matter:
     excuses, and that the exception carries no PII), and
   - the **integration** contract through `sanitize_session`, which is where
     #190 and #194 actually bite. A unit test alone would not prove the
-    orchestrator threads the allow-set through, and threading it wrongly is
-    the way this gate goes quietly soft.
+    orchestrator calls the scan on the real output at all, and a gate that is
+    never reached is the way this goes quietly soft.
 
 Per PRD section 14 the fixtures here use synthetic identifiers only --
 `/home/realuser` and RFC-2606 reserved `.test` / `.example` names, never real
@@ -46,7 +46,7 @@ identifiers:
 
 
 def _rules(config):
-    """The three positional arguments the scan takes, minus the allow-set."""
+    """The two rule sequences the scan takes, after ``lines``."""
     return (config.paths, config.identifiers)
 
 
@@ -89,7 +89,8 @@ def test_exception_never_carries_the_match_or_the_span(tmp_path: Path) -> None:
 
 def test_replacement_in_output_does_not_trip_the_scan(tmp_path: Path) -> None:
     """The load-time I-3 guard already forbids a rule matching any configured
-    replacement, so scrubbed output is clean without needing the allow-set."""
+    replacement, so ordinary scrubbed output is clean with no exemption
+    mechanism at all."""
     config = _config(tmp_path, _BASE_CONFIG)
     assert scan_residual_rules(['{"k": "/home/user/x"}'], *_rules(config)) is None
 
@@ -449,8 +450,8 @@ identifiers:
 
 def test_zero_width_regex_does_not_abort_a_clean_run(tmp_path: Path) -> None:
     """Code-review finding B. An input-dependent zero-width match (a lookahead,
-    ``\\b``) produces an empty span, which is never in the allow-set, so the
-    first one aborted a run with no PII in it at all. ``_reject_zero_width_pattern``
+    ``\\b``) produces an empty span, which the earlier allow-set-based scan never
+    excused, so the first one aborted a run with no PII in it at all. ``_reject_zero_width_pattern``
     does not cover these -- it only tests ``compiled.match("")`` -- which is why
     ``rules/_engine.apply_rule`` carries its own guard. Unreachable now that only
     literal rules are scanned (an empty literal is rejected at load), and pinned

@@ -129,9 +129,11 @@ rules_applied:
 substitutions: # placeholder + replacement, never the original
   - { rule: paths, placeholder: "<home-dir>", replacement: "/home/user", occurrences: 9 }
   - { rule: identifiers, placeholder: "<email>", replacement: "user@example.com", occurrences: 6 }
-residual_scan: clean # post-scrub re-scans: secret patterns (total) AND the
-                     # LITERAL paths/identifiers rules (#195). Regex rules are
-                     # scrub-only. Not clean is never written.
+residual_scan: clean # post-scrub re-scans: secret patterns (position-agnostic
+                     # over the serialized output) AND the LITERAL
+                     # paths/identifiers rules (decoded output, #195). Regex
+                     # rules are scrub-only; see PRD section 10 for the three
+                     # things this does NOT attest to. Not clean is never written.
 ```
 
 The field-level contract is [PRD §10](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/.claude/specs/prd-sanitizer.md#10-the-scrubbed-sidecar).

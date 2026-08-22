@@ -112,8 +112,7 @@ def scan_residual(
 
 
 class ResidualRuleError(Exception):
-    """Raised when the residual rule scan finds a configured path/identifier
-    value in the serialized output.
+    """Raised when a literal ``paths``/``identifiers`` value survives into the output.
 
     Raised by ``scan_residual_rules`` when a literal rule matches the decoded
     output. Carries only ``section`` (``"paths"`` / ``"identifiers"``) and the
@@ -172,9 +171,12 @@ def scan_residual_rules(
     """Verify no **literal** ``paths``/``identifiers`` value survived into the output.
 
     The output-side oracle for the config rule family (#195). ``scan_residual``
-    above gives the *secret* layer a total, position-agnostic guarantee: it
-    re-reads the output, so a value the structural walk never reached is still
-    there and still aborts the run. Paths and identifiers had no such pass, so
+    above gives the *secret* layer a position-agnostic guarantee: it re-reads
+    the output, so a value the structural walk never reached is still there and
+    still aborts the run. (Position-agnostic, not encoding-complete -- it reads
+    the *serialized* text. Every built-in credential pattern is alphanumeric, so
+    serialized and decoded forms coincide and it is complete for the D-1 floor;
+    an *extra* user pattern matching an escapable byte is the known gap, #198.) Paths and identifiers had no such pass, so
     any traversal gap leaked **silently** -- exit 0, output written, sidecar
     reporting ``residual_scan: clean``. Two such gaps are known (#190 dict keys
     are never visited, #194 the skip-list exempts user data at any depth), and
@@ -230,9 +232,23 @@ def scan_residual_rules(
     Load-time I-3 (``config.py`` ``_check_replacement_leak``) forbids a rule
     from matching any *configured* replacement, the gitBranch placeholder, or
     any ``<REDACTED:kind>`` placeholder, so none of those can trip this scan.
-    The one case an allow-set uniquely covered -- a **literal** ``match`` value
-    that happens to equal a UUID this run synthesized -- is contrived, and
-    failing closed on it is the safe direction.
+
+    **What removing it does and does not cost, since the two cases differ and
+    conflating them understates one of them.** An allow-set tested *exact span
+    membership*, so it only ever covered a **literal** ``match`` value equal to a
+    *whole* synthesized value. Losing that is contrived -- it needs a rule whose
+    match is a full 36-char UUID. What it never covered, and what removal
+    therefore does not change, is a literal ``match`` that is a **substring** of
+    one: under ``remap_uuids: true`` a rule like ``match: "dd9cca"`` aborts a
+    correctly-scrubbed run, because that span is not itself a recorded
+    replacement. Short hex-ish literals (a machine id, a commit-SHA prefix) are
+    not exotic, and the remap is deterministic per ``(uuid_seed, original)``, so
+    such a config fails on its first run rather than intermittently and keeps
+    failing until it is edited. That is **pre-existing, availability-only, and
+    recoverable by narrowing the rule** -- never a leak -- and it is tracked in
+    #198 rather than fixed here, because any guard that excuses a match falling
+    inside a synthesized value re-introduces the class of mechanism this
+    function exists without.
 
     ``run_pipeline`` drops strip-types lines before returning, so a configured
     value on a dropped line is correctly **not** an abort -- it never reaches
@@ -251,7 +267,9 @@ def scan_residual_rules(
         ResidualRuleError: a literal rule matched somewhere in the decoded
             output. Carries the section and index only; neither the rule's
             ``match`` value nor the matched bytes are ever recorded (D-2).
-        json.JSONDecodeError: a line was not a JSON object. Unreachable through
+        json.JSONDecodeError: a line was not valid JSON. (A valid non-object --
+            ``123``, ``"foo"`` -- does not raise; the walk simply scans or
+            ignores it.) Unreachable through
             ``sanitize_session`` -- every element comes from ``serialize_line``
             -- and it fails closed at CLI exit 2 either way. Named here because
             an undocumented raise is how a caller learns the wrong lesson.

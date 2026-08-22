@@ -110,29 +110,42 @@ here so a later reader does not read the version bump as a missed release.
   so a diagnostic carrying the value would write real PII into the artifact
   class this tool exists to sanitize.
 - **`residual_scan: clean` now means more than it did, but not everything.** It
-  attests to the secret patterns (total) **and** the literal path/identifier
-  rules (decoded output). It does **not** attest to regex path/identifier rules.
+  attests to the secret patterns (position-agnostic over the serialized output;
+  built-in patterns are alphanumeric, so serialized and decoded forms coincide
+  and it is complete for them — an *extra* user pattern matching an escapable
+  byte is the known gap, #198) **and** the literal path/identifier rules
+  (decoded output). It does **not** attest to regex path/identifier rules.
   Stated in PRD section 10 as well, because this field is the human review gate
   before publishing and an overclaim there is the rubber-stamp failure the whole
   issue is about.
-- **Runtime-synthesized values are excused by exact span membership, not by
-  masking.** Load-time I-3 already forbids a rule from matching any
-  *configured* replacement, but `remap_uuids: true` synthesizes UUIDs the
-  loader never saw, so a broad rule would false-abort on the sanitizer's own
-  output. The scan therefore consults an allow-set of the replacements the run
-  actually recorded and tests whether the **matched span is exactly** one of
-  them. Deleting those strings from the line first was considered and
-  rejected: rule `match: abc123` / `replace: abc` passes I-3, so stripping
-  every `abc` from a line where `abc123` genuinely leaked leaves `123`, the
-  rule stops matching, and the leak ships clean. Exact membership cannot
-  produce that false negative, because a genuine leak is an *original* and
-  I-3 guarantees transitively that no replacement equals any original.
+- **No mechanism excuses a match.** Any literal-rule match in the decoded
+  output aborts; the scan consults no allow-list of the sanitizer's own
+  replacements. An earlier revision of this branch did, on the reasoning that
+  I-3 transitively guarantees no replacement equals any original. That step is
+  false — I-3 vets the literal `replace` template, while a regex rule's actual
+  replacement comes from a runtime `match.expand()` no load-time check sees —
+  and it leaked: `paths: /home/realuser → /home/user` with
+  `identifiers: re:HOME_(\w+) → /home/\1` on input `HOME_realuser` had the
+  identifier layer mint `/home/realuser`, record it, and the allow-set excuse
+  the paths rule whose match value that is. Exit 0, real home directory in the
+  output, `residual_scan: clean`. PRD section 5 records the full rationale so
+  the mechanism is not re-derived.
 - **No escape hatch.** There is no `--no-oracle`; an override would recreate
   the silent-leak path this change closes, on the same reasoning that
   `--no-check` is not the fix for exit 3.
-- **Forward constraint for v1 jitter (PRD section 9b):** the allow-set covers
-  jitter's synthesized values **iff** jitter records them into the
-  `SubstitutionTable`. A load-time-only guard would have silently failed to.
+- **Forward constraint for v1 jitter (PRD section 9b):** there is no allow-set,
+  so jitter's synthesized values get no residual-scan exemption — they are
+  re-scanned on the output side like any other content (secrets by
+  `scan_residual`, literal path/identifier collisions by
+  `scan_residual_rules`). That is stricter and safer than the "record into the
+  `SubstitutionTable`" coupling earlier drafts of this entry described:
+  residual coverage no longer depends on whether jitter records a value. The
+  consequence flips accordingly. Recording is still required for sidecar
+  accounting and determinism, but the live risk is now a false-abort rather
+  than a leak: a jittered value that coincidentally matches a literal rule
+  aborts the run, the same deterministic availability-only collision documented
+  for synthesized UUIDs (#198). The jitter design should avoid emitting
+  literal-rule-matchable shapes.
 - **`tests/test_residual_rules.py`** — added to the security-critical suite
   presence list in `sanitizer-ci.yml`.
 - **Follow-up filed as #196.** The design review found the same leak class on

@@ -166,18 +166,36 @@ code:
   ([§12b](#12b-config-storage-and-safety)). This gate fires on runs that otherwise look
   successful, i.e. the ones that run in CI and inside Claude Code sessions, so a diagnostic
   carrying the value would write real PII into the very artifact class this tool sanitizes.
-- **Runtime-synthesized values are excused by exact span membership, not by masking.** The
-  I-3 load-time guard already forbids a rule from matching any *configured* replacement, but
-  `remap_uuids: true` synthesizes UUIDs the loader never saw. The scan therefore consults an
-  allow-set of the replacements the run actually recorded and asks whether the **matched span
-  is exactly** one of them. Restricted to literals this is a narrow guard rather than a
-  load-bearing one — the only way it fires is a literal `match` value that happens to equal a
-  synthesized replacement — but the case is possible and silent, so it is kept. Deleting those strings from the line before matching was
-  considered and rejected: a rule `match: abc123` / `replace: abc` passes I-3, so stripping
-  every `abc` from a line where `abc123` genuinely leaked leaves `123`, the rule stops
-  matching, and the leak ships clean. Exact membership cannot produce that false negative,
-  because a genuine leak is an *original* and I-3 guarantees transitively that no replacement
-  equals any original.
+- **There is no mechanism that excuses a match, and that is a deliberate negative
+  requirement.** The scan asks one question — does a literal rule match anywhere in the decoded
+  output? — and any match aborts. It consults no allow-list of the sanitizer's own replacements.
+
+  This is recorded here because the obvious design is the wrong one and it was built and shipped
+  once before being caught. The reasoning that justified it was: I-3 forbids a rule from matching
+  any *configured* replacement, so transitively no replacement can equal any original, so a match
+  whose span is exactly a recorded replacement must be the sanitizer's own output and can be
+  excused safely. **That transitive step is false.** I-3 vets the literal `replace` *template*; a
+  regex rule's actual replacement is produced at runtime by `match.expand()` and no load-time check
+  ever sees it. With `paths: /home/realuser → /home/user` and `identifiers: re:HOME_(\w+) →
+  /home/\1`, the input `HOME_realuser` makes the identifier layer mint `/home/realuser`, record it,
+  and the allow-set then excused the paths rule whose `match` value that *is* — exit 0, the
+  operator's real home directory in the output, `residual_scan: clean`. Layer order is what makes it
+  reachable: paths run before identifiers, so the paths rule never sees the value during scrub. It
+  exists only in the output, which is precisely what this gate is for. `rules/paths.py` documents
+  the same backreference blind spot from the transform side.
+
+  **Do not re-derive an allow-set from the premise that the config guard covers it.** What the
+  config guard does cover is enough on its own: I-3 forbids a rule from matching any configured
+  replacement, the `gitBranch` placeholder, or any `<REDACTED:kind>` placeholder, so none of those
+  can trip this scan without an exemption. What an allow-set uniquely bought was excusing a literal
+  `match` value that happens to equal a UUID a run synthesized — contrived, and failing closed on it
+  costs availability rather than safety.
+
+  Masking — deleting recorded replacements from the text before matching — was considered and
+  rejected earlier for a separate reason worth keeping: a rule `match: abc123` / `replace: abc`
+  passes I-3, so stripping every `abc` from a value where `abc123` genuinely leaked leaves `123`,
+  the rule stops matching, and the leak ships clean. Both mechanisms fail in the same direction,
+  which is the one a security tool cannot afford.
 
 ---
 
@@ -488,10 +506,22 @@ Notes:
   not clean, the file would not have been written. **Be precise about what it attests to**, since
   this line is the human review gate before publishing and an overclaim here is exactly the
   rubber-stamp failure [§5](#5-design-principles--the-role-of-the-post-scrub-residual-scan)
-  describes. As of 0.4.0 (#195) it attests to: the secret patterns (total, position-agnostic) **and
-  the LITERAL `paths`/`identifiers` rules** (decoded output, leaves and dict keys). It does **not**
-  attest to **regex** `paths`/`identifiers` rules, which are scrub-only — for those, `clean` means
-  the walk scrubbed what it reached, not that nothing survived. Before 0.4.0 it attested to secrets
+  describes. As of 0.4.0 (#195) it attests to: the secret patterns (position-agnostic over the
+  serialized output) **and the LITERAL `paths`/`identifiers` rules** (decoded output, leaves and
+  dict keys).
+
+  It does **not** attest to three things, listed because an unstated exclusion is how this line
+  starts overclaiming again:
+  - **Regex `paths`/`identifiers` rules**, which are scrub-only — for those, `clean` means the walk
+    scrubbed what it reached, not that nothing survived (#198).
+  - **Values nested inside a JSON-encoded string leaf.** Both the scrub and the rule scan decode one
+    level, so a value carrying its own escaping inside an inner JSON document is missed by both. A
+    pre-existing limit of the transform rather than of the scan, tracked in #198.
+  - **A secret whose bytes differ between the serialized and decoded forms.** `scan_residual` reads
+    serialized text; every *built-in* credential pattern is alphanumeric, so the two forms coincide
+    and the D-1 floor is complete — but an **extra** user pattern that matches an escapable byte
+    (backslash, quote, control character) has the same blind spot this release just closed for
+    rules (#198). Before 0.4.0 it attested to secrets
   alone, so it could appear on a file that still held a configured path or identifier.
   The planned fixture-validator ([§11](#11-fixture-validator-integration)) re-derives rather than
   trusting this field, and must apply the same literal/regex split so the two tools do not diverge
