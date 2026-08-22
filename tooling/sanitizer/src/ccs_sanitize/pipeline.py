@@ -90,7 +90,7 @@ DEFAULT_STRIP_TYPES: frozenset[str] = frozenset({"file-history-snapshot", "attac
 # BE PRECISE ABOUT WHAT CATCHES THAT, because the obvious candidate does not.
 # ``test_golden_determinism.py`` does NOT detect a dropped entry -- removing
 # any single one leaves the golden output byte-identical, verified by ablating
-# all 30. That is inherent: the golden config carries only literal PII rules
+# all 29. That is inherent: the golden config carries only literal PII rules
 # and no format-marker value contains one, which is the same reason the Tier C
 # note below says visiting those positions is a no-op today. An earlier draft
 # of this comment claimed the golden test was the safety net; it is not, and
@@ -193,12 +193,26 @@ _IDENTIFIER_PATHS: frozenset[JsonPath] = frozenset({
 # no bytes today -- while widening the exempt surface into tool-shaped data,
 # which is #194 one level deeper.
 #
+# Also deliberately absent, and removed during review rather than never added:
+# ``toolUseResult.type``. It reads like the line-level ``type`` but it is not
+# one. The data dictionary calls it a "tool-specific subtype indicator" and
+# says the envelope's shape is tool-dependent, and the corpus agrees -- three
+# distinct values (``text`` 41, ``create`` 29, ``update`` 9), varying by which
+# tool produced the result. That is a value a TOOL chooses, not one the format
+# fixes, so it is not a closed enum and exempting it is a #194-shaped
+# exemption in an unbounded space. Contrast ``message.content.caller.type``,
+# which is listed: one value, ``direct``, 342 occurrences, chosen by the
+# format. Scrubbing ``toolUseResult.type`` is still a no-op under every
+# shipped config -- no rule matches those three values -- so the cost of
+# removing it is a position that BECOMES scrubbable, which is the visible
+# failure direction this whole design chose.
+#
 # NOTE what this does NOT say. It is not "nothing under ``toolUseResult`` is
-# exempt": six entries above sit there (``agentId``, ``type``, and the four
-# ``usage`` leaves), because that envelope is MIXED -- the data dictionary
-# documents those as format metadata while ``stdout``/``content``/``task`` are
-# tool output. The line is drawn per position, which is the whole point of a
-# path allow-list; a blanket per-subtree rule in either direction is what this
+# exempt": five entries above sit there (``agentId`` and the four ``usage``
+# leaves), because that envelope is MIXED -- the data dictionary documents
+# those as format metadata while ``stdout``/``content``/``task`` are tool
+# output. The line is drawn per position, which is the whole point of a path
+# allow-list; a blanket per-subtree rule in either direction is what this
 # design rejects.
 #
 # ``message.content.content.type`` is the closer call, and an earlier version
@@ -218,7 +232,6 @@ _ENUM_PATHS: frozenset[JsonPath] = frozenset({
     ("message", "content", "type"),                         # content-block discriminator
     ("message", "content", "caller", "type"),               # always "direct"
     ("message", "diagnostics", "cache_miss_reason", "type"),
-    ("toolUseResult", "type"),
     ("error", "type"),
     ("error", "error", "type"),
     ("error", "error", "error", "type"),

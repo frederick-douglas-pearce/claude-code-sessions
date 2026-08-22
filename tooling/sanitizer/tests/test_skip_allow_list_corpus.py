@@ -85,10 +85,22 @@ _FIXTURES = Path(__file__).resolve().parents[3] / "fixtures"
 #   toolUseResult.task.id         a TodoWrite task id -- genuine user data,
 #                                 and the concrete proof that `id` cannot be
 #                                 allow-listed by name.
+#   toolUseResult.type            allow-listed in the first cut of this PR and
+#                                 REMOVED during review. It reads like the
+#                                 line-level `type` but the data dictionary
+#                                 calls it a tool-specific subtype indicator,
+#                                 and the corpus shows three values varying by
+#                                 tool (`text` 41, `create` 29, `update` 9) --
+#                                 so it is tool-chosen, not a closed enum, and
+#                                 exempting it is the #194 shape. Contrast
+#                                 `message.content.caller.type`, which stays
+#                                 listed: one value (`direct`, 342), chosen by
+#                                 the format.
 _KNOWN_NAME_COLLISIONS: frozenset[JsonPath] = frozenset({
     ("message", "content", "content", "type"),
     ("toolUseResult", "content", "type"),
     ("toolUseResult", "task", "id"),
+    ("toolUseResult", "type"),
 })
 
 
@@ -335,7 +347,6 @@ _EXPECTED_ALLOW_LIST: frozenset[JsonPath] = frozenset({
     ('message', 'usage', 'service_tier'),
     ('message', 'usage', 'speed'),
     ('requestId',),
-    ('toolUseResult', 'type'),
     ('toolUseResult', 'usage', 'inference_geo'),
     ('toolUseResult', 'usage', 'iterations', 'type'),
     ('toolUseResult', 'usage', 'service_tier'),

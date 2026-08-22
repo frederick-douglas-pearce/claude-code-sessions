@@ -101,10 +101,22 @@ than had been checked:
   that line's `type` is `"attachment"`, so `DEFAULT_STRIP_TYPES` drops the
   whole line before the walker sees it. Right conclusion, wrong reason.
 - "a future allow-list omission is exactly what would turn this red" is
-  **false**, and it was the load-bearing safety claim. Ablating all 30 entries
+  **false**, and it was the load-bearing safety claim. Ablating all 29 entries
   one at a time leaves the golden output byte-identical every time: the golden
   config holds only literal PII rules, and no format-marker value contains
   one. `test_golden_determinism.py` cannot see a dropped entry.
+
+**One entry moved during review, and the pinned list says to record it here.**
+`toolUseResult.type` was on the first cut of the allow-list and is **not** in
+the shipped one, so that position is now visited and scrubbable. It reads like
+the line-level `type`, but the data dictionary calls it a "tool-specific
+subtype indicator" and the corpus carries three values that vary by tool
+(`text` 41, `create` 29, `update` 9) — a value the *tool* chooses, which is the
+unbounded space #194 is about. Under every shipped config this changes no
+bytes (no rule matches those three values), so the practical effect is only
+that a future rule which *did* match them would now apply there instead of
+being silently skipped. `message.content.caller.type` stays listed on the
+opposite evidence: one value (`direct`, 342), fixed by the format.
 
 What does guard the allow-list is `tests/test_skip_allow_list_corpus.py`,
 which pins the contents literally, requires every entry to exist in the

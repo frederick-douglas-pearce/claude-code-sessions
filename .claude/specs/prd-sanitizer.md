@@ -150,7 +150,7 @@ fields are skip-listed so the parent/subagent graph stays linkable). Scanning re
 every such session at exit 2 with nothing mis-scrubbed, and with no override the config could never
 scrub any file at all.
 
-So for regex rules #190 remains open — dict keys are still never visited, and the oracle does not
+So for regex rules, #190 remains open — dict keys are still never visited, and the oracle does not
 re-verify a `re:` rule, so a value in a key survives silently — and that is a known, recorded limit
 rather than a silent one. (#194 is closed: its positions are now visited and scrubbed in-walk under
 both rule kinds.) Scanning the **decoded** tree rather than the serialized text is the other half of this
@@ -307,10 +307,21 @@ fields left untouched:
     identifiers preserved so the record graph stays linkable: `requestId`, `message.id`,
     `message.content.id` (tool_use.id), `message.content.tool_use_id`.
   - **Enum discriminators** — `type`, `version`, `message.type`, `message.role`,
-    `message.model`, `message.content.type`, and the `error.*` / `usage.*` / `diagnostics`
-    discriminators. A path or identifier rule does not match `"assistant"` or `"standard"`, so
-    visiting these is a **no-op today**; they are listed to pin intent against a rule that did
-    collide, not because they protect anything on their own.
+    `message.model`, `message.content.type`, `message.content.caller.type`, and the `error.*` /
+    `usage.*` / `diagnostics` discriminators. A path or identifier rule does not match
+    `"assistant"` or `"standard"`, so visiting these is a **no-op today**; they are listed to
+    pin intent against a rule that did collide, not because they protect anything on their own.
+
+    **The test for this tier is who chooses the value, not whether it is named `type`.**
+    `message.content.caller.type` qualifies: one value in the corpus (`direct`, 342), fixed by
+    the format. `toolUseResult.type` does **not**, and was removed from the list during review
+    of this change — the data dictionary calls it a "tool-specific subtype indicator" and the
+    corpus carries three values that vary by tool (`text` 41, `create` 29, `update` 9). A value
+    the *tool* chooses sits in the same unbounded space #194 is about, so exempting it is the
+    #194 shape one level in, and it is now scrubbable like the rest of that envelope's tool
+    output. Same reasoning already excluded `toolUseResult.content.type` and
+    `message.content.content.type`. All three are pinned as known name collisions in
+    `tests/test_skip_allow_list_corpus.py` so the decision is recorded rather than re-litigated.
 
   **No subtree prefixes.** A "skip everything under X" entry is the `"usage" in path`
   membership test this spec's implementation already deleted once, merely rooted, and it fails
@@ -324,7 +335,7 @@ fields left untouched:
   list gets **over-scrubbed** rather than user data being silently skipped.
 
   **Be precise about what detects that, because the obvious candidate does not.**
-  `test_golden_determinism.py` cannot see a dropped allow-list entry — ablating all 30 one at a
+  `test_golden_determinism.py` cannot see a dropped allow-list entry — ablating all 29 one at a
   time leaves the golden output byte-identical, because the golden config holds only literal PII
   rules and no format-marker value contains one. That is the same fact the enum tier rests on.
   The guard is `tests/test_skip_allow_list_corpus.py`, which pins the list contents literally,
