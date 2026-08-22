@@ -37,7 +37,7 @@ from ccs_sanitize.pipeline import (
 )
 from ccs_sanitize.rules.identifiers import (
     GIT_BRANCH_PLACEHOLDER,
-    UUID_FIELDS,
+    UUID_PATHS,
     build_identifier_transform,
 )
 from ccs_sanitize.rules.paths import build_path_transform
@@ -475,14 +475,38 @@ def test_uuid_remap_consistent_within_file(tmp_path: Path) -> None:
     assert entries[0].occurrences == 2
 
 
-def test_uuid_fields_match_pipeline_skip_list() -> None:
-    """``UUID_FIELDS`` here and ``_UUID_NAMES`` in the pipeline govern two
-    sides of the same contract: what to skip when ``remap_uuids`` is off,
-    and what to remap when it's on. They MUST stay equal -- adding a
-    field to one without the other would silently leak (visited but
-    never remapped) or silently no-op (remapped but never visited)."""
-    from ccs_sanitize.pipeline import _UUID_NAMES  # noqa: PLC2701 — pin the contract
-    assert UUID_FIELDS == _UUID_NAMES
+def test_uuid_transform_positions_match_pipeline_allow_list() -> None:
+    """``UUID_PATHS`` here and ``_UUID_PATHS`` in the pipeline govern two
+    sides of the same contract: which POSITIONS to skip when ``remap_uuids``
+    is off, and which to remap when it's on. They MUST stay equal -- adding
+    a position to one without the other silently leaks (visited but never
+    remapped) or silently no-ops (remapped but never visited).
+
+    #194: this replaced ``test_uuid_fields_match_pipeline_skip_list``, which
+    compared the two *name* sets. That assertion was the guard on this
+    contract, and it would have stayed GREEN through the very change that
+    broke it: once the pipeline decided visit-or-not by rooted path while
+    this layer still matched a bare name at any depth, the two sides no
+    longer described the same positions, but the two name sets were still
+    equal. A green check over a live corruption path
+    (``tool_use.input.sessionId`` remapped to a synthesized UUID under
+    ``remap_uuids: true``) is worse than no check, so the comparison had to
+    move to the axis the contract is actually about."""
+    from ccs_sanitize.pipeline import _UUID_PATHS  # noqa: PLC2701 — pin the contract
+    assert UUID_PATHS == _UUID_PATHS
+
+
+def test_uuid_paths_include_the_parent_side_agent_link() -> None:
+    """``toolUseResult.agentId`` is the parent-side link to a subagent's
+    top-level ``agentId`` and carries the SAME value (25 records in the
+    fixture corpus). Anchoring the remap to the line level alone would remap
+    one and not the other, breaking the parent<->subagent graph that
+    ``uuid_seed`` exists to keep coherent across per-file runs.
+
+    Pinned separately from the equality above because that test would still
+    pass if BOTH sides dropped this position together."""
+    assert ("agentId",) in UUID_PATHS
+    assert ("toolUseResult", "agentId") in UUID_PATHS
 
 
 # ----- composition with Layer 1 -----------------------------------------

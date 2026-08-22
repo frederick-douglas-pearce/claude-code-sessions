@@ -11,8 +11,13 @@ cannot be one: the position space is tool-defined and open (MCP servers
 define their own input schemas, and `toolUseResult` bodies are arbitrary),
 so a hand-authored list covers what its author thought of and nothing more.
 This module demonstrated that itself -- it was built to map positional
-coverage and missed #194 entirely, because its cells plant payloads under
-innocuous key names and never collide with a skip-listed name.
+coverage and missed #194 entirely, because cells 01-14 plant payloads under
+innocuous key names (`command`, `outer.middle.inner`, `args`) and never
+collided with a skip-listed name. Cells 15-19 were added when #194 was fixed
+and close that specific gap: one cell per skip MECHANISM, since the
+mechanisms failed independently. They do not make the module a leak gate --
+the paragraph above still holds -- they remove one blind spot that was known
+by name.
 
 The guarantee lives in #195: an output-side check for the **literal**
 path/identifier rules, mirroring what `scan_residual` already does for
@@ -328,6 +333,99 @@ def placements(payload: str) -> dict[str, dict]:
                 "content": (
                     f"curl https://api.example.com/v1?token={payload}&x=1"
                 ),
+            },
+        ),
+        # ----- the payload family this module was missing (#194) ----------
+        #
+        # Cells 03/04/05 plant payloads under innocuous keys (`command`,
+        # `outer.middle.inner`, `args`), so no cell in the matrix ever
+        # COLLIDED with a skip-listed name -- which is precisely why this
+        # module was built to map placement coverage and still missed #194.
+        # Each cell below is a different skip MECHANISM, not a different
+        # name, because the mechanisms failed independently.
+        "15-tool-use-input-bare-skip-name": rec(
+            type="assistant",
+            message={
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_d",
+                        "name": "X",
+                        # A tool whose parameter is a version pin. `version`
+                        # was skipped at any depth as a "line-level format
+                        # marker".
+                        "input": {"version": payload},
+                    }
+                ],
+            },
+        ),
+        "16-tool-use-input-uuid-name": rec(
+            type="assistant",
+            message={
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_e",
+                        "name": "X",
+                        # `sessionId` was skipped bare while remap_uuids is
+                        # off -- which is the default.
+                        "input": {"sessionId": payload},
+                    }
+                ],
+            },
+        ),
+        "17-tool-use-input-tokens-suffix": rec(
+            type="assistant",
+            message={
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_f",
+                        "name": "X",
+                        # The broadest of the old rules: a SUFFIX, not a name
+                        # list, so it exempted a name nobody enumerated.
+                        # `max_tokens` is a real parameter on a real API.
+                        "input": {"max_tokens": payload},
+                    }
+                ],
+            },
+        ),
+        "18-tool-use-input-anchored-pair": rec(
+            type="assistant",
+            message={
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_g",
+                        "name": "X",
+                        # `_ANCHORED_PARENT_LAST_SKIPS` matched the immediate
+                        # parent name at ANY depth, so a tool input holding a
+                        # `content` object with an `id` landed on exactly the
+                        # position its own comment warned about.
+                        "input": {"content": {"id": payload}},
+                    }
+                ],
+            },
+        ),
+        "19-tool-use-input-usage-child": rec(
+            type="assistant",
+            message={
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_h",
+                        "name": "X",
+                        # The `parent == "usage"` rule. Note the leak was one
+                        # level BELOW the `usage` key: `input.usage` was
+                        # visited, `input.usage.*` was not.
+                        "input": {"usage": {"detail": payload}},
+                    }
+                ],
             },
         ),
     }

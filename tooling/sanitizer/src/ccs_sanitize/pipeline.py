@@ -64,38 +64,115 @@ SkipPredicate = Callable[[JsonPath], bool]
 
 DEFAULT_STRIP_TYPES: frozenset[str] = frozenset({"file-history-snapshot", "attachment"})
 
-# Per PRD section 6b B. Bare names skip-listed everywhere they appear. These
-# names are PRD-documented as content-free identity/identifier fields with
-# no user-data collision risk at any depth.
-_SKIP_LEAF_NAMES: frozenset[str] = frozenset({
-    "version",                                       # line-level format marker
-    "type",                                          # line + content-block discriminator
-    "role",                                          # message role (always known enum)
-    "requestId",                                     # request identifier
-    "tool_use_id",                                   # tool_result's link to its tool_use
+# ---------------------------------------------------------------------------
+# The skip allow-list (PRD section 6b B), keyed on ROOT-ANCHORED paths.
+#
+# Issue #194. Every rule this replaced matched depth-agnostically -- a bare
+# leaf name, a ``_tokens`` suffix, ``path[-2] == "usage"``, or a
+# ``(parent, last)`` pair. ``tool_use.input`` is arbitrary tool-defined JSON
+# and MCP servers define their own schemas, so every one of those rules fired
+# inside it: a tool parameter named ``type``/``version``/``sessionId``/
+# ``max_tokens`` sat at a position the walker refused to visit. The value
+# survived, the run exited 0, and the sidecar reported ``residual_scan:
+# clean``. #195's output-side oracle turns that into a fail-closed refusal for
+# *literal* rules, but it deliberately does not re-verify regex rules
+# (``residual.scan_residual_rules``), so for a ``re:`` config it stayed a
+# SILENT leak.
+#
+# The fix is an inversion, not a longer name list: enumerating positions
+# cannot close an unbounded space, but enumerating the FORMAT's own positions
+# can. ``walk_strings`` already builds a rooted path, so matching the whole
+# path instead of its tail makes an unlisted position VISITED AND SCRUBBED
+# rather than silently skipped. That reverses the failure direction -- a
+# format field this list forgets gets over-scrubbed, which is visible and
+# which ``test_golden_determinism.py`` turns red, instead of user data being
+# skipped, which is silent.
+#
+# NO SUBTREE PREFIXES. An entry is an exact path. A "skip everything under
+# X" rule is the ``"usage" in path`` membership test this module already
+# deleted once (see ``make_skip_predicate``), merely rooted, and it fails the
+# same way: ``error.*`` alone carries ``error.headers.set-cookie``,
+# ``error.headers.anthropic-organization-id`` and
+# ``error.error.error.message``, all of which are scrubbed today and all of
+# which a prefix would exempt. Every entry below was verified present in
+# fixtures/ (8 files, 1494 records, v2.1.150-2.1.185); the position survey is
+# recorded on issue #194.
+
+# Tier A -- load-bearing preserves. The value COULD match a configured rule,
+# so visiting it would actually change bytes. This is the tier that earns its
+# keep.
+#
+# The UUID-graph paths are separate because ``remap_uuids`` lifts them (PRD
+# section 6b B: "UUID fields (unless remap_uuids is on)"), and because
+# ``rules.identifiers`` must remap exactly these positions -- the two sides are
+# pinned equal by ``test_uuid_transform_positions_match_pipeline_allow_list``.
+#
+# ``toolUseResult.agentId`` is in this set and NOT in the identifier tier
+# below: it carries the same value as the line-level ``agentId`` (25 records),
+# so remapping one without the other would break the parent<->subagent graph
+# link that ``uuid_seed`` exists to keep coherent.
+_UUID_PATHS: frozenset[JsonPath] = frozenset({
+    ("uuid",),
+    ("parentUuid",),
+    ("sessionId",),
+    ("agentId",),
+    ("toolUseResult", "agentId"),
 })
 
-# UUID-graph fields skip-listed when remap_uuids is False (the default).
-# PRD section 6b B: "UUID fields (unless remap_uuids is on)".
-_UUID_NAMES: frozenset[str] = frozenset({
-    "uuid",
-    "parentUuid",
-    "sessionId",
-    "agentId",
+# thinking.signature is base64-ish and can trip a secret pattern. PRD section 2
+# earmarks it for a fixed placeholder; until that ships it passes through.
+_PRESERVE_PATHS: frozenset[JsonPath] = frozenset({
+    ("message", "content", "signature"),
 })
 
-# Fields whose name overlaps with potential user-data field names ("id",
-# "signature", "model"). PRD section 6b B specifies these by parent path
-# (message.model, message.id, tool_use.id, thinking.signature); a bare-name
-# skip would also exempt user content like ``tool_use.input.id`` from
-# scrubbing, leaking PII. The walker drops list indices, so tool_use blocks
-# inside the content array have parent "content" in the path.
-_ANCHORED_PARENT_LAST_SKIPS: frozenset[tuple[str, str]] = frozenset({
-    ("message", "model"),     # PRD: message.model
-    ("message", "id"),        # PRD: message.id
-    ("content", "id"),        # PRD: tool_use.id (under message.content[*])
-    ("content", "signature"), # PRD: thinking.signature (under message.content[*])
+# Tier B -- opaque format identifiers, preserved so the record graph stays
+# linkable. Not enums, so visiting them is not automatically a no-op.
+_IDENTIFIER_PATHS: frozenset[JsonPath] = frozenset({
+    ("requestId",),
+    ("message", "id"),
+    ("message", "content", "id"),          # tool_use.id
+    ("message", "content", "tool_use_id"), # tool_result -> its tool_use
 })
+
+# Tier C -- enum discriminators. A configured path/identifier rule does not
+# match "assistant" or "standard", so visiting these is a NO-OP TODAY. They
+# are listed to pin intent, not because they are load-bearing: a rule that
+# did collide would otherwise rewrite a format marker. Listed EXACTLY, never
+# as a subtree, for the reason in the header comment.
+#
+# Deliberately absent: ``message.content.content.type``. That is the
+# tool_result content array, which the data dictionary documents as arbitrary
+# tool output -- exempting it would be #194 one level deeper.
+_ENUM_PATHS: frozenset[JsonPath] = frozenset({
+    ("type",),                                              # line-level kind
+    ("version",),                                           # line-level format marker
+    ("message", "type"),                                    # always "message"
+    ("message", "role"),                                    # known enum
+    ("message", "model"),
+    ("message", "content", "type"),                         # content-block discriminator
+    ("message", "content", "caller", "type"),               # always "direct"
+    ("message", "diagnostics", "cache_miss_reason", "type"),
+    ("toolUseResult", "type"),
+    ("error", "type"),
+    ("error", "error", "type"),
+    ("error", "error", "error", "type"),
+    # The two usage subtrees. Enumerated rather than prefixed: each holds
+    # exactly four string leaves and every one is a closed enum (token counts
+    # are ints and never reach the transform at all).
+    ("message", "usage", "service_tier"),
+    ("message", "usage", "speed"),
+    ("message", "usage", "inference_geo"),
+    ("message", "usage", "iterations", "type"),
+    ("toolUseResult", "usage", "service_tier"),
+    ("toolUseResult", "usage", "speed"),
+    ("toolUseResult", "usage", "inference_geo"),
+    ("toolUseResult", "usage", "iterations", "type"),
+})
+
+# Everything skipped regardless of ``remap_uuids``.
+_FORMAT_PATHS: frozenset[JsonPath] = (
+    _PRESERVE_PATHS | _IDENTIFIER_PATHS | _ENUM_PATHS
+)
 
 
 class PipelineError(ValueError):
@@ -148,9 +225,28 @@ class PipelineCounts:
 def make_skip_predicate(*, remap_uuids: bool = False) -> SkipPredicate:
     """Build a skip predicate honoring config options.
 
+    The predicate matches the **whole rooted path**, never its tail. That is
+    the #194 fix: a name-, suffix- or parent-keyed rule matches at any depth,
+    and ``tool_use.input`` is arbitrary tool-defined JSON, so every such rule
+    exempted user data sitting under a colliding key. An unlisted path is now
+    visited and scrubbed.
+
+    Two earlier mechanisms are gone, and both failed the same way:
+
+    - ``"usage" in path`` (membership anywhere), already deleted before #194
+      for over-skipping any descendant of any ``usage`` key;
+    - ``(parent, last)`` "anchored" pairs, which matched the *immediate parent
+      name at any depth* rather than a rooted path, so ``input.content.id``
+      and ``input.message.model`` collided inside tool payloads. The comment
+      on that set reasoned the bug through correctly -- "a bare-name skip
+      would also exempt user content like ``tool_use.input.id`` from
+      scrubbing, leaking PII" -- and then shipped a mechanism that did not
+      achieve it.
+
     Args:
-        remap_uuids: When True, UUID fields (``uuid``, ``parentUuid``,
-            ``sessionId``, ``agentId``) are NOT skipped — they're visited so
+        remap_uuids: When True, the UUID-graph paths (``uuid``,
+            ``parentUuid``, ``sessionId``, ``agentId``, and
+            ``toolUseResult.agentId``) are NOT skipped — they're visited so
             the identifier rule layer can remap them consistently. PRD
             section 6b B: "UUID fields (unless ``remap_uuids`` is on)".
 
@@ -158,29 +254,10 @@ def make_skip_predicate(*, remap_uuids: bool = False) -> SkipPredicate:
         A ``SkipPredicate`` callable that takes a JSON path and returns True
         when the leaf at that path should NOT be scrubbed.
     """
-    bare_names = _SKIP_LEAF_NAMES if remap_uuids else _SKIP_LEAF_NAMES | _UUID_NAMES
+    allowed = _FORMAT_PATHS if remap_uuids else _FORMAT_PATHS | _UUID_PATHS
 
     def predicate(path: JsonPath) -> bool:
-        if not path:
-            return False
-        last = path[-1]
-        if isinstance(last, str):
-            if last in bare_names:
-                return True
-            if last.endswith("_tokens"):
-                return True
-        if len(path) >= 2:
-            parent = path[-2]
-            # Defense: any field whose immediate parent is ``usage`` (the
-            # token-accounting block). PRD section 6b B scopes the skip
-            # explicitly to ``usage.*``; a previous version of this predicate
-            # used ``"usage" in path`` which over-skipped any descendant of
-            # any ``usage`` key at any depth.
-            if parent == "usage":
-                return True
-            if (parent, last) in _ANCHORED_PARENT_LAST_SKIPS:
-                return True
-        return False
+        return path in allowed
 
     return predicate
 

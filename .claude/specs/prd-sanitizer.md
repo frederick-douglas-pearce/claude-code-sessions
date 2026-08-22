@@ -278,10 +278,48 @@ Each surviving line is walked **structurally**: the parsed JSON object is traver
 and rules are applied to every **string-valued leaf**, governed by an explicit **skip-list** of
 fields left untouched:
 
-- **Skip-list (never scrubbed):** `message.model`, `version`, `type`, `*.role`, the numeric
-  `usage.*` / `*_tokens` fields, `message.id` / `requestId` / `tool_use.id` / `tool_use_id` and
-  the UUID fields (unless `remap_uuids` is on), and `thinking.signature` (replaced with a fixed
-  placeholder, not scrubbed — see [§2](#2-background-what-makes-raw-session-jsonl-dangerous)).
+- **Skip-list (never scrubbed):** an **allow-list of ROOT-ANCHORED paths**. An entry is an
+  exact path from the line object (list indices elided, as `walk_strings` elides them). A path
+  not on the list is **visited and scrubbed**.
+
+  **This was a bare-name list and that was the bug (#194).** The names below were documented as
+  "content-free identity/identifier fields with no user-data collision risk at any depth", and
+  the any-depth part is false: `tool_use.input` is arbitrary tool-defined JSON and MCP servers
+  define their own schemas, so a tool parameter named `type`, `version`, `sessionId` or
+  `max_tokens` sat at a position the walker refused to visit — the value survived, the run
+  exited 0, and the sidecar reported `residual_scan: clean`. Four separate mechanisms had the
+  same defect: the bare-name list, the UUID-name list, a `*_tokens` **suffix** rule, and a
+  `parent == "usage"` rule. A fifth, `_ANCHORED_PARENT_LAST_SKIPS`, was *described* as anchored
+  but matched the immediate parent name at any depth, so `tool_use.input.content.id` collided
+  too — the exact case its own code comment warned about.
+
+  **Two tiers.** The distinction is which entries are load-bearing:
+
+  - **Load-bearing preserves** — the value could match a configured rule, so visiting it would
+    really change bytes: the UUID-graph paths `uuid` / `parentUuid` / `sessionId` / `agentId` /
+    `toolUseResult.agentId` (skipped unless `remap_uuids` is on — §8), and
+    `message.content.signature` (thinking.signature; replaced with a fixed placeholder, not
+    scrubbed — see [§2](#2-background-what-makes-raw-session-jsonl-dangerous)). Opaque format
+    identifiers preserved so the record graph stays linkable: `requestId`, `message.id`,
+    `message.content.id` (tool_use.id), `message.content.tool_use_id`.
+  - **Enum discriminators** — `type`, `version`, `message.type`, `message.role`,
+    `message.model`, `message.content.type`, and the `error.*` / `usage.*` / `diagnostics`
+    discriminators. A path or identifier rule does not match `"assistant"` or `"standard"`, so
+    visiting these is a **no-op today**; they are listed to pin intent against a rule that did
+    collide, not because they protect anything on their own.
+
+  **No subtree prefixes.** A "skip everything under X" entry is the `"usage" in path`
+  membership test this spec's implementation already deleted once, merely rooted, and it fails
+  the same way: `error.*` alone carries `error.headers.set-cookie`,
+  `error.headers.anthropic-organization-id` and `error.error.error.message`, all of which are
+  scrubbed today and all of which a prefix would exempt. The `usage` subtrees are enumerated
+  instead — each holds exactly four string leaves, all closed enums, because token counts are
+  integers and never reach the transform at all.
+
+  **The failure direction is now inverted, deliberately.** A format position missing from the
+  list gets **over-scrubbed** — visible, and caught by `test_golden_determinism.py` — rather
+  than user data being silently skipped. The list is therefore only as current as the corpus
+  behind it, which is what `tests/test_skip_allow_list_corpus.py` exists to detect.
 - **Everything else that is a string leaf is scrubbed**, including the nested surfaces a
   line-level view hides: `message.content[].text`, `tool_use.input.*` (Bash `command`, Agent
   `prompt`, MCP inputs), `tool_result.content` (both string and array shapes),
@@ -763,6 +801,14 @@ in `fixtures/sanitized/`, it:
    validates against, rather than inferring the shape from `sanitizer_version`.
 2. **Independently re-runs the secret-pattern scan** over the fixture contents.
 3. Optionally verifies `input_sha256` shape and required sidecar keys.
+
+**`residual_scan: clean` does not yet mean "no configured value survived."** The output-side
+oracle (#195) re-verifies **literal** `paths`/`identifiers` rules only; a `re:` rule is
+deliberately not re-verified, so for a regex config the field attests to the secret scan and to
+the literal rules, and to nothing about the regex ones (#198). #194 narrowed what that gap can
+reach — the traversal positions it used to leak through are now visited and scrubbed — but it
+did not close it, and the validator should not read the field as a full guarantee until #198
+lands.
 
 The validator does *not* trust the sidecar's `residual_scan: clean` as proof — it re-derives
 it. This is defense in depth: a stale sidecar (output edited after scrub), a forged sidecar, or

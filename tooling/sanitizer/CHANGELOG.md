@@ -46,11 +46,24 @@ unrelated tags).
 
 ## [0.4.0] — unreleased
 
-**MINOR.** Adds a new fail-closed refusal surface. Existing configs keep
-working, no sidecar field is removed, renamed or retyped
-(`sidecar_schema_version` stays `1`), and no built-in pattern is removed, so
-this is not MAJOR; it changes which inputs the tool refuses, so it is not
-PATCH. "Scrubs more / refuses more" is monotonically safer.
+**MINOR.** Existing configs keep working, no sidecar field is removed,
+renamed or retyped (`sidecar_schema_version` stays `1`), and no built-in
+pattern is removed, so this is not MAJOR; it changes which inputs the tool
+refuses and which leaves it scrubs, so it is not PATCH.
+
+This release moves in **two** directions and the summary has to carry both,
+because "refuses more" alone would misdescribe it after #194:
+
+- #195 **adds** a fail-closed refusal surface — the output-side oracle for
+  literal path/identifier rules.
+- #194 and #199 **remove** refusals at the traversal positions #195 was
+  catching, by making those positions scrubbable in the first place, and
+  scrub **more** leaves than before. #194 also closes a *silent* leak for
+  regex configs, which the oracle never covered.
+
+Both are monotonically safer: more values get scrubbed, and the values that
+previously forced an abort now redact instead. What a consumer must not
+assume is byte-stability across the bump — see the golden note below.
 
 **`test_golden_determinism.py` stays green, and that is expected.** Clean
 output is byte-identical, so the bump trigger described under Bump policy does
@@ -58,12 +71,72 @@ output is byte-identical, so the bump trigger described under Bump policy does
 new refusal path, not a response to a red golden. Do not go looking for a
 fixture that should have moved.
 
+**That still holds after #194/#199, and it was checked rather than assumed.**
+Those changes alter which POSITIONS get visited, so they can change output
+bytes for an affected input — but every string leaf the golden session
+currently skips is covered by the new allow-list, so the golden bytes did not
+move. The bytes that *do* change are for inputs carrying a value at a
+colliding position, which the golden fixture does not contain. A future
+allow-list omission is exactly what would turn this red, which is now one of
+the two drift signals (see `tests/test_skip_allow_list_corpus.py`).
+
 **Publish is deliberately held.** `__version__` is 0.4.0 as of this change,
 but the PyPI release waits for #190 and #194 to land, so the first version a
 `pip` user sees carries *coverage* for the two known traversal gaps rather
 than only *refusal* on them. #195 anticipated this ("one 0.4.0 release covers
 both"); the decision to hold the publish rather than release twice is recorded
 here so a later reader does not read the version bump as a missed release.
+
+### Fixed (issue #194 — the skip-list exempted user data inside tool inputs)
+- **The traversal skip-list is now an allow-list of ROOT-ANCHORED paths.** It
+  was a set of bare leaf names matched at any depth, plus a `*_tokens` suffix
+  rule, a `parent == "usage"` rule, and a `(parent, last)` pair set described
+  as "anchored" that actually matched the immediate parent name at any depth.
+  `tool_use.input` is arbitrary tool-defined JSON and MCP servers define their
+  own schemas, so **every one of those rules fired inside it**: a tool
+  parameter named `type`, `version`, `role`, `requestId`, `tool_use_id`,
+  `sessionId`, `uuid`, `agentId`, `parentUuid` or anything ending `_tokens`
+  sat where the walker refused to look, as did `input.usage.*`,
+  `input.content.id`, `input.content.signature`, `input.message.model` and
+  `input.message.id`.
+- **What that meant, and it is not what the issue was originally filed as.**
+  For a **literal** rule the #195 oracle caught the survivor and aborted — safe
+  but unusable. For a **`re:` rule the oracle does not re-verify**, so the same
+  positions leaked **silently**: exit 0, value present, sidecar
+  `residual_scan: clean`. Reproduced on merged `main` across 16 positions, with
+  a positive control, before the fix; all 16 now redact under both rule kinds.
+- **An unlisted position is now visited and scrubbed**, which inverts the
+  failure direction: a format field the list forgets is over-scrubbed
+  (visible, and caught by the golden test) rather than user data being silently
+  skipped. There are **no subtree prefixes** — a "skip everything under X"
+  entry is the `"usage" in path` membership test this package already deleted
+  once, and `error.*` alone carries `set-cookie`, an organization id and a
+  free-text error message that are all scrubbed today.
+- **PRD §6b B corrected**, which encoded the bug in prose (`*.role`, bare
+  `version` / `type`), and §13 now records that `residual_scan: clean` is not
+  yet a full guarantee for regex configs (#198).
+- **New drift detection** (`tests/test_skip_allow_list_corpus.py`): every
+  allow-list entry must exist in the corpus, and the set of allow-listed names
+  appearing at non-allow-listed paths is pinned, so a new collision has to be
+  classified rather than silently absorbed.
+
+### Fixed (issue #199 — `gitBranch` was replaced at any depth)
+- **`gitBranch` and the UUID remap are anchored by path too.** The identifier
+  layer decides what to do with a leaf *when it is visited*, and it also
+  matched bare names at any depth — the mirror image of the skip-side bug, in
+  the other half of the pipeline, and failing the opposite way: **corruption,
+  not leakage**. A tool parameter named `gitBranch` was silently overwritten
+  with `feature/example` under a **default** config (`scrub_git_branch`
+  defaults to true), and under `remap_uuids: true` a parameter named
+  `sessionId` was rewritten as a synthesized UUID.
+- **`toolUseResult.agentId` stays in the UUID set.** It carries the same value
+  as the line-level `agentId`, so anchoring to the line level alone would have
+  remapped one and not the other and broken the parent↔subagent graph link.
+- **`test_uuid_fields_match_pipeline_skip_list` was replaced, not just
+  updated.** It asserted equality of two *name* sets, and would have stayed
+  green through the very change that broke the contract it guarded — a passing
+  check over a live corruption path. It now pins the two sides at the **path**
+  level.
 
 ### Added (issue #195 — output-side oracle for literal path/identifier rules)
 - **`residual.scan_residual_rules` + `ResidualRuleError`** — **literal**

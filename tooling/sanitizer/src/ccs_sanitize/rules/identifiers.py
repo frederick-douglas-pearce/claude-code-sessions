@@ -16,22 +16,32 @@ substitutions, and running identifier regex rules on top of them would
 double-record or produce nonsense (e.g., a UUID-shaped placeholder being
 partially re-substituted by an unrelated catch-all regex).
 
-  1. ``gitBranch`` field -- when ``scrub_git_branch`` is on AND
-     ``path[-1] == "gitBranch"``, the whole leaf becomes
-     ``"feature/example"`` (PRD section 8 example). Bare-name match across
-     any depth: in the JSONL format ``gitBranch`` only appears at the
-     session-line top level, but a nested ``gitBranch`` would still be a
-     branch name shape and benefits from the placeholder defensively.
+  1. ``gitBranch`` -- when ``scrub_git_branch`` is on AND the rooted path
+     is in :data:`GIT_BRANCH_PATHS`, the whole leaf becomes
+     ``"feature/example"`` (PRD section 8 example).
 
-  2. ``uuid`` / ``parentUuid`` / ``sessionId`` / ``agentId`` fields --
-     when ``remap_uuids`` is on AND ``path[-1]`` is one of those names,
-     the leaf is remapped via SHA-256(``uuid_seed`` + original) → first
-     16 bytes formatted as a UUID. Bare-name match across any depth: the
-     PRD calls out ``toolUseResult.agentId`` as the parent-side link to a
-     subagent's top-level ``agentId``, and they must remap to the same
-     value for the link to survive. Empty-string UUIDs pass through
-     unchanged so they don't become phantom graph nodes; the pipeline
-     skip-predicate already filters out ``null``.
+     This was a bare-name match at any depth, justified as defensive
+     ("a nested ``gitBranch`` would still be a branch name shape").
+     Issue #199: it is not defensive, it is destructive. ``tool_use.input``
+     is arbitrary tool-defined JSON, so a tool parameter named ``gitBranch``
+     was silently overwritten -- and because ``scrub_git_branch`` defaults
+     to True, that happened under a DEFAULT config. Anchoring costs nothing:
+     ``gitBranch`` occurs at exactly one path in the corpus.
+
+  2. UUID-graph fields -- when ``remap_uuids`` is on AND the rooted path is
+     in :data:`UUID_PATHS`, the leaf is remapped via
+     SHA-256(``uuid_seed`` + original) → first 16 bytes formatted as a
+     UUID. Empty-string UUIDs pass through unchanged so they don't become
+     phantom graph nodes; the pipeline skip-predicate already filters out
+     ``null``.
+
+     Anchored by path as of #194, for the same reason as (1): a bare
+     ``sessionId`` match rewrote a colliding tool parameter into a
+     synthesized UUID. Note ``toolUseResult.agentId`` is IN the set -- the
+     PRD calls it the parent-side link to a subagent's top-level
+     ``agentId``, and the two must remap to the same value for the link to
+     survive, so anchoring to the line level alone would have broken the
+     graph this layer exists to keep coherent.
 
   3. Default -- apply each ``config.identifiers`` rule via ``apply_rule``
      in declaration order. Same first-match-wins semantic the paths layer
@@ -65,19 +75,45 @@ from ._engine import apply_rule
 
 GIT_BRANCH_PLACEHOLDER = "feature/example"
 
-# UUID-graph field names (PRD section 8). Kept identical to the pipeline's
-# ``_UUID_NAMES`` skip-list intentionally: the skip-list governs visit-or-
-# not under ``remap_uuids``; this set governs what the transform remaps
-# *when* it sees them. Drift between the two would silently leak a UUID
-# field through both layers (visited but never remapped, or remapped but
-# never visited). The duplication is small, and the test
-# ``test_uuid_fields_match_pipeline_skip_list`` pins the equality so a
-# future addition to either set surfaces the drift.
-UUID_FIELDS: frozenset[str] = frozenset({
-    "uuid",
-    "parentUuid",
-    "sessionId",
-    "agentId",
+# Both sets below are keyed on ROOT-ANCHORED paths, matching the pipeline's
+# allow-list (#194). They were bare leaf names, and a bare name matches at any
+# depth: ``tool_use.input`` is arbitrary tool-defined JSON, so a tool
+# parameter that happened to be called ``gitBranch`` or ``sessionId`` was
+# silently rewritten. That is CORRUPTION rather than leakage -- the mirror
+# image of the skip-side bug, in the other half of the pipeline.
+
+# UUID-graph paths (PRD section 8). Kept identical to the pipeline's
+# ``_UUID_PATHS`` intentionally: that set governs visit-or-not under
+# ``remap_uuids``; this one governs what the transform remaps *when* it sees
+# them. Drift between the two silently breaks the contract in one of two
+# directions -- visited but never remapped (a UUID ships unscrubbed), or
+# remapped but never visited (the flag is a no-op). The duplication is small,
+# and ``test_uuid_transform_positions_match_pipeline_allow_list`` pins the
+# equality.
+#
+# That test replaced ``test_uuid_fields_match_pipeline_skip_list``, which
+# asserted equality of the two *name* sets. Once the pipeline moved to paths
+# and this stayed on names, that assertion would have kept passing while the
+# invariant it guarded was broken -- a green check over a live corruption path
+# (``input.sessionId`` under ``remap_uuids: true``). Pinning the paths is what
+# makes the guard mean something again.
+UUID_PATHS: frozenset[JsonPath] = frozenset({
+    ("uuid",),
+    ("parentUuid",),
+    ("sessionId",),
+    ("agentId",),
+    # Same value as the line-level ``agentId``; remapping one without the
+    # other would break the parent<->subagent graph link.
+    ("toolUseResult", "agentId"),
+})
+
+# Issue #199. ``gitBranch`` occurs at exactly one position across the whole
+# fixture corpus (line level, 1045 records), so the anchor loses no coverage.
+# Unlike the UUID remap this is not gated behind an opt-in flag --
+# ``scrub_git_branch`` defaults to True -- so the any-depth version corrupted
+# a colliding tool parameter under a DEFAULT config.
+GIT_BRANCH_PATHS: frozenset[JsonPath] = frozenset({
+    ("gitBranch",),
 })
 
 
@@ -131,19 +167,18 @@ def build_identifier_transform(
 
     def transform(leaf: str, path: JsonPath) -> str:
         if path:
-            last = path[-1]
             # Empty-string passthrough for field-anchored substitutions:
             # gitBranch="" is the not-in-a-git-repo signal; uuid="" is
             # malformed but harmless. Either way, don't fabricate a value
             # and don't record a ('' -> placeholder) row the sidecar
             # cannot interpret.
-            if scrub_git_branch and last == "gitBranch":
+            if scrub_git_branch and path in GIT_BRANCH_PATHS:
                 if not leaf:
                     return leaf
                 return table.record(
                     leaf, GIT_BRANCH_PLACEHOLDER, label="identifiers:gitBranch"
                 )
-            if remap_uuids and last in UUID_FIELDS:
+            if remap_uuids and path in UUID_PATHS:
                 if not leaf:
                     return leaf
                 # Skip the SHA-256 if the table already maps this UUID;
@@ -192,6 +227,7 @@ def _remap_uuid(seed_bytes: bytes, original: str) -> str:
 
 __all__ = [
     "GIT_BRANCH_PLACEHOLDER",
-    "UUID_FIELDS",
+    "GIT_BRANCH_PATHS",
+    "UUID_PATHS",
     "build_identifier_transform",
 ]
