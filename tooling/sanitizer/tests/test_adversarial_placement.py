@@ -17,7 +17,8 @@ innocuous key names and never collide with a skip-listed name.
 The guarantee lives in #195: an output-side check for the **literal**
 path/identifier rules, mirroring what `scan_residual` already does for
 secrets. Literal only -- regex rules are scrub-only, tracked in #198 -- so
-this net still covers positions the oracle does not speak for. This module is the coverage net BEHIND that guarantee -- it
+this net still covers positions the oracle does not speak for. This module is
+the coverage net BEHIND that guarantee -- it
 tells you which positions are scrubbable, where the oracle only tells you
 that nothing leaked.
 

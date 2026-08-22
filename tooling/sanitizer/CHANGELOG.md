@@ -110,11 +110,12 @@ here so a later reader does not read the version bump as a missed release.
   so a diagnostic carrying the value would write real PII into the artifact
   class this tool exists to sanitize.
 - **`residual_scan: clean` now means more than it did, but not everything.** It
-  attests to the secret patterns (position-agnostic over the serialized output;
-  built-in patterns are alphanumeric, so serialized and decoded forms coincide
-  and it is complete for them — an *extra* user pattern matching an escapable
-  byte is the known gap, #198) **and** the literal path/identifier rules
-  (decoded output). It does **not** attest to regex path/identifier rules.
+  attests to the secret patterns (position-agnostic over the serialized output,
+  which is not the same as encoding-complete: `bearer-token` matches across
+  `\s`, and a newline there is JSON-escaped, so that built-in has the same
+  blind spot — #198) **and** the literal path/identifier rules (decoded
+  output). PRD section 10 enumerates the four things it does not attest to.
+  It does **not** attest to regex path/identifier rules.
   Stated in PRD section 10 as well, because this field is the human review gate
   before publishing and an overclaim there is the rubber-stamp failure the whole
   issue is about.
@@ -135,9 +136,11 @@ here so a later reader does not read the version bump as a missed release.
   `--no-check` is not the fix for exit 3.
 - **Forward constraint for v1 jitter (PRD section 9b):** there is no allow-set,
   so jitter's synthesized values get no residual-scan exemption — they are
-  re-scanned on the output side like any other content (secrets by
+  re-scanned on the output side like any other string content (secrets by
   `scan_residual`, literal path/identifier collisions by
-  `scan_residual_rules`). That is stricter and safer than the "record into the
+  `scan_residual_rules`). Jittered **token counts** are the exception: they are
+  JSON numbers, and neither the structural walk nor the rule scan visits a
+  numeric leaf, so only `scan_residual` sees them at all. That is stricter and safer than the "record into the
   `SubstitutionTable`" coupling earlier drafts of this entry described:
   residual coverage no longer depends on whether jitter records a value. The
   consequence flips accordingly. Recording is still required for sidecar
@@ -170,7 +173,8 @@ here so a later reader does not read the version bump as a missed release.
   payloads under innocuous key names and never collide with a skip-listed
   name. The guarantee is **#195**, an output-side check for the **literal**
   path/identifier rules mirroring what `scan_residual` already does for
-  secrets. Literal only: regex rules are scrub-only, tracked in #198. This module tells you which positions are *scrubbable*; the oracle
+  secrets. Literal only: regex rules are scrub-only, tracked in #198. This
+  module tells you which positions are *scrubbable*; the oracle
   tells you that nothing leaked.
 - Four cells land as `xfail(strict=True)` against **#190**: a config-driven
   rule cannot reach a value in a dict key, because the structural walk

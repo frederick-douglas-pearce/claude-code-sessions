@@ -117,7 +117,7 @@ mistake:
    output. A match here is a failure condition, not a normal event.
 
 The residual scan is also why the fixture-validator re-scans independently rather than
-trusting the sidecar (see [§11](#11-fixture-validator-integration)) — defense in depth, the
+trusting the sidecar (see [§13](#13-fixture-validator-integration)) — defense in depth, the
 same check enforced at two layers owned by two tools.
 
 **Amendment 2026-08-21 (#195) — the output-side guarantee is extended to LITERAL config rules.**
@@ -510,22 +510,33 @@ Notes:
   serialized output) **and the LITERAL `paths`/`identifiers` rules** (decoded output, leaves and
   dict keys).
 
-  It does **not** attest to three things, listed because an unstated exclusion is how this line
-  starts overclaiming again:
+  It does **not** attest to the four things below. The list is written out because an unstated
+  exclusion is how this line starts overclaiming again — and it is **not** a closed set: add to it
+  whenever a new limit is found, rather than letting the omission do the claiming.
+
   - **Regex `paths`/`identifiers` rules**, which are scrub-only — for those, `clean` means the walk
     scrubbed what it reached, not that nothing survived (#198).
   - **Values nested inside a JSON-encoded string leaf.** Both the scrub and the rule scan decode one
     level, so a value carrying its own escaping inside an inner JSON document is missed by both. A
-    pre-existing limit of the transform rather than of the scan, tracked in #198.
+    plain nested value *is* caught; it is the inner escaping that defeats it. A pre-existing limit
+    of the transform rather than of the scan, tracked in #198.
+  - **A configured value that appears as a JSON number rather than a string.** The structural walk
+    transforms string leaves, and the rule scan walks decoded strings, so neither sees a numeric
+    leaf: `{"account_id": 1004728391}` survives a rule whose match is `1004728391`. This one is
+    worth watching rather than filing away, because [#126](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/126)
+    (numeric GitHub user ids) is exactly that shape. Tracked in #198.
   - **A secret whose bytes differ between the serialized and decoded forms.** `scan_residual` reads
-    serialized text; every *built-in* credential pattern is alphanumeric, so the two forms coincide
-    and the D-1 floor is complete — but an **extra** user pattern that matches an escapable byte
-    (backslash, quote, control character) has the same blind spot this release just closed for
-    rules (#198). Before 0.4.0 it attested to secrets
-  alone, so it could appear on a file that still held a configured path or identifier.
-  The planned fixture-validator ([§11](#11-fixture-validator-integration)) re-derives rather than
-  trusting this field, and must apply the same literal/regex split so the two tools do not diverge
-  on what `clean` means.
+    serialized text, so an escapable byte (backslash, quote, control character) inside a match makes
+    the serialized and decoded forms diverge. The pattern *bodies* of the built-ins are
+    alphanumeric, but that is **not** the same as the built-in floor being complete: `bearer-token`
+    is `(?i)authorization:\s*bearer\s+[A-Za-z0-9._-]+`, and `\s` matches a newline or tab, which
+    JSON escapes. A bearer token whose separator is a newline, in a position the walk cannot reach,
+    is therefore missed by both layers. Reproduced; tracked in #198.
+
+  Before 0.4.0 this field attested to secrets alone, so it could appear on a file that still held a
+  configured path or identifier. The planned fixture-validator
+  ([§13](#13-fixture-validator-integration)) re-derives rather than trusting this field, and must
+  apply the same literal/regex split so the two tools do not diverge on what `clean` means.
 
 ---
 

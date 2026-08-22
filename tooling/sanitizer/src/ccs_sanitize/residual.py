@@ -173,10 +173,13 @@ def scan_residual_rules(
     The output-side oracle for the config rule family (#195). ``scan_residual``
     above gives the *secret* layer a position-agnostic guarantee: it re-reads
     the output, so a value the structural walk never reached is still there and
-    still aborts the run. (Position-agnostic, not encoding-complete -- it reads
-    the *serialized* text. Every built-in credential pattern is alphanumeric, so
-    serialized and decoded forms coincide and it is complete for the D-1 floor;
-    an *extra* user pattern matching an escapable byte is the known gap, #198.) Paths and identifiers had no such pass, so
+    still aborts the run. (Position-agnostic, **not** encoding-complete -- it
+    reads the *serialized* text, so an escapable byte inside a match makes the
+    two forms diverge. That is not confined to user-supplied extras: the
+    built-in ``bearer-token`` is
+    ``(?i)authorization:\\s*bearer\\s+[A-Za-z0-9._-]+`` and ``\\s`` matches a
+    newline, which JSON escapes. Tracked in #198.) Paths and identifiers had no
+    such pass, so
     any traversal gap leaked **silently** -- exit 0, output written, sidecar
     reporting ``residual_scan: clean``. Two such gaps are known (#190 dict keys
     are never visited, #194 the skip-list exempts user data at any depth), and
@@ -210,12 +213,19 @@ def scan_residual_rules(
     ``paths`` case and serializes with doubled backslashes, so the rule could
     never match it and the value shipped with a clean sidecar.
 
-    **One level of decoding, which is not the same as "the domain the rules
-    were authored in".** A value nested inside a JSON-encoded *string* leaf
-    carries its own escaping, so it is still missed here -- and by the scrub
-    itself, which has the same one-level behavior. That limit is pre-existing
-    rather than introduced by this scan, and it is recorded in #198 rather
-    than implied away.
+    **Two limits of walking the decoded tree, neither implied away.** First, one
+    level of decoding is not the same as "the domain the rules were authored
+    in": a value nested inside a JSON-encoded *string* leaf carries its own
+    escaping and is still missed -- by this scan and by the scrub, which has the
+    same one-level behavior. That one is pre-existing.
+
+    Second, and this scan's own shape: ``_iter_decoded_strings`` yields
+    **strings**, so a configured value appearing as a JSON *number* is invisible
+    to it, exactly as it is to the structural walk. The serialized-text scan
+    this replaced would have matched it, so moving to the decoded domain closed
+    the escaped-byte blind spot and opened a non-string-leaf one. Not a
+    regression -- before #195 there was no rule scan at all -- and it matters
+    because #126 (numeric GitHub user ids) is that shape. Both are in #198.
 
     **There is deliberately no allow-set.** An earlier version excused a match
     whose span was exactly a replacement the run had recorded, to stop a
