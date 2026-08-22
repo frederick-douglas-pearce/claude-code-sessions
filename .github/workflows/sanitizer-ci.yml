@@ -100,7 +100,8 @@ jobs:
             test_golden_determinism.py \
             test_release.py \
             test_adversarial_placement.py \
-            test_residual_rules.py
+            test_residual_rules.py \
+            test_skip_allow_list_corpus.py
           do
             path="tooling/sanitizer/tests/$suite"
             if [ ! -f "$path" ]; then
@@ -141,6 +142,25 @@ jobs:
       # file present, so the presence check above cannot see the difference.
       # Assert the positive: the marker selects a non-empty set and none of
       # it skipped.
+      # Same lesson a third time. The skip allow-list drift suite skips itself
+      # when `fixtures/` is absent (it lives at the repo root, outside the
+      # sdist), and that suite is the only thing standing between a silently
+      # edited scrub boundary and a green build: it pins the allow-list
+      # contents literally and ablation-tests every entry. A path change, a
+      # rename, or a checkout that somehow lacks fixtures makes AC-10 vanish
+      # while the suite step above still reports green.
+      - name: Confirm the skip allow-list drift suite actually ran
+        run: |
+          set -uo pipefail
+          python -m pytest tooling/sanitizer/tests/test_skip_allow_list_corpus.py \
+            -q -rs > /tmp/allowlist.txt 2>&1
+          status=$?
+          cat /tmp/allowlist.txt
+          if [ "$status" -ne 0 ] || grep -q 'skipped' /tmp/allowlist.txt; then
+            echo "::error::the skip allow-list drift suite did not run clean inside a checkout (pytest exit $status). If it skipped, fixtures/ was not found and the scrub boundary is unguarded."
+            exit 1
+          fi
+
       - name: Confirm the placement matrix actually ran
         run: |
           set -uo pipefail

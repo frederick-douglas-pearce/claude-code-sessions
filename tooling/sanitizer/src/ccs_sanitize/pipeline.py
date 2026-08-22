@@ -83,10 +83,27 @@ DEFAULT_STRIP_TYPES: frozenset[str] = frozenset({"file-history-snapshot", "attac
 # cannot close an unbounded space, but enumerating the FORMAT's own positions
 # can. ``walk_strings`` already builds a rooted path, so matching the whole
 # path instead of its tail makes an unlisted position VISITED AND SCRUBBED
-# rather than silently skipped. That reverses the failure direction -- a
-# format field this list forgets gets over-scrubbed, which is visible and
-# which ``test_golden_determinism.py`` turns red, instead of user data being
-# skipped, which is silent.
+# rather than silently skipped. That reverses the failure direction: a format
+# field this list forgets gets over-scrubbed rather than user data being
+# silently skipped.
+#
+# BE PRECISE ABOUT WHAT CATCHES THAT, because the obvious candidate does not.
+# ``test_golden_determinism.py`` does NOT detect a dropped entry -- removing
+# any single one leaves the golden output byte-identical, verified by ablating
+# all 30. That is inherent: the golden config carries only literal PII rules
+# and no format-marker value contains one, which is the same reason the Tier C
+# note below says visiting those positions is a no-op today. An earlier draft
+# of this comment claimed the golden test was the safety net; it is not, and
+# on a tool whose subject is that an attestation must not outrun what was
+# verified, that claim was worth more than the coverage it described.
+#
+# What actually guards this list lives in ``tests/test_skip_allow_list_corpus.py``:
+# the contents are PINNED literally (any add or remove goes red), every entry
+# must appear in the corpus, every entry is ablation-tested against a config
+# whose rule matches the value at that position, and the set of allow-listed
+# NAMES appearing at non-allow-listed PATHS is pinned. What none of them
+# catches is a genuinely new format position with a name nothing on the list
+# uses -- that is what the format-watch queue and human review are for.
 #
 # NO SUBTREE PREFIXES. An entry is an exact path. A "skip everything under
 # X" rule is the ``"usage" in path`` membership test this module already
@@ -108,9 +125,19 @@ DEFAULT_STRIP_TYPES: frozenset[str] = frozenset({"file-history-snapshot", "attac
 # pinned equal by ``test_uuid_transform_positions_match_pipeline_allow_list``.
 #
 # ``toolUseResult.agentId`` is in this set and NOT in the identifier tier
-# below: it carries the same value as the line-level ``agentId`` (25 records),
-# so remapping one without the other would break the parent<->subagent graph
-# link that ``uuid_seed`` exists to keep coherent.
+# below, because it is the parent side of a CROSS-FILE link: a parent session
+# names the subagent it invoked, and that subagent's own top-level ``agentId``
+# lives in a different file. The two must remap to the same value or the graph
+# breaks, which is exactly what a shared ``uuid_seed`` is for.
+#
+# Do not expect the corpus to show them matching WITHIN a file -- it does not,
+# and an earlier version of this comment said "carries the same value as the
+# line-level agentId (25 records)", which conflated an occurrence count with a
+# match count and is not reproducible. What the corpus actually shows: 2
+# distinct line-level values against 25 distinct ``toolUseResult`` ones, zero
+# same-file overlap in all six files, and exactly one cross-file match, in the
+# synthetic parent/subagent fixture pair. Zero same-file overlap is the
+# expected shape, not a counterexample.
 _UUID_PATHS: frozenset[JsonPath] = frozenset({
     ("uuid",),
     ("parentUuid",),
@@ -119,8 +146,17 @@ _UUID_PATHS: frozenset[JsonPath] = frozenset({
     ("toolUseResult", "agentId"),
 })
 
-# thinking.signature is base64-ish and can trip a secret pattern. PRD section 2
-# earmarks it for a fixed placeholder; until that ships it passes through.
+# thinking.signature. PRD section 2 earmarks it for a fixed placeholder;
+# until that ships it passes through unchanged.
+#
+# Note what skipping it does and does not buy, because the causality is easy
+# to state backwards: ``scan_residual`` is position-agnostic and re-scans the
+# serialized output with no exemption for this field, so skipping does NOT
+# protect a signature that trips a built-in secret pattern -- such a value
+# would reach the output text and fail the run closed at exit 2, where
+# visiting it would have redacted it cleanly. It is listed because the value
+# is opaque and high-entropy, so scrubbing it would corrupt a field the format
+# owns, not because the skip shields it from anything.
 _PRESERVE_PATHS: frozenset[JsonPath] = frozenset({
     ("message", "content", "signature"),
 })

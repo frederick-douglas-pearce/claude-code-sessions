@@ -71,14 +71,31 @@ output is byte-identical, so the bump trigger described under Bump policy does
 new refusal path, not a response to a red golden. Do not go looking for a
 fixture that should have moved.
 
-**That still holds after #194/#199, and it was checked rather than assumed.**
-Those changes alter which POSITIONS get visited, so they can change output
-bytes for an affected input — but every string leaf the golden session
-currently skips is covered by the new allow-list, so the golden bytes did not
-move. The bytes that *do* change are for inputs carrying a value at a
-colliding position, which the golden fixture does not contain. A future
-allow-list omission is exactly what would turn this red, which is now one of
-the two drift signals (see `tests/test_skip_allow_list_corpus.py`).
+**That still holds after #194/#199, and the golden bytes did not move.** Those
+changes alter which POSITIONS get visited, so they can change output bytes for
+an affected input; the golden fixture simply carries no value at a colliding
+position.
+
+Two corrections to an earlier draft of this paragraph, both of which said more
+than had been checked:
+
+- "every string leaf the golden session currently skips is covered by the new
+  allow-list" has a counterexample **in the golden fixture itself**:
+  `attachment.type`, which the old bare-`type` rule skipped and which the
+  allow-list does not carry. The bytes are unaffected for a different reason —
+  that line's `type` is `"attachment"`, so `DEFAULT_STRIP_TYPES` drops the
+  whole line before the walker sees it. Right conclusion, wrong reason.
+- "a future allow-list omission is exactly what would turn this red" is
+  **false**, and it was the load-bearing safety claim. Ablating all 30 entries
+  one at a time leaves the golden output byte-identical every time: the golden
+  config holds only literal PII rules, and no format-marker value contains
+  one. `test_golden_determinism.py` cannot see a dropped entry.
+
+What does guard the allow-list is `tests/test_skip_allow_list_corpus.py`,
+which pins the contents literally, requires every entry to exist in the
+corpus, and ablation-tests each entry against a config whose rule matches the
+value at that position. What nothing here catches is a genuinely new format
+position with an unfamiliar name.
 
 **Publish is deliberately held.** `__version__` is 0.4.0 as of this change,
 but the PyPI release waits for #190 and #194 to land, so the first version a
@@ -129,9 +146,11 @@ here so a later reader does not read the version bump as a missed release.
   with `feature/example` under a **default** config (`scrub_git_branch`
   defaults to true), and under `remap_uuids: true` a parameter named
   `sessionId` was rewritten as a synthesized UUID.
-- **`toolUseResult.agentId` stays in the UUID set.** It carries the same value
-  as the line-level `agentId`, so anchoring to the line level alone would have
-  remapped one and not the other and broken the parent↔subagent graph link.
+- **`toolUseResult.agentId` stays in the UUID set.** It is the parent side of
+  a **cross-file** link — a session names a subagent whose own top-level
+  `agentId` is in a different file — so the two must remap identically or the
+  graph breaks, which is what a shared `uuid_seed` is for. Do not expect the
+  two to co-occur within one file; in the corpus they never do.
 - **`test_uuid_fields_match_pipeline_skip_list` was replaced, not just
   updated.** It asserted equality of two *name* sets, and would have stayed
   green through the very change that broke the contract it guarded — a passing

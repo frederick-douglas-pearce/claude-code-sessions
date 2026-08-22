@@ -320,9 +320,15 @@ def test_walk_strings_does_not_skip_bare_id_in_user_content() -> None:
 
 
 def test_walk_strings_does_not_over_skip_usage_named_user_field() -> None:
-    """The skip-list scopes ``usage`` to the token-accounting subtree (PRD
-    section 6b B). A user-controlled field literally named ``usage`` (e.g.,
-    an MCP tool input documenting its own usage) must NOT be skipped."""
+    """A user-controlled field literally named ``usage`` (e.g. an MCP tool
+    input documenting its own usage) must NOT be skipped.
+
+    The reason changed with #194 even though the outcome did not. It used to
+    hold because the rule was ``path[-2] == "usage"`` and this field's parent
+    is not ``usage``; it now holds because the allow-list names four rooted
+    ``usage`` leaves and this is not one of them. The old rule also let the
+    CHILDREN of such a field through -- see
+    ``test_skip_predicate_does_not_exempt_a_user_field_named_usage``."""
     transform, visited = _record_transform()
     walk_strings(
         {
@@ -347,7 +353,15 @@ def test_walk_strings_does_not_over_skip_usage_named_user_field() -> None:
 
 def test_walk_strings_still_skips_genuine_usage_subtree() -> None:
     """``message.usage.service_tier`` (a string field directly under the
-    token-accounting block) IS skipped — PRD scopes the entire usage block."""
+    token-accounting block) IS skipped.
+
+    The PRD no longer "scopes the entire usage block" — as of #194 it
+    enumerates the four string leaves each usage block actually carries, so a
+    fifth one appearing there would be scrubbed rather than assumed safe.
+    ``input_tokens`` is here as a reminder of why that costs nothing: it is an
+    int, and ``walk_strings`` only ever hands STRING leaves to the transform,
+    so the old ``*_tokens`` suffix rule never fired on the fields it was
+    written for."""
     transform, visited = _record_transform()
     walk_strings(
         {

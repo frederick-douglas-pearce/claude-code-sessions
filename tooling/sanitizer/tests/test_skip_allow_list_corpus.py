@@ -10,7 +10,9 @@ tracks line types with zero fixture coverage, so the format demonstrably grows
 positions the list would not know about.
 
 These tests are what turn that drift into a red test instead of a silent
-change in behavior. Two directions, because they fail differently:
+change in behavior. They fail in different directions, deliberately, because
+no single one of them covers a removal AND an addition AND a predicate that
+stops honoring an entry:
 
   1. **Dead entries.** An allow-list path that matches nothing in the corpus
      is either a typo or a position that no longer exists. Either way it is
@@ -24,7 +26,18 @@ change in behavior. Two directions, because they fail differently:
      user-data collision (leave it, and the pin records that the call was
      made deliberately).
 
-Neither test reads session data outside ``fixtures/`` -- per CLAUDE.md the
+  3. **A removal.** Pinned literally, below, because each test above has a
+     blind spot for one: the ablation control parametrizes over the list, so
+     deleting an entry deletes its own case.
+
+  4. **An entry the predicate does not honor.** Ablation-tested per entry
+     against a config whose rule matches the value at that position.
+
+What NONE of them catches is a genuinely new format position whose name is
+not already on the list -- the format-watch queue and human review are what
+cover that, and no test here should be read as covering it.
+
+No test here reads session data outside ``fixtures/`` -- per CLAUDE.md the
 repo's own fixtures are the only corpus anything here may read.
 """
 
@@ -35,12 +48,19 @@ from pathlib import Path
 
 import pytest
 
+from ccs_sanitize.orchestrator import sanitize_session
 from ccs_sanitize.pipeline import (  # noqa: PLC2701 — pinning the contract is the point
+    _ENUM_PATHS,
     _FORMAT_PATHS,
+    _IDENTIFIER_PATHS,
+    _PRESERVE_PATHS,
     _UUID_PATHS,
     JsonPath,
     default_skip_predicate,
+    serialize_line,
 )
+
+from ._helpers import write_config as _config
 
 _ALLOW_LIST: frozenset[JsonPath] = _FORMAT_PATHS | _UUID_PATHS
 
@@ -161,14 +181,167 @@ def test_known_collisions_are_actually_visited(corpus_paths: set[JsonPath]) -> N
         assert default_skip_predicate(path) is False, ".".join(path)
 
 
-def test_allow_list_tiers_do_not_overlap() -> None:
+def test_allow_list_tiers_are_disjoint() -> None:
     """Runs without the corpus, so the packaged sdist still checks something.
 
-    An entry in two tiers is harmless to the predicate (it is a set union)
-    but means the tier split -- load-bearing preserves vs enum discriminators
-    -- has stopped describing the list, and that split is what tells a future
-    reader which entries deserve scrutiny."""
-    assert _FORMAT_PATHS & _UUID_PATHS == frozenset()
+    An entry in two tiers is harmless to the predicate -- it is a set union --
+    but means the tier split has stopped describing the list, and that split
+    is what tells a future reader which entries deserve scrutiny (a
+    load-bearing preserve does; an enum discriminator is a no-op today).
+
+    This checks all FOUR tiers pairwise. An earlier version asserted only
+    ``_FORMAT_PATHS & _UUID_PATHS``, which is the union against one member and
+    cannot see the case its own docstring named: a path duplicated between
+    ``_IDENTIFIER_PATHS`` and ``_ENUM_PATHS`` passed."""
+    tiers = {
+        "_UUID_PATHS": _UUID_PATHS,
+        "_PRESERVE_PATHS": _PRESERVE_PATHS,
+        "_IDENTIFIER_PATHS": _IDENTIFIER_PATHS,
+        "_ENUM_PATHS": _ENUM_PATHS,
+    }
+    names = sorted(tiers)
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            assert tiers[a] & tiers[b] == frozenset(), f"{a} and {b} overlap"
+    # And the tiers must actually account for the whole list.
+    union: frozenset[JsonPath] = frozenset().union(*tiers.values())
+    assert union == _ALLOW_LIST
     for path in _ALLOW_LIST:
         assert isinstance(path, tuple) and path, f"not a non-empty tuple: {path!r}"
         assert all(isinstance(seg, str) for seg in path), path
+
+
+# ---------------------------------------------------------------------------
+# The ablation control.
+#
+# The tests above check the allow-list against the CORPUS. Neither checks that
+# an entry does anything, and the obvious candidate for that job does not do
+# it: `test_golden_determinism.py` cannot detect a dropped entry. Removing any
+# single entry leaves the golden output byte-identical, because the golden
+# config holds only literal PII rules and no format-marker value contains one
+# -- the same reason the Tier C comment in `pipeline.py` says visiting those
+# positions is a no-op today. An earlier draft of this change claimed the
+# golden test was the safety net for the inverted failure direction. It is
+# not, and the claim was removed rather than weakened.
+#
+# This is the test that does the job: it makes each entry's protection
+# OBSERVABLE by using a config whose rule actually matches the value sitting
+# at that position. Delete an entry, and its cell goes red.
+#
+# The rule is a regex, and that is not incidental: with a literal rule the
+# marker survives (which is the point) and the #195 output-side oracle then
+# finds the configured literal in the output and fail-closes, so every cell
+# would abort. A `re:` rule is not re-verified by the oracle.
+
+_MARKER = "ALLOWLISTED-MARKER-VALUE"
+
+_ABLATION_CONFIG = """
+version: 1
+identifiers:
+  - match: "re:ALLOWLISTED-MARKER-VALUE"
+    replace: "[scrubbed]"
+"""
+
+
+def _record_with(path: JsonPath, value: str) -> dict:
+    """Build a line placing ``value`` at ``path``, plus a control leaf.
+
+    Every allow-listed path is a chain of dict keys (``walk_strings`` elides
+    list indices, so a dict chain reproduces the path the predicate sees for
+    an element inside an array).
+    """
+    # ``run_pipeline`` requires a line-level ``type``; supply one unless the
+    # path under test IS ``type``, in which case the marker takes its place
+    # (the marker is not a stripped type, so the line still survives).
+    root: dict = {"type": "assistant", "controlLeaf": value}
+    node = root
+    for segment in path[:-1]:
+        node = node.setdefault(segment, {})
+    node[path[-1]] = value
+    return root
+
+
+@pytest.mark.parametrize(
+    "path", sorted(_ALLOW_LIST), ids=lambda p: ".".join(p)
+)
+def test_each_allow_list_entry_actually_protects_its_position(
+    tmp_path: Path, path: JsonPath
+) -> None:
+    """One cell per entry: the value at an allow-listed path survives a rule
+    that matches it, while the same value at ``controlLeaf`` is scrubbed.
+
+    The control leaf is what stops this passing for the wrong reason. Without
+    it a broken config, an unmatched regex or a transform that never ran
+    would leave the marker in place everywhere and read as 30 protected
+    positions."""
+    config = _config(tmp_path, _ABLATION_CONFIG)
+    out, _, _, _ = sanitize_session(
+        [serialize_line(_record_with(path, _MARKER))], config
+    )
+    assert _MARKER in out[0], (
+        f"{'.'.join(path)} is allow-listed but its value was scrubbed"
+    )
+    assert '"controlLeaf":"[scrubbed]"' in out[0], (
+        "the control leaf was not scrubbed, so this cell proves nothing"
+    )
+
+
+# ---------------------------------------------------------------------------
+# The exact-contents pin.
+#
+# The three tests above each have a blind spot for a REMOVED entry, and the
+# ablation control has the worst one: it parametrizes over the allow-list, so
+# deleting an entry deletes its own test case. That is the self-satisfying
+# shape a drift test must not have, and it was found by ablating
+# ``("message", "usage", "speed")`` -- the collision test caught it only
+# because ``speed`` survived at the other usage parent, and dropping BOTH
+# would have gone green.
+#
+# So the contents are pinned literally. Any add or remove turns this red and
+# has to be answered deliberately, which is the one guarantee the other tests
+# cannot give. Regenerate it only when you MEAN to change the scrub boundary,
+# and say so in the CHANGELOG when you do -- this list is the boundary.
+_EXPECTED_ALLOW_LIST: frozenset[JsonPath] = frozenset({
+    # _UUID_PATHS
+    ('agentId',),
+    ('parentUuid',),
+    ('sessionId',),
+    ('toolUseResult', 'agentId'),
+    ('uuid',),
+    # _FORMAT_PATHS
+    ('error', 'error', 'error', 'type'),
+    ('error', 'error', 'type'),
+    ('error', 'type'),
+    ('message', 'content', 'caller', 'type'),
+    ('message', 'content', 'id'),
+    ('message', 'content', 'signature'),
+    ('message', 'content', 'tool_use_id'),
+    ('message', 'content', 'type'),
+    ('message', 'diagnostics', 'cache_miss_reason', 'type'),
+    ('message', 'id'),
+    ('message', 'model'),
+    ('message', 'role'),
+    ('message', 'type'),
+    ('message', 'usage', 'inference_geo'),
+    ('message', 'usage', 'iterations', 'type'),
+    ('message', 'usage', 'service_tier'),
+    ('message', 'usage', 'speed'),
+    ('requestId',),
+    ('toolUseResult', 'type'),
+    ('toolUseResult', 'usage', 'inference_geo'),
+    ('toolUseResult', 'usage', 'iterations', 'type'),
+    ('toolUseResult', 'usage', 'service_tier'),
+    ('toolUseResult', 'usage', 'speed'),
+    ('type',),
+    ('version',),
+})
+
+
+def test_allow_list_contents_are_pinned() -> None:
+    """The scrub boundary does not move without someone saying so."""
+    assert _ALLOW_LIST == _EXPECTED_ALLOW_LIST, (
+        "the skip allow-list changed. This IS the scrub boundary, so confirm "
+        "the change is intended, then update this pin and the CHANGELOG.\n"
+        f"  added:   {sorted('.'.join(p) for p in _ALLOW_LIST - _EXPECTED_ALLOW_LIST)}\n"
+        f"  removed: {sorted('.'.join(p) for p in _EXPECTED_ALLOW_LIST - _ALLOW_LIST)}"
+    )

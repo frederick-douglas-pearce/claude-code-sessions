@@ -41,7 +41,9 @@ partially re-substituted by an unrelated catch-all regex).
      PRD calls it the parent-side link to a subagent's top-level
      ``agentId``, and the two must remap to the same value for the link to
      survive, so anchoring to the line level alone would have broken the
-     graph this layer exists to keep coherent.
+     graph this layer exists to keep coherent. That link is cross-FILE, which
+     is why a shared ``uuid_seed`` matters and why the two do not co-occur
+     within one file.
 
   3. Default -- apply each ``config.identifiers`` rule via ``apply_rule``
      in declaration order. Same first-match-wins semantic the paths layer
@@ -102,8 +104,11 @@ UUID_PATHS: frozenset[JsonPath] = frozenset({
     ("parentUuid",),
     ("sessionId",),
     ("agentId",),
-    # Same value as the line-level ``agentId``; remapping one without the
-    # other would break the parent<->subagent graph link.
+    # The parent side of a CROSS-FILE link: this names a subagent whose own
+    # top-level ``agentId`` is in another file, so the two must remap
+    # identically or the graph breaks. Expect zero same-file overlap in the
+    # corpus -- that is the shape, not a counterexample. See ``_UUID_PATHS``
+    # in pipeline.py for the counts.
     ("toolUseResult", "agentId"),
 })
 

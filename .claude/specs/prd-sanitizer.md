@@ -293,7 +293,9 @@ fields left untouched:
   but matched the immediate parent name at any depth, so `tool_use.input.content.id` collided
   too — the exact case its own code comment warned about.
 
-  **Two tiers.** The distinction is which entries are load-bearing:
+  **Tiers.** The distinction is which entries are load-bearing. The implementation splits the
+  first bullet's two kinds into separate sets (`_UUID_PATHS` / `_PRESERVE_PATHS` and
+  `_IDENTIFIER_PATHS`), so four constants back the two ideas below:
 
   - **Load-bearing preserves** — the value could match a configured rule, so visiting it would
     really change bytes: the UUID-graph paths `uuid` / `parentUuid` / `sessionId` / `agentId` /
@@ -317,9 +319,18 @@ fields left untouched:
   integers and never reach the transform at all.
 
   **The failure direction is now inverted, deliberately.** A format position missing from the
-  list gets **over-scrubbed** — visible, and caught by `test_golden_determinism.py` — rather
-  than user data being silently skipped. The list is therefore only as current as the corpus
-  behind it, which is what `tests/test_skip_allow_list_corpus.py` exists to detect.
+  list gets **over-scrubbed** rather than user data being silently skipped.
+
+  **Be precise about what detects that, because the obvious candidate does not.**
+  `test_golden_determinism.py` cannot see a dropped allow-list entry — ablating all 30 one at a
+  time leaves the golden output byte-identical, because the golden config holds only literal PII
+  rules and no format-marker value contains one. That is the same fact the enum tier rests on.
+  The guard is `tests/test_skip_allow_list_corpus.py`, which pins the list contents literally,
+  requires every entry to appear in the corpus, ablation-tests each entry against a config whose
+  rule matches the value at that position, and pins the set of allow-listed *names* appearing at
+  non-allow-listed *paths*. What none of that catches is a genuinely new format position with a
+  name nothing on the list uses; the format-watch queue and human review cover that, and the
+  list is only as current as the corpus behind it.
 - **Everything else that is a string leaf is scrubbed**, including the nested surfaces a
   line-level view hides: `message.content[].text`, `tool_use.input.*` (Bash `command`, Agent
   `prompt`, MCP inputs), `tool_result.content` (both string and array shapes),

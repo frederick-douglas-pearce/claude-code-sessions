@@ -12,9 +12,15 @@ Two halves, and both matter:
   - the **unit** contract of `scan_residual_rules` (what it flags, what it
     excuses, and that the exception carries no PII), and
   - the **integration** contract through `sanitize_session`, which is where
-    #190 and #194 actually bite. A unit test alone would not prove the
+    #190 bites, and where #194 used to. A unit test alone would not prove the
     orchestrator calls the scan on the real output at all, and a gate that is
     never reached is the way this goes quietly soft.
+
+#194 is fixed: its positions are now visited and scrubbed, so the cells that
+once asserted an abort assert redaction instead. They stay in this module
+because the oracle is what still stands behind any position a future traversal
+change misses, and because the literal-vs-regex parametrization is the
+clearest place to show what the oracle does and does not cover.
 
 Per PRD section 14 every value planted here is synthetic -- `/home/realuser`,
 `realuser`, and invented tokens -- never real personal data (CLAUDE.md,
@@ -45,15 +51,22 @@ identifiers:
 """
 
 
-# Same two values as _BASE_CONFIG, expressed as regex rules. The oracle
-# deliberately does not re-verify a ``re:`` rule, so this config is the one
-# that leaked SILENTLY at every position #194 names -- exit 0, value present,
-# sidecar clean. Every #194 cell runs under both.
+# _BASE_CONFIG's two rules, expressed as regexes -- BOTH of them, so the
+# regex half of every #194 cell exercises the identifiers layer as well as the
+# paths layer. (An earlier version carried only the paths rule while claiming
+# parity, which would have left AC-5 covering one layer.)
+#
+# The oracle deliberately does not re-verify a ``re:`` rule, so this config is
+# the one that leaked SILENTLY at every position #194 names: exit 0, value
+# present, sidecar reporting clean.
 _REGEX_CONFIG = """
 version: 1
 paths:
   - match: "re:/home/real[a-z]+"
     replace: "/home/user"
+identifiers:
+  - match: "re:realuser"
+    replace: "user"
 """
 
 
