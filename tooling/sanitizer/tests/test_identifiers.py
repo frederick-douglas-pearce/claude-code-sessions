@@ -37,7 +37,7 @@ from ccs_sanitize.pipeline import (
 )
 from ccs_sanitize.rules.identifiers import (
     GIT_BRANCH_PLACEHOLDER,
-    UUID_FIELDS,
+    UUID_PATHS,
     build_identifier_transform,
 )
 from ccs_sanitize.rules.paths import build_path_transform
@@ -475,14 +475,168 @@ def test_uuid_remap_consistent_within_file(tmp_path: Path) -> None:
     assert entries[0].occurrences == 2
 
 
-def test_uuid_fields_match_pipeline_skip_list() -> None:
-    """``UUID_FIELDS`` here and ``_UUID_NAMES`` in the pipeline govern two
-    sides of the same contract: what to skip when ``remap_uuids`` is off,
-    and what to remap when it's on. They MUST stay equal -- adding a
-    field to one without the other would silently leak (visited but
-    never remapped) or silently no-op (remapped but never visited)."""
-    from ccs_sanitize.pipeline import _UUID_NAMES  # noqa: PLC2701 — pin the contract
-    assert UUID_FIELDS == _UUID_NAMES
+def test_git_branch_inside_a_tool_input_is_not_rewritten(tmp_path: Path) -> None:
+    """#199 regression. The transform matched ``gitBranch`` as a bare name at
+    any depth, so a tool whose parameter happened to be called ``gitBranch``
+    had its value overwritten with the placeholder.
+
+    Two things make this the case that most needs a test. It fires under
+    **default** options -- ``scrub_git_branch`` defaults to True, so no
+    opt-in is required -- and it **corrupts** rather than leaks, so no
+    residual scan and no oracle would ever catch it: the output is clean by
+    every safety measure the tool has, and simply wrong.
+
+    Pinning the two path SETS equal (below) does not cover this: that test
+    compares membership, not the matching mechanism, so reverting this guard
+    to ``path[-1] in {...}`` leaves it green."""
+    config = _config(tmp_path, "version: 1\n")
+    lines = [
+        serialize_line(
+            {
+                "type": "assistant",
+                "gitBranch": "feature/real-branch",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "input": {
+                                "gitBranch": "release/2026-q3-payments",
+                                "opts": {"gitBranch": "release/2026-q3-payments"},
+                            },
+                        }
+                    ],
+                },
+            }
+        )
+    ]
+    out, _, _ = _run(config.identifiers, lines, scrub_git_branch=True)
+    # The real field IS still scrubbed...
+    assert f'"gitBranch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
+    assert "feature/real-branch" not in out[0]
+    # ...and the two tool parameters are untouched, at both depths.
+    assert out[0].count("release/2026-q3-payments") == 2
+    assert out[0].count(GIT_BRANCH_PLACEHOLDER) == 1
+
+
+def test_uuid_named_tool_input_is_not_remapped_under_remap_uuids(tmp_path: Path) -> None:
+    """#194/#199 regression, the ``remap_uuids: true`` half.
+
+    With the flag on, the pipeline visits UUID positions so this layer can
+    remap them. The transform matched the bare name at any depth, so a tool
+    parameter named ``sessionId`` was rewritten into a synthesized UUID --
+    again corruption, and again invisible to every safety check.
+
+    The line-level field must still remap, or the test would pass for the
+    wrong reason (a transform that does nothing)."""
+    config = _config(tmp_path, "version: 1\n")
+    real_session = "50000000-0000-0000-0000-000000000001"
+    lines = [
+        serialize_line(
+            {
+                "type": "assistant",
+                "sessionId": real_session,
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "tool_use", "input": {"sessionId": "customer-order-88213"}}
+                    ],
+                },
+            }
+        )
+    ]
+    out, _, _ = _run(config.identifiers, lines, remap_uuids=True)
+    # The tool parameter survives verbatim.
+    assert '"sessionId":"customer-order-88213"' in out[0]
+    # The real graph field was remapped (control: the transform did run).
+    assert real_session not in out[0]
+
+
+def test_uuid_transform_positions_match_pipeline_allow_list() -> None:
+    """``UUID_PATHS`` here and ``_UUID_PATHS`` in the pipeline govern two
+    sides of the same contract: which POSITIONS to skip when ``remap_uuids``
+    is off, and which to remap when it's on. They MUST stay equal -- adding
+    a position to one without the other silently leaks (visited but never
+    remapped) or silently no-ops (remapped but never visited).
+
+    #194: this replaced ``test_uuid_fields_match_pipeline_skip_list``, which
+    compared the two *name* sets. That assertion was the guard on this
+    contract, and it would have stayed GREEN through the very change that
+    broke it: once the pipeline decided visit-or-not by rooted path while
+    this layer still matched a bare name at any depth, the two sides no
+    longer described the same positions, but the two name sets were still
+    equal. A green check over a live corruption path
+    (``tool_use.input.sessionId`` remapped to a synthesized UUID under
+    ``remap_uuids: true``) is worse than no check, so the comparison had to
+    move to the axis the contract is actually about."""
+    from ccs_sanitize.pipeline import _UUID_PATHS  # noqa: PLC2701 — pin the contract
+    assert UUID_PATHS == _UUID_PATHS
+
+
+def test_anchored_substitutions_are_terminal_and_do_not_fall_through(
+    tmp_path: Path,
+) -> None:
+    """The module docstring calls the anchored branches TERMINAL. Nothing checked it.
+
+    Changing either ``return table.record(...)`` to ``leaf = table.record(...)``
+    -- letting control fall through to the ``config.identifiers`` rule loop --
+    passed the entire suite. It is not a harmless mutation: the remapped UUID
+    is generated at runtime, so the config-time replacement-leak guard (I-3)
+    never sees it, and an ordinary identifier regex will happily chew a chunk
+    out of the freshly synthesized value. The sidecar then gains a row for a
+    substring that was never in the input, which makes the substitution table
+    describe an edit that did not happen to data that did not exist.
+
+    Both halves are pinned: the value must be exactly the anchored
+    substitution, and the table must not carry a phantom row."""
+    real = "509ed4f6-895a-45d1-838a-4145352c2d5f"
+    # A rule that WILL match inside any remapped UUID's hex, so a fall-through
+    # cannot hide behind a non-matching rule.
+    config = _config(
+        tmp_path,
+        'version: 1\nidentifiers:\n  - match: "re:[0-9a-f]{12}"\n    replace: "ZZZZ"\n',
+    )
+    lines = [
+        serialize_line(
+            {"type": "assistant", "uuid": real, "gitBranch": "feature/real-work"}
+        ),
+    ]
+    out, _, table = _run(config.identifiers, lines, remap_uuids=True)
+
+    remapped = table.get(real)
+    assert remapped is not None, "the anchored UUID branch did not run at all"
+    # Terminal: the emitted value is the remap, not the remap chewed by the rule.
+    assert f'"uuid":"{remapped}"' in out[0], (
+        "the remapped UUID was further rewritten, so the anchored branch fell "
+        "through to the identifier rule loop"
+    )
+    assert "ZZZZ" not in out[0].split('"gitBranch"')[0]
+    # Terminal for gitBranch too, on the same reasoning.
+    assert f'"gitBranch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
+    # No phantom row: every recorded original must have been in the input.
+    for entry in table:
+        assert entry.original in lines[0], (
+            f"sidecar records a substitution for {entry.original!r}, which never "
+            f"appeared in the input -- the signature of a fall-through rewrite"
+        )
+
+
+def test_uuid_paths_include_the_parent_side_agent_link() -> None:
+    """``toolUseResult.agentId`` is the parent-side link to a subagent's
+    top-level ``agentId``, and the two must remap identically or the graph
+    that ``uuid_seed`` exists to keep coherent is broken.
+
+    The link is cross-FILE -- a parent session names a subagent whose own
+    trace is a different file -- so do not expect the corpus to show the two
+    carrying the same value within one file. It shows the opposite: 2 distinct
+    line-level values, 25 distinct ``toolUseResult`` ones, zero same-file
+    overlap, one cross-file match in the synthetic parent/subagent pair. That
+    is the expected shape and it is why a per-file run needs the shared seed.
+
+    Pinned separately from the equality above because that test would still
+    pass if BOTH sides dropped this position together."""
+    assert ("agentId",) in UUID_PATHS
+    assert ("toolUseResult", "agentId") in UUID_PATHS
 
 
 # ----- composition with Layer 1 -----------------------------------------

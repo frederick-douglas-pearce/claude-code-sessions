@@ -176,13 +176,13 @@ def test_walk_strings_skips_documented_fields() -> None:
             "sessionId": "sess-1",
             "agentId": "agent-1",
             "requestId": "req-1",
-            "tool_use_id": "toolu-1",
             "message": {
                 "role": "assistant",
                 "model": "claude-opus-4-7",
                 "id": "msg-1",
                 "content": [
                     {"type": "thinking", "thinking": "REASONING", "signature": "OPAQUE"},
+                    {"type": "tool_result", "tool_use_id": "toolu-1"},
                 ],
             },
         },
@@ -211,6 +211,84 @@ def test_walk_strings_skips_documented_fields() -> None:
     # But the "thinking" field's actual reasoning text IS scrubbable
     # content — confirm it was visited.
     assert "REASONING" in leaves
+
+
+def test_walk_strings_visits_skip_listed_names_outside_their_format_position() -> None:
+    """#194. The allow-list is keyed on the ROOT-ANCHORED path, so a
+    skip-listed name carries no exemption anywhere else.
+
+    ``tool_use.input`` is arbitrary tool-defined JSON and MCP servers define
+    their own schemas, so a tool parameter named ``type`` or ``sessionId`` is
+    user data at a colliding key -- exactly the position the bare-name
+    skip-list refused to visit. Note this test plants the SAME names as the
+    test above: there they sit at their format positions and must be skipped,
+    here they sit one subtree over and must be visited. That pairing is the
+    whole contract."""
+    transform, visited = _record_transform()
+    walk_strings(
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "input": {
+                            "version": "PAYLOAD-version",
+                            "type": "PAYLOAD-type",
+                            "role": "PAYLOAD-role",
+                            "requestId": "PAYLOAD-requestId",
+                            "tool_use_id": "PAYLOAD-tool_use_id",
+                            "sessionId": "PAYLOAD-sessionId",
+                            "uuid": "PAYLOAD-uuid",
+                            "agentId": "PAYLOAD-agentId",
+                            "parentUuid": "PAYLOAD-parentUuid",
+                            "max_tokens": "PAYLOAD-tokens-suffix",
+                            "usage": {"anything": "PAYLOAD-usage-child"},
+                            # The four pairs that were "anchored" but matched
+                            # the immediate parent name at ANY depth.
+                            "content": {"id": "PAYLOAD-content-id",
+                                        "signature": "PAYLOAD-content-signature"},
+                            "message": {"model": "PAYLOAD-message-model",
+                                        "id": "PAYLOAD-message-id"},
+                        },
+                    },
+                ],
+            },
+        },
+        transform,
+    )
+    leaves = {leaf for leaf, _ in visited}
+    planted = {v for v in leaves if v.startswith("PAYLOAD-")}
+    expected = {
+        "PAYLOAD-version", "PAYLOAD-type", "PAYLOAD-role", "PAYLOAD-requestId",
+        "PAYLOAD-tool_use_id", "PAYLOAD-sessionId", "PAYLOAD-uuid",
+        "PAYLOAD-agentId", "PAYLOAD-parentUuid", "PAYLOAD-tokens-suffix",
+        "PAYLOAD-usage-child", "PAYLOAD-content-id", "PAYLOAD-content-signature",
+        "PAYLOAD-message-model", "PAYLOAD-message-id",
+    }
+    # Report the DIFFERENCE, not the set that passed. An earlier version
+    # printed `planted` -- the payloads that WERE visited -- under the heading
+    # "not visited", which points a debugger at the wrong leaves on exactly the
+    # regression this test exists to catch.
+    assert planted == expected, f"not visited: {sorted(expected - planted)}"
+
+
+def test_walk_strings_visits_a_nested_skip_listed_name_in_tool_input() -> None:
+    """#194. Anchoring is by rooted POSITION, not by depth -- so burying the
+    colliding key one level further down does not re-create the exemption."""
+    transform, visited = _record_transform()
+    walk_strings(
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {"type": "tool_use", "input": {"a": {"type": "NESTED-PAYLOAD"}}},
+                ],
+            },
+        },
+        transform,
+    )
+    assert "NESTED-PAYLOAD" in {leaf for leaf, _ in visited}
 
 
 def test_walk_strings_does_not_skip_bare_id_in_user_content() -> None:
@@ -247,9 +325,15 @@ def test_walk_strings_does_not_skip_bare_id_in_user_content() -> None:
 
 
 def test_walk_strings_does_not_over_skip_usage_named_user_field() -> None:
-    """The skip-list scopes ``usage`` to the token-accounting subtree (PRD
-    section 6b B). A user-controlled field literally named ``usage`` (e.g.,
-    an MCP tool input documenting its own usage) must NOT be skipped."""
+    """A user-controlled field literally named ``usage`` (e.g. an MCP tool
+    input documenting its own usage) must NOT be skipped.
+
+    The reason changed with #194 even though the outcome did not. It used to
+    hold because the rule was ``path[-2] == "usage"`` and this field's parent
+    is not ``usage``; it now holds because the allow-list names four rooted
+    ``usage`` leaves and this is not one of them. The old rule also let the
+    CHILDREN of such a field through -- see
+    ``test_skip_predicate_does_not_exempt_a_user_field_named_usage``."""
     transform, visited = _record_transform()
     walk_strings(
         {
@@ -274,7 +358,15 @@ def test_walk_strings_does_not_over_skip_usage_named_user_field() -> None:
 
 def test_walk_strings_still_skips_genuine_usage_subtree() -> None:
     """``message.usage.service_tier`` (a string field directly under the
-    token-accounting block) IS skipped — PRD scopes the entire usage block."""
+    token-accounting block) IS skipped.
+
+    The PRD no longer "scopes the entire usage block" — as of #194 it
+    enumerates the four string leaves each usage block actually carries, so a
+    fifth one appearing there would be scrubbed rather than assumed safe.
+    ``input_tokens`` is here as a reminder of why that costs nothing: it is an
+    int, and ``walk_strings`` only ever hands STRING leaves to the transform,
+    so the old ``*_tokens`` suffix rule never fired on the fields it was
+    written for."""
     transform, visited = _record_transform()
     walk_strings(
         {
@@ -291,22 +383,76 @@ def test_walk_strings_still_skips_genuine_usage_subtree() -> None:
     assert "standard" not in leaves
 
 
-def test_skip_predicate_handles_tokens_suffix() -> None:
-    """Any field ending in _tokens is skipped (usage.input_tokens etc.).
-    Numeric in practice, but the predicate covers strings defensively."""
-    assert default_skip_predicate(("usage", "input_tokens")) is True
-    assert default_skip_predicate(("usage", "cache_creation_input_tokens")) is True
+def test_skip_predicate_no_longer_has_a_tokens_suffix_rule() -> None:
+    """#194 deleted the ``endswith("_tokens")`` rule rather than anchoring it.
+
+    It was the broadest of the depth-agnostic rules -- not a name list at
+    all, so EVERY tool parameter ending in ``_tokens`` was exempt, including
+    ``max_tokens``, which is a real parameter on a real API. It also bought
+    almost nothing: token counts are integers, and ``walk_strings`` only ever
+    hands STRING leaves to the transform, so the rule never fired on the
+    fields it was written for. The four string leaves that genuinely live
+    under a usage block are allow-listed by rooted path instead (below)."""
+    assert default_skip_predicate(("usage", "input_tokens")) is False
+    assert default_skip_predicate(("message", "usage", "cache_creation_input_tokens")) is False
+    assert default_skip_predicate(("message", "content", "input", "max_tokens")) is False
 
 
-def test_skip_predicate_usage_anchored_to_immediate_parent() -> None:
-    """Anything one level under ``usage`` is skipped, but a ``usage`` key
-    appearing as a great-grandparent does NOT cascade-skip its descendants."""
-    # Genuine usage block descendant — skipped.
-    assert default_skip_predicate(("message", "usage", "service_tier")) is True
-    # User field named 'usage' is not a usage block (its descendants are
-    # user data); only direct children of the literal-name-'usage' parent
-    # are skipped, which is what the PRD scope intends.
+def test_error_subtree_is_visited_leaf_by_leaf_not_prefixed() -> None:
+    """``pipeline.py``'s NO-SUBTREE-PREFIXES argument, asserted rather than stated.
+
+    That comment rejects ``error.*`` as a prefix by naming the leaves such a
+    prefix would exempt. The argument was true and nothing checked it: an
+    ``if path[:1] == ("error",): return True`` mutant passed the entire suite.
+    These are the exact paths the comment cites, and each carries real data --
+    a session cookie, a tenant identifier, an upstream error message.
+
+    Only ``error.type`` and the two nested ``error.*.type`` discriminators are
+    exempt, and they are listed individually."""
+    for leaf in (
+        ("error", "headers", "set-cookie"),
+        ("error", "headers", "anthropic-organization-id"),
+        ("error", "error", "request_id"),
+        ("error", "error", "error", "message"),
+        ("error", "requestID"),
+    ):
+        assert default_skip_predicate(leaf) is False, ".".join(leaf)
+    # The discriminators that ARE exempt, so this test pins the line rather
+    # than just one side of it.
+    assert default_skip_predicate(("error", "type")) is True
+    assert default_skip_predicate(("error", "error", "type")) is True
+    assert default_skip_predicate(("error", "error", "error", "type")) is True
+
+
+def test_skip_predicate_allows_the_usage_string_leaves_by_rooted_path() -> None:
+    """The usage subtree is enumerated, NOT prefixed. A "skip everything
+    under usage" rule is the ``"usage" in path`` membership test this module
+    already deleted once; both usage blocks hold exactly four string leaves
+    and all four are closed enums, so listing them costs eight entries and
+    keeps the fail-closed direction for anything new that appears there."""
+    for parent in (("message",), ("toolUseResult",)):
+        assert default_skip_predicate(parent + ("usage", "service_tier")) is True
+        assert default_skip_predicate(parent + ("usage", "speed")) is True
+        assert default_skip_predicate(parent + ("usage", "inference_geo")) is True
+        assert default_skip_predicate(parent + ("usage", "iterations", "type")) is True
+        # Anything else under usage is NEW and is scrubbed, not assumed safe.
+        # This assertion used to sit OUTSIDE the loop, so it only ever covered
+        # the ``message`` parent: a ``toolUseResult.usage`` subtree PREFIX
+        # passed the whole suite while the ``message.usage`` equivalent was
+        # caught. Found by mutation testing, and it is the same asymmetry a
+        # prefix rule would exploit.
+        assert default_skip_predicate(parent + ("usage", "some_future_field")) is False
+
+
+def test_skip_predicate_does_not_exempt_a_user_field_named_usage() -> None:
+    """A tool input documenting its own ``usage`` is user data.
+
+    This held before #194 for the *node* named ``usage`` and failed for its
+    CHILDREN: the old rule was ``path[-2] == "usage"``, so ``input.usage``
+    was visited while ``input.usage.anything`` was skipped -- the leak was
+    one level below where the test was looking. Both are visited now."""
     assert default_skip_predicate(("message", "content", "input", "usage")) is False
+    assert default_skip_predicate(("message", "content", "input", "usage", "anything")) is False
 
 
 def test_skip_predicate_empty_path() -> None:

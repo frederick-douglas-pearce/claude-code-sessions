@@ -132,8 +132,9 @@ into a rubber stamp.
 
 Two instances were found by two different methods — [#190](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/190)
 (dict keys are never visited by the walk) and [#194](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/194)
-(the skip-list exempts user data at any depth) — but enumerating positions cannot close the
-class: tool inputs are tool-defined and MCP servers define their own schemas, so the position
+(the skip-list exempted user data at any depth; its bare-name mechanism was fixed in 0.4.0, with a
+deliberate residual noted in §6b B) — but enumerating positions
+cannot close the class: tool inputs are tool-defined and MCP servers define their own schemas, so the position
 space grows without this project's involvement. As of 0.4.0 the configured **literal** `paths`
 and `identifiers` rules are re-run over the **decoded** output — every string leaf *and every dict
 key* — and a survivor aborts the run.
@@ -150,8 +151,10 @@ fields are skip-listed so the parent/subagent graph stays linkable). Scanning re
 every such session at exit 2 with nothing mis-scrubbed, and with no override the config could never
 scrub any file at all.
 
-So for regex rules #190 and #194 remain open, and that is a known, recorded limit rather than a
-silent one. Scanning the **decoded** tree rather than the serialized text is the other half of this
+So for regex rules, #190 remains open — dict keys are still never visited, and the oracle does not
+re-verify a `re:` rule, so a value in a key survives silently — and that is a known, recorded limit
+rather than a silent one. (#194's mechanism is closed: its positions are now visited and scrubbed in-walk under
+both rule kinds.) Scanning the **decoded** tree rather than the serialized text is the other half of this
 amendment and is not cosmetic: rules match decoded leaf values, so a serialized-domain scan was
 blind to every value containing a backslash, a quote or a control character — a Windows home
 directory (`C:\Users\name`) is the canonical `paths` case and serializes with doubled backslashes,
@@ -278,10 +281,109 @@ Each surviving line is walked **structurally**: the parsed JSON object is traver
 and rules are applied to every **string-valued leaf**, governed by an explicit **skip-list** of
 fields left untouched:
 
-- **Skip-list (never scrubbed):** `message.model`, `version`, `type`, `*.role`, the numeric
-  `usage.*` / `*_tokens` fields, `message.id` / `requestId` / `tool_use.id` / `tool_use_id` and
-  the UUID fields (unless `remap_uuids` is on), and `thinking.signature` (replaced with a fixed
-  placeholder, not scrubbed — see [§2](#2-background-what-makes-raw-session-jsonl-dangerous)).
+- **Skip-list (never scrubbed):** an **allow-list of ROOT-ANCHORED paths**. An entry is an
+  exact path from the line object (list indices elided, as `walk_strings` elides them). A path
+  not on the list is **visited and scrubbed**.
+
+  **This was a bare-name list and that was the bug (#194).** The names below were documented as
+  "content-free identity/identifier fields with no user-data collision risk at any depth", and
+  the any-depth part is false: `tool_use.input` is arbitrary tool-defined JSON and MCP servers
+  define their own schemas, so a tool parameter named `type`, `version`, `sessionId` or
+  `max_tokens` sat at a position the walker refused to visit — the value survived, the run
+  exited 0, and the sidecar reported `residual_scan: clean`. Four separate mechanisms had the
+  same defect: the bare-name list, the UUID-name list, a `*_tokens` **suffix** rule, and a
+  `parent == "usage"` rule. A fifth, `_ANCHORED_PARENT_LAST_SKIPS`, was *described* as anchored
+  but matched the immediate parent name at any depth, so `tool_use.input.content.id` collided
+  too — the exact case its own code comment warned about.
+
+  **Tiers.** The distinction is which entries are load-bearing. The implementation splits the
+  first bullet's two kinds into separate sets (`_UUID_PATHS` / `_PRESERVE_PATHS` and
+  `_IDENTIFIER_PATHS`), so four constants back the two ideas below:
+
+  - **Load-bearing preserves** — the value could match a configured rule, so visiting it would
+    really change bytes: the UUID-graph paths `uuid` / `parentUuid` / `sessionId` / `agentId` /
+    `toolUseResult.agentId` (skipped unless `remap_uuids` is on — §8), and
+    `message.content.signature` (thinking.signature; replaced with a fixed placeholder, not
+    scrubbed — see [§2](#2-background-what-makes-raw-session-jsonl-dangerous)). Opaque format
+    identifiers preserved so the record graph stays linkable: `requestId`, `message.id`,
+    `message.content.id` (tool_use.id), `message.content.tool_use_id`.
+  - **Enum discriminators** — `type`, `version`, `message.type`, `message.role`,
+    `message.model`, `message.content.type`, `message.content.caller.type`, and the `error.*` /
+    `usage.*` / `diagnostics` discriminators. A path or identifier rule does not match
+    `"assistant"` or `"standard"`, so visiting these is a **no-op today**; they are listed to
+    pin intent against a rule that did collide, not because they protect anything on their own.
+
+    **The test for this tier is ownership — who writes the value, the format or a tool — not
+    whether the key is named `type` and not how many values it takes.** The cardinality reading
+    is wrong and two members of the tier disprove it: `version` (4 distinct values in the
+    corpus, a new one every release) and `message.model` (4, a new one every model) are wide
+    open and correctly exempt, because the runtime writes them.
+
+    `toolUseResult.type` was removed from the list during review of this change. The data
+    dictionary calls it a "tool-specific subtype indicator" on an envelope it documents as
+    tool-dependent, so whichever tool produced the result picks the value — the same unbounded
+    space #194 is about, one level in. It is now scrubbable like the rest of that envelope's
+    tool output. (The corpus corroborates with three tool-varying values, `text` 41 / `create`
+    29 / `update` 9 — fewer than either counterexample above, which is precisely why the count
+    is not the test.) `toolUseResult.content.type` and `message.content.content.type` are
+    excluded too, but on a **related, not identical** argument: their values *are* format-owned
+    enums, and what disqualifies them is position — they sit inside a tool_result payload, so
+    exempting a key there widens the exempt surface into tool-shaped data. Ownership of the
+    value decides `toolUseResult.type`; ownership of the surrounding envelope decides those two.
+    All three are pinned as known name collisions in `tests/test_skip_allow_list_corpus.py` so
+    the decision is recorded rather than re-litigated.
+
+    `message.content.caller.type` is exempt on the opposite side of the same test, and the
+    argument is **structural, not statistical**: `caller` is a sibling of `input` on the
+    `tool_use` content block (342/342 corpus occurrences, key set `{type,id,name,input,caller}`,
+    every one on a `tool_use` block). A tool controls the *contents of `input`* and nothing else
+    on that envelope, so it cannot reach `caller`. The exemption would stand if a second caller
+    kind shipped tomorrow.
+
+    **Known weakness of an unmechanized rule.** Ownership is human judgment read off format docs
+    that are themselves incomplete — `caller` is not documented in `reference/data-dictionary.md`
+    at all, so that exemption's premise currently rests on the structural argument rather than on
+    the reference. No mechanical proxy is proposed: pinning each entry's observed value-set would
+    fire constantly on `version`/`model` and stay silent on the cases that matter. The mitigation
+    is the conservative default the failure direction already makes cheap: **when ownership is
+    unclear, leave the position unlisted and let it be scrubbed.**
+
+  **No subtree prefixes.** A "skip everything under X" entry is the `"usage" in path`
+  membership test this spec's implementation already deleted once, merely rooted, and it fails
+  the same way: `error.*` alone carries `error.headers.set-cookie`,
+  `error.headers.anthropic-organization-id` and `error.error.error.message`, all of which are
+  scrubbed today and all of which a prefix would exempt. The `usage` subtrees are enumerated
+  instead — each holds exactly four string leaves, all closed enums, because token counts are
+  integers and never reach the transform at all.
+
+  **The failure direction is now inverted, deliberately.** A format position missing from the
+  list gets **over-scrubbed** rather than user data being silently skipped.
+
+  **Be precise about what detects that, because the obvious candidate does not.**
+  `test_golden_determinism.py` cannot see a dropped allow-list entry — ablating all 29 one at a
+  time leaves the golden output byte-identical, because the golden config holds only literal PII
+  rules and no format-marker value contains one. That is the same fact the enum tier rests on.
+  The guard is `tests/test_skip_allow_list_corpus.py`, which pins the list contents literally,
+  requires every entry to appear in the corpus, ablation-tests each entry against a config whose
+  rule matches the value at that position, and pins the set of allow-listed *names* appearing at
+  non-allow-listed *paths*. What none of that catches is a genuinely new format position with a
+  name nothing on the list uses. **That gap is open, not covered**, and is tracked in
+  [#201](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/201) — the
+  `format-scan` drift check AC-10 asked for as a fast-follow. Human review is what currently
+  happens there; it is not coverage. (This sentence said "the format-watch queue and human review
+  cover that" through four review rounds, after the same wording had already been retracted in
+  `pipeline.py` and `tests/test_skip_allow_list_corpus.py` — the spec is the authority those
+  comments defer to, so it was the worst of the three places to leave it standing.) The list is
+  also only as current as the corpus behind it.
+
+  **The allow-list carries a deliberate residual.** Five of its 29 entries sit inside
+  `toolUseResult` (`agentId` and the four `usage` leaves), which §6b B argues is a tool-shaped
+  envelope — the same argument that took `toolUseResult.type` off the list. A nonconforming tool
+  writing user data into one of those five exact keys plants it at a position the walk still
+  refuses to visit. It is accepted because scrubbing the runtime's billing rollup and its graph
+  link corrupts format-owned fields, and because the residual secret scan still sweeps those
+  positions for literal secrets. Recorded here so "#194 is closed" is read as the mechanism being
+  closed, not the class.
 - **Everything else that is a string leaf is scrubbed**, including the nested surfaces a
   line-level view hides: `message.content[].text`, `tool_use.input.*` (Bash `command`, Agent
   `prompt`, MCP inputs), `tool_result.content` (both string and array shapes),
@@ -763,6 +865,14 @@ in `fixtures/sanitized/`, it:
    validates against, rather than inferring the shape from `sanitizer_version`.
 2. **Independently re-runs the secret-pattern scan** over the fixture contents.
 3. Optionally verifies `input_sha256` shape and required sidecar keys.
+
+**`residual_scan: clean` does not yet mean "no configured value survived."** The output-side
+oracle (#195) re-verifies **literal** `paths`/`identifiers` rules only; a `re:` rule is
+deliberately not re-verified, so for a regex config the field attests to the secret scan and to
+the literal rules, and to nothing about the regex ones (#198). #194 narrowed what that gap can
+reach — the traversal positions it used to leak through are now visited and scrubbed — but it
+did not close it, and the validator should not read the field as a full guarantee until #198
+lands.
 
 The validator does *not* trust the sidecar's `residual_scan: clean` as proof — it re-derives
 it. This is defense in depth: a stale sidecar (output edited after scrub), a forged sidecar, or

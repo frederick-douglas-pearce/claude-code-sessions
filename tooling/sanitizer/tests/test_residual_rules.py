@@ -12,9 +12,15 @@ Two halves, and both matter:
   - the **unit** contract of `scan_residual_rules` (what it flags, what it
     excuses, and that the exception carries no PII), and
   - the **integration** contract through `sanitize_session`, which is where
-    #190 and #194 actually bite. A unit test alone would not prove the
+    #190 bites, and where #194 used to. A unit test alone would not prove the
     orchestrator calls the scan on the real output at all, and a gate that is
     never reached is the way this goes quietly soft.
+
+#194 is fixed: its positions are now visited and scrubbed, so the cells that
+once asserted an abort assert redaction instead. They stay in this module
+because the oracle is what still stands behind any position a future traversal
+change misses, and because the literal-vs-regex parametrization is the
+clearest place to show what the oracle does and does not cover.
 
 Per PRD section 14 every value planted here is synthetic -- `/home/realuser`,
 `realuser`, and invented tokens -- never real personal data (CLAUDE.md,
@@ -42,6 +48,37 @@ paths:
 identifiers:
   - match: "realuser"
     replace: "user"
+"""
+
+
+# _BASE_CONFIG's PATHS rule as a regex, so the regex half of every #194 cell
+# drives a `re:` config through the now-visited positions. Only the paths rule
+# is carried, on purpose -- and the reason is worth stating, because an earlier
+# version of this config added an identifiers rule and claimed it gave the
+# cells identifiers-layer coverage. It did not.
+#
+# Every #194 cell plants a value under _REAL_USER_HOME. The paths layer runs
+# FIRST (orchestrator.py) and scrubs it, so an identifiers rule matching the
+# same substring never fires -- verified by instrumenting the substitution
+# table, which records only `paths` labels, under the LITERAL config as much as
+# this one. Worse, `re:realuser -> user` over `/home/realuser/app` yields
+# `/home/user/app`, byte-identical to what the paths rule produces: a redundant
+# second scrubber that would MASK a paths-layer regression in exactly these
+# cells. Inert and harmful is strictly worse than absent.
+#
+# That is not a gap in what these cells are for. #194 is a skip-LIST bug in the
+# pipeline -- whether a position is visited at all -- and which rule layer does
+# the scrubbing once it is visited is irrelevant to it. The identifiers layer's
+# own regex behavior is covered by the identifiers unit tests.
+#
+# The oracle deliberately does not re-verify a `re:` rule, so this config is the
+# one that leaked SILENTLY at every position #194 names: exit 0, value present,
+# sidecar reporting clean.
+_REGEX_CONFIG = """
+version: 1
+paths:
+  - match: "re:/home/real[a-z]+"
+    replace: "/home/user"
 """
 
 
@@ -248,35 +285,51 @@ def test_value_in_a_dict_key_aborts_rather_than_writing(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "field",
     [
-        # _SKIP_LEAF_NAMES -- bare names skipped at any depth.
+        # was _SKIP_LEAF_NAMES -- bare names skipped at any depth.
         "version",
         "type",
         "role",
         "requestId",
         "tool_use_id",
-        # _UUID_NAMES -- also skipped bare while remap_uuids is off (the default).
+        # was _UUID_NAMES -- also skipped bare while remap_uuids is off.
         "sessionId",
-        # The `_tokens` SUFFIX skip, which is broader still: it is not a name
-        # list at all, so every tool parameter ending in `_tokens` is exempt.
+        "uuid",
+        "agentId",
+        "parentUuid",
+        # was the `_tokens` SUFFIX rule, which was not a name list at all.
         "max_tokens",
+        "my_tokens",
     ],
 )
-def test_value_under_a_skip_listed_name_in_tool_input_aborts(
-    tmp_path: Path, field: str
+@pytest.mark.parametrize("config_body", [_BASE_CONFIG, _REGEX_CONFIG], ids=["literal", "regex"])
+def test_value_under_a_formerly_skip_listed_name_in_tool_input_is_redacted(
+    tmp_path: Path, field: str, config_body: str
 ) -> None:
-    """#194. The skip-list exempts these positions at any depth, and tool inputs
-    are arbitrary tool-defined JSON, so a tool whose parameter happens to carry
-    one of these names puts user data where the walker declines to look.
+    """#194, and this test's assertion INVERTED when that issue was fixed.
 
-    The set here is not identical to the one #195's test plan names -- it adds
-    ``role``, ``requestId`` and ``tool_use_id`` from ``_SKIP_LEAF_NAMES``, and
-    covers #195's ``usage.x`` in ``test_nested_value_under_tool_input_aborts``
-    instead. What it spans is three distinct skip *mechanisms*, not one: the
-    bare-name list, the UUID-name list (bare while ``remap_uuids`` is off), and
-    the ``_tokens`` **suffix** rule. The suffix rule is the broadest of the three -- it exempts a name
-    nobody enumerated -- which is the argument for closing the class rather
-    than the instances."""
-    config = _config(tmp_path, _BASE_CONFIG)
+    It used to assert ``pytest.raises(ResidualRuleError)`` -- i.e. that the
+    run aborted. That was the #195 oracle catching a value the walk never
+    visited, which is safe but degraded: a legitimate config was unusable.
+    The fix makes these positions *scrubbable*, so the correct assertion is
+    now REDACTED -- output written, exit 0, value gone.
+
+    Reading the flip as a weakening would be exactly backwards, which is why
+    it is spelled out here. Fail-closed was never the goal; it was the
+    backstop firing. And the backstop only ever covered half the surface:
+
+      - **literal** rules aborted (the oracle re-verifies them), but
+      - **regex** rules did not. ``scan_residual_rules`` deliberately does
+        not re-verify a ``re:`` rule, so for a regex config this position was
+        a SILENT leak -- exit 0, value present, sidecar ``residual_scan:
+        clean``. That is why this test is parametrized over both config
+        kinds: the literal half proves the refusal became a redaction, and
+        the regex half proves a live leak was closed.
+
+    The names span every mechanism the old predicate used: the bare-name
+    list, the UUID-name list (bare while ``remap_uuids`` is off), and the
+    ``_tokens`` suffix rule -- the broadest of the three, since it exempted a
+    name nobody enumerated."""
+    config = _config(tmp_path, config_body)
     lines = [
         _line(
             {
@@ -292,12 +345,20 @@ def test_value_under_a_skip_listed_name_in_tool_input_aborts(
             }
         )
     ]
-    with pytest.raises(ResidualRuleError):
-        sanitize_session(lines, config)
+    out, _, _, _ = sanitize_session(lines, config)
+    assert _REAL_USER_HOME not in out[0]
+    assert "/home/user/app" in out[0]
 
 
-def test_nested_value_under_tool_input_aborts(tmp_path: Path) -> None:
-    config = _config(tmp_path, _BASE_CONFIG)
+@pytest.mark.parametrize("config_body", [_BASE_CONFIG, _REGEX_CONFIG], ids=["literal", "regex"])
+def test_nested_value_under_tool_input_is_redacted(tmp_path: Path, config_body: str) -> None:
+    """The old ``parent == "usage"`` rule, and the depth question.
+
+    ``input.usage`` itself was always visited; its CHILDREN were not, so the
+    leak sat one level below where a reader would look. Anchoring is by
+    rooted position, so burying the collision deeper does not restore the
+    exemption."""
+    config = _config(tmp_path, config_body)
     lines = [
         _line(
             {
@@ -313,8 +374,107 @@ def test_nested_value_under_tool_input_aborts(tmp_path: Path) -> None:
             }
         )
     ]
-    with pytest.raises(ResidualRuleError):
-        sanitize_session(lines, config)
+    out, _, _, _ = sanitize_session(lines, config)
+    assert _REAL_USER_HOME not in out[0]
+    # Absence alone would also hold if the value never reached the output at
+    # all. The replacement's presence is what says the scrub actually ran --
+    # the sibling test above has always asserted both halves.
+    assert "/home/user/deep" in out[0]
+
+
+@pytest.mark.parametrize(
+    "path_to_plant",
+    [
+        ("content", "id"),
+        ("content", "signature"),
+        ("message", "model"),
+        ("message", "id"),
+    ],
+)
+@pytest.mark.parametrize("config_body", [_BASE_CONFIG, _REGEX_CONFIG], ids=["literal", "regex"])
+def test_value_under_a_formerly_anchored_pair_in_tool_input_is_redacted(
+    tmp_path: Path, path_to_plant: tuple[str, str], config_body: str
+) -> None:
+    """The fourth mechanism: ``_ANCHORED_PARENT_LAST_SKIPS``, which was not
+    actually anchored.
+
+    Its own comment reasoned this bug through correctly -- "a bare-name skip
+    would also exempt user content like ``tool_use.input.id`` from scrubbing,
+    leaking PII" -- and then shipped a ``(parent, last)`` pair that matched
+    the immediate parent name at ANY depth. So a tool input containing a
+    ``content`` or ``message`` object with an ``id`` or ``model`` key landed
+    on exactly the position the comment warned about."""
+    parent, last = path_to_plant
+    config = _config(tmp_path, config_body)
+    lines = [
+        _line(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "input": {parent: {last: f"{_REAL_USER_HOME}/app"}},
+                        }
+                    ]
+                },
+            }
+        )
+    ]
+    out, _, _, _ = sanitize_session(lines, config)
+    assert _REAL_USER_HOME not in out[0]
+    # Positive half, same reason as above: absence is satisfiable by a value
+    # that never arrived, presence is not.
+    assert "/home/user/app" in out[0]
+
+
+def test_format_markers_are_still_skipped_at_their_real_positions(tmp_path: Path) -> None:
+    """The other half of the contract, and the one a fix like this can break.
+
+    Anchoring must not start scrubbing the format's own markers. The case
+    that would expose it is a config whose rule VALUE collides with an enum,
+    so this plants a rule matching ``assistant`` -- the value of both the
+    line-level ``type`` and ``message.role`` -- and asserts both survive
+    while the same word inside a tool input does not.
+
+    **Why the rule is a regex here, which is not incidental.** With a
+    *literal* rule this run aborts, and not because of anything #194 changed:
+    the marker survives (correctly), the #195 oracle re-reads the output,
+    finds the configured literal still present, and fail-closes. That is
+    pre-existing behaviour on ``main`` -- verified by running this same
+    config against the unmodified tree -- and it means a literal rule whose
+    match value equals a format-marker value can never produce output. A
+    ``re:`` rule is not re-verified by the oracle, so it isolates the
+    property under test. The interaction itself is recorded on the PR; it is
+    a real constraint, it predates this change, and it is not this issue's to
+    fix."""
+    config = _config(
+        tmp_path,
+        """
+version: 1
+identifiers:
+  - match: "re:assistant"
+    replace: "[redacted-word]"
+""",
+    )
+    lines = [
+        _line(
+            {
+                "type": "assistant",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "tool_use", "input": {"note": "ask the assistant"}}
+                    ],
+                },
+            }
+        )
+    ]
+    out, _, _, _ = sanitize_session(lines, config)
+    assert '"type":"assistant"' in out[0]
+    assert '"role":"assistant"' in out[0]
+    # ...but the same word as user data in a tool input IS scrubbed.
+    assert "ask the [redacted-word]" in out[0]
 
 
 # ----- integration: the happy path must not move --------------------------

@@ -181,10 +181,20 @@ def scan_residual_rules(
     newline, which JSON escapes. Tracked in #198.) Paths and identifiers had no
     such pass, so
     any traversal gap leaked **silently** -- exit 0, output written, sidecar
-    reporting ``residual_scan: clean``. Two such gaps are known (#190 dict keys
-    are never visited, #194 the skip-list exempts user data at any depth), and
-    the position space is not ours to enumerate: tool inputs are tool-defined
-    and MCP servers define their own schemas.
+    reporting ``residual_scan: clean``. One such gap is open (#190: dict keys
+    are never visited); #194, the skip-list exempting user data at any depth,
+    is closed for the bare-name MECHANISM -- those positions are now visited
+    and scrubbed. Say "the mechanism", not "the class": five of the 29
+    allow-listed paths sit inside ``toolUseResult``, which is a tool-shaped
+    envelope, so a tool whose result carries a top-level ``agentId`` or a
+    ``usage.service_tier`` string still plants a value the walk refuses to
+    visit. That residual is deliberate and argued at ``_ENUM_PATHS`` in
+    pipeline.py (the runtime owns those keys, and scrubbing them corrupts
+    format-owned fields), but it is a residual and this docstring should not
+    round it to zero. The position
+    space is still not ours to enumerate, which is why this function exists
+    rather than a longer skip-list: tool inputs are tool-defined and MCP
+    servers define their own schemas.
 
     **Literal rules only, and the restriction is semantic rather than
     pragmatic.** The property this function asserts is *"presence in the output

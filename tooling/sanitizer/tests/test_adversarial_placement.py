@@ -3,16 +3,23 @@
 The rest of this suite covers what a sensitive value looks like -- every
 Tier-1/Tier-2 pattern, every rule layer -- with the value in a
 straightforward position. This module varies the other axis. It plants one
-value at each of ~14 structural positions in a session line and asserts the
-outcome is the same everywhere.
+value at each of 19 structural positions in a session line and asserts the
+outcome is the same everywhere. (That count is pinned by
+``test_module_docstring_cell_count_is_current`` -- it went stale once when
+cells 15-19 landed, which is the whole reason the pin exists.)
 
 WHAT THIS MODULE IS NOT. It is not the leak gate. Enumerating positions
 cannot be one: the position space is tool-defined and open (MCP servers
 define their own input schemas, and `toolUseResult` bodies are arbitrary),
 so a hand-authored list covers what its author thought of and nothing more.
 This module demonstrated that itself -- it was built to map positional
-coverage and missed #194 entirely, because its cells plant payloads under
-innocuous key names and never collide with a skip-listed name.
+coverage and missed #194 entirely, because cells 01-14 plant payloads under
+innocuous key names (`command`, `outer.middle.inner`, `args`) and never
+collided with a skip-listed name. Cells 15-19 were added when #194 was fixed
+and close that specific gap: one cell per skip MECHANISM, since the
+mechanisms failed independently. They do not make the module a leak gate --
+the paragraph above still holds -- they remove one blind spot that was known
+by name.
 
 The guarantee lives in #195: an output-side check for the **literal**
 path/identifier rules, mirroring what `scan_residual` already does for
@@ -330,6 +337,99 @@ def placements(payload: str) -> dict[str, dict]:
                 ),
             },
         ),
+        # ----- the payload family this module was missing (#194) ----------
+        #
+        # Cells 03/04/05 plant payloads under innocuous keys (`command`,
+        # `outer.middle.inner`, `args`), so no cell in the matrix ever
+        # COLLIDED with a skip-listed name -- which is precisely why this
+        # module was built to map placement coverage and still missed #194.
+        # Each cell below is a different skip MECHANISM, not a different
+        # name, because the mechanisms failed independently.
+        "15-tool-use-input-bare-skip-name": rec(
+            type="assistant",
+            message={
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_d",
+                        "name": "X",
+                        # A tool whose parameter is a version pin. `version`
+                        # was skipped at any depth as a "line-level format
+                        # marker".
+                        "input": {"version": payload},
+                    }
+                ],
+            },
+        ),
+        "16-tool-use-input-uuid-name": rec(
+            type="assistant",
+            message={
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_e",
+                        "name": "X",
+                        # `sessionId` was skipped bare while remap_uuids is
+                        # off -- which is the default.
+                        "input": {"sessionId": payload},
+                    }
+                ],
+            },
+        ),
+        "17-tool-use-input-tokens-suffix": rec(
+            type="assistant",
+            message={
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_f",
+                        "name": "X",
+                        # The broadest of the old rules: a SUFFIX, not a name
+                        # list, so it exempted a name nobody enumerated.
+                        # `max_tokens` is a real parameter on a real API.
+                        "input": {"max_tokens": payload},
+                    }
+                ],
+            },
+        ),
+        "18-tool-use-input-anchored-pair": rec(
+            type="assistant",
+            message={
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_g",
+                        "name": "X",
+                        # `_ANCHORED_PARENT_LAST_SKIPS` matched the immediate
+                        # parent name at ANY depth, so a tool input holding a
+                        # `content` object with an `id` landed on exactly the
+                        # position its own comment warned about.
+                        "input": {"content": {"id": payload}},
+                    }
+                ],
+            },
+        ),
+        "19-tool-use-input-usage-child": rec(
+            type="assistant",
+            message={
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_h",
+                        "name": "X",
+                        # The `parent == "usage"` rule. Note the leak was one
+                        # level BELOW the `usage` key: `input.usage` was
+                        # visited, `input.usage.*` was not.
+                        "input": {"usage": {"detail": payload}},
+                    }
+                ],
+            },
+        ),
     }
 
 
@@ -349,9 +449,9 @@ def _resolve_entry_point() -> list[str]:
       3. ``python -m ccs_sanitize.cli`` -- the module entry point.
 
     The override is validated rather than trusted. Returning an unchecked
-    path meant a stale or misspelled value produced 57 identical
-    ``FileNotFoundError`` tracebacks out of ``subprocess.run`` instead of one
-    line saying the override was wrong.
+    path meant a stale or misspelled value produced one identical
+    ``FileNotFoundError`` traceback per cell out of ``subprocess.run``
+    instead of one line saying the override was wrong.
 
     Tier 3 exists so this module cannot silently skip where the package is
     importable, and exhausting all three raises rather than skips. It is NOT
@@ -378,8 +478,9 @@ def _resolve_entry_point() -> list[str]:
     if found is not None:
         return [found]
     if importlib.util.find_spec("ccs_sanitize") is None:
-        # Deliberately an error, not a skip. A skip here would drop 57
-        # security assertions and still report green -- and the rest of this
+        # Deliberately an error, not a skip. A skip here would drop EVERY
+        # placement assertion in this module and still report green -- and the
+        # rest of this
         # suite imports ccs_sanitize directly, so an environment that cannot
         # provide it is broken rather than merely unsuitable.
         raise RuntimeError(
@@ -445,9 +546,12 @@ def verdicts(tmp_path_factory) -> dict[tuple[str, str], str]:
     """Every cell's verdict, computed once for the whole session.
 
     Previously each test spawned its own subprocess and a second test
-    re-ran all 14 secret cells, so the slowest module in the suite paid for
-    71 process spawns where 56 are needed. Session scope also means a broken
-    entry point surfaces once rather than 57 times.
+    re-ran every secret cell, so the slowest module in the suite paid for
+    roughly one extra spawn per secret cell on top of the matrix. (The
+    absolute figures that used to sit here were written when the matrix had
+    14 cells and went stale at 19; the shape is the point, not the numbers.)
+    Session scope also means a broken entry point surfaces once rather than
+    once per cell.
     """
     root = tmp_path_factory.mktemp("placement")
     out: dict[tuple[str, str], str] = {}
@@ -502,7 +606,7 @@ def test_controls_are_positively_redacted(verdicts) -> None:
 
     Guards the failure mode where every cell fails closed (or errors) and
     the module still looks meaningful. If the CLI under test is a brick,
-    this is the assertion that says so in one line rather than 57.
+    this is the assertion that says so in one line rather than once per cell.
     """
     for label in PAYLOADS:
         for cell in ("01-user-content-string", "02-assistant-text-block"):
@@ -528,6 +632,21 @@ def test_secret_never_survives_any_placement(verdicts) -> None:
         if verdicts[("secret", cell)] not in {"REDACTED", "FAIL-CLOSED"}
     }
     assert not bad, f"secret reached a written output or a broken exit at: {bad}"
+
+
+def test_module_docstring_cell_count_is_current() -> None:
+    """The docstring's cell count is a claim, so pin it like any other.
+
+    It said "~14 structural positions" for the whole life of cells 15-19 --
+    a number describing the module one revision back, sitting in the first
+    paragraph a reader sees. Cheap to pin, and the failure message says
+    exactly what to edit."""
+    assert __doc__ is not None
+    expected = f"{len(CELLS)} structural positions"
+    assert expected in __doc__, (
+        f"this module's docstring does not say {expected!r}. CELLS changed "
+        f"size to {len(CELLS)}; update the first paragraph to match."
+    )
 
 
 def test_known_deviations_reference_real_cells() -> None:

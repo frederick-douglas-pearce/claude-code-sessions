@@ -46,11 +46,42 @@ unrelated tags).
 
 ## [0.4.0] — unreleased
 
-**MINOR.** Adds a new fail-closed refusal surface. Existing configs keep
-working, no sidecar field is removed, renamed or retyped
-(`sidecar_schema_version` stays `1`), and no built-in pattern is removed, so
-this is not MAJOR; it changes which inputs the tool refuses, so it is not
-PATCH. "Scrubs more / refuses more" is monotonically safer.
+**MINOR.** Existing configs keep working, no sidecar field is removed,
+renamed or retyped (`sidecar_schema_version` stays `1`), and no built-in
+pattern is removed, so this is not MAJOR; it changes which inputs the tool
+refuses and which leaves it scrubs, so it is not PATCH.
+
+This release moves in **two** directions and the summary has to carry both,
+because "refuses more" alone would misdescribe it after #194:
+
+- #195 **adds** a fail-closed refusal surface — the output-side oracle for
+  literal path/identifier rules.
+- #194 **removes** refusals at the traversal positions #195 was catching, by
+  making those positions scrubbable in the first place, and visits **more**
+  leaves than before. It also closes a *silent* leak for regex configs, which
+  the oracle never covered. What it closes is the bare-name MECHANISM, not the
+  whole class: five of the 29 allow-listed paths sit inside the tool-shaped
+  `toolUseResult` envelope, an accepted residual argued at `_ENUM_PATHS` in
+  `pipeline.py` and recorded in PRD §6b B.
+- #199 does something different, and the distinction matters on upgrade: it
+  **stops applying a transform** at positions that were never format fields.
+
+**Read #199's direction carefully — it is not "scrubs more".** At an anchored
+position it scrubs **less**. Under 0.3.x a tool parameter at
+`tool_use.input.gitBranch` was matched by bare name and blanket-replaced with
+`feature/example`; under 0.4.0 it falls through to the ordinary identifier
+rules and, if none match it, is emitted **verbatim**. Same for
+`tool_use.input.sessionId` under `remap_uuids: true`, which used to be
+rewritten as a synthesized UUID. That replacement was **corruption of user
+data**, not protection — it destroyed a value the config never asked to touch
+— so removing it is correct. But an upgrader whose tool inputs carry a
+parameter with one of those names will see a value in 0.4.0 output that 0.3.x
+had overwritten. **If such a value is sensitive, it needs a config rule; it was
+never being scrubbed on purpose.**
+
+So: #194 and #195 are monotonically safer, #199 trades an accidental
+overwrite for correctness, and a consumer must not assume byte-stability
+across the bump — see the golden note below.
 
 **`test_golden_determinism.py` stays green, and that is expected.** Clean
 output is byte-identical, so the bump trigger described under Bump policy does
@@ -58,12 +89,106 @@ output is byte-identical, so the bump trigger described under Bump policy does
 new refusal path, not a response to a red golden. Do not go looking for a
 fixture that should have moved.
 
-**Publish is deliberately held.** `__version__` is 0.4.0 as of this change,
-but the PyPI release waits for #190 and #194 to land, so the first version a
-`pip` user sees carries *coverage* for the two known traversal gaps rather
-than only *refusal* on them. #195 anticipated this ("one 0.4.0 release covers
-both"); the decision to hold the publish rather than release twice is recorded
-here so a later reader does not read the version bump as a missed release.
+**That still holds after #194/#199, and the golden bytes did not move.** Those
+changes alter which POSITIONS get visited, so they can change output bytes for
+an affected input; the golden fixture simply carries no value at a colliding
+position.
+
+Two corrections to an earlier draft of this paragraph, both of which said more
+than had been checked:
+
+- "every string leaf the golden session currently skips is covered by the new
+  allow-list" has a counterexample **in the golden fixture itself**:
+  `attachment.type`, which the old bare-`type` rule skipped and which the
+  allow-list does not carry. The bytes are unaffected for a different reason —
+  that line's `type` is `"attachment"`, so `DEFAULT_STRIP_TYPES` drops the
+  whole line before the walker sees it. Right conclusion, wrong reason.
+- "a future allow-list omission is exactly what would turn this red" is
+  **false**, and it was the load-bearing safety claim. Ablating all 29 entries
+  one at a time leaves the golden output byte-identical every time: the golden
+  config holds only literal PII rules, and no format-marker value contains
+  one. `test_golden_determinism.py` cannot see a dropped entry.
+
+**One entry moved during review, and the pinned list says to record it here.**
+`toolUseResult.type` was on the first cut of the allow-list and is **not** in
+the shipped one, so that position is now visited and scrubbable. It reads like
+the line-level `type`, but the data dictionary calls it a "tool-specific
+subtype indicator" on an envelope it documents as tool-dependent — the value
+is chosen by whichever tool produced the result, which is the unbounded space
+#194 is about. Under every shipped config this changes no bytes (no rule
+matches its values), so the practical effect is only that a future rule which
+*did* match them would now apply there instead of being silently skipped.
+`message.content.caller.type` stays listed, on the opposite side of the same
+ownership test rather than on a value count: `caller` is a sibling of `input`
+on the `tool_use` content block, so a tool cannot reach it.
+
+What does guard the allow-list is `tests/test_skip_allow_list_corpus.py`,
+which pins the contents literally, requires every entry to exist in the
+corpus, and ablation-tests each entry against a config whose rule matches the
+value at that position. What nothing here catches is a genuinely new format
+position with an unfamiliar name.
+
+**Publish is deliberately held.** `__version__` is 0.4.0 as of this change.
+The PyPI release waits for both known traversal gaps to carry *coverage*
+rather than only *refusal*, so that is what the first version a `pip` user
+sees. **#194 has landed** (this release); **#190 has not**, so the hold stands
+on #190 alone. #195 anticipated this ("one 0.4.0 release covers both"); the
+decision to hold the publish rather than release twice is recorded here so a
+later reader does not read the version bump as a missed release.
+
+### Fixed (issue #194 — the skip-list exempted user data inside tool inputs)
+- **The traversal skip-list is now an allow-list of ROOT-ANCHORED paths.** It
+  was a set of bare leaf names matched at any depth, plus a `*_tokens` suffix
+  rule, a `parent == "usage"` rule, and a `(parent, last)` pair set described
+  as "anchored" that actually matched the immediate parent name at any depth.
+  `tool_use.input` is arbitrary tool-defined JSON and MCP servers define their
+  own schemas, so **every one of those rules fired inside it**: a tool
+  parameter named `type`, `version`, `role`, `requestId`, `tool_use_id`,
+  `sessionId`, `uuid`, `agentId`, `parentUuid` or anything ending `_tokens`
+  sat where the walker refused to look, as did `input.usage.*`,
+  `input.content.id`, `input.content.signature`, `input.message.model` and
+  `input.message.id`.
+- **What that meant, and it is not what the issue was originally filed as.**
+  For a **literal** rule the #195 oracle caught the survivor and aborted — safe
+  but unusable. For a **`re:` rule the oracle does not re-verify**, so the same
+  positions leaked **silently**: exit 0, value present, sidecar
+  `residual_scan: clean`. Reproduced on merged `main` across 16 positions, with
+  a positive control, before the fix; all 16 now redact under both rule kinds.
+- **An unlisted position is now visited and scrubbed**, which inverts the
+  failure direction: a format field the list forgets is over-scrubbed rather
+  than user data being silently skipped. **Not caught by the golden test** —
+  see the retraction above; what catches it is
+  `tests/test_skip_allow_list_corpus.py`. There are **no subtree prefixes** — a "skip everything under X"
+  entry is the `"usage" in path` membership test this package already deleted
+  once, and `error.*` alone carries `set-cookie`, an organization id and a
+  free-text error message that are all scrubbed today.
+- **PRD §6b B corrected**, which encoded the bug in prose (`*.role`, bare
+  `version` / `type`), and §13 now records that `residual_scan: clean` is not
+  yet a full guarantee for regex configs (#198).
+- **New drift detection** (`tests/test_skip_allow_list_corpus.py`): every
+  allow-list entry must exist in the corpus, and the set of allow-listed names
+  appearing at non-allow-listed paths is pinned, so a new collision has to be
+  classified rather than silently absorbed.
+
+### Fixed (issue #199 — `gitBranch` was replaced at any depth)
+- **`gitBranch` and the UUID remap are anchored by path too.** The identifier
+  layer decides what to do with a leaf *when it is visited*, and it also
+  matched bare names at any depth — the mirror image of the skip-side bug, in
+  the other half of the pipeline, and failing the opposite way: **corruption,
+  not leakage**. A tool parameter named `gitBranch` was silently overwritten
+  with `feature/example` under a **default** config (`scrub_git_branch`
+  defaults to true), and under `remap_uuids: true` a parameter named
+  `sessionId` was rewritten as a synthesized UUID.
+- **`toolUseResult.agentId` stays in the UUID set.** It is the parent side of
+  a **cross-file** link — a session names a subagent whose own top-level
+  `agentId` is in a different file — so the two must remap identically or the
+  graph breaks, which is what a shared `uuid_seed` is for. Do not expect the
+  two to co-occur within one file; in the corpus they never do.
+- **`test_uuid_fields_match_pipeline_skip_list` was replaced, not just
+  updated.** It asserted equality of two *name* sets, and would have stayed
+  green through the very change that broke the contract it guarded — a passing
+  check over a live corruption path. It now pins the two sides at the **path**
+  level.
 
 ### Added (issue #195 — output-side oracle for literal path/identifier rules)
 - **`residual.scan_residual_rules` + `ResidualRuleError`** — **literal**
@@ -76,8 +201,9 @@ here so a later reader does not read the version bump as a missed release.
   contained the value. That is worse than no sidecar, because it turns the
   README's human review step into a rubber stamp.
 - **It closes the class, not the instances.** #190 (dict keys are never
-  visited) and #194 (the skip-list exempts user data at any depth) are two
-  ways to end up outside the traversal's reach; the position space is
+  visited) and #194 (the skip-list exempted user data at any depth, fixed in
+  this same 0.4.0 release) were two ways to end up outside the traversal's
+  reach; the position space is
   tool-defined and open-ended, so enumerating positions cannot close it —
   `test_adversarial_placement.py` was built to map positional coverage and
   missed #194 entirely.
@@ -100,8 +226,11 @@ here so a later reader does not read the version bump as a missed release.
   (at the default `remap_uuids: false` the UUID-graph fields are skip-listed so
   the parent/subagent graph stays linkable). Scanning regex rules aborted every
   such session at exit 2 with nothing mis-scrubbed, and with no override that
-  config could never scrub any file. For regex rules #190 and #194 stay open;
-  tracked in **#198**, not silently accepted.
+  config could never scrub any file. For regex rules, #190 stays open — dict keys
+  are never visited and the oracle skips regex, so a value in a key still leaks
+  silently; tracked in **#198**, not silently accepted. (#194 is closed in this
+  release: its positions are now visited and scrubbed in-walk under both rule
+  kinds.)
 - **The diagnostic names `section[index]`, never the rule or the match.**
   Stricter than `ResidualSecretError`, deliberately: a secret pattern's `kind`
   is a generic label, but a path/identifier rule's `match` value **is** the
@@ -163,15 +292,19 @@ here so a later reader does not read the version bump as a missed release.
   structural-traversal test PRD section 14 calls C-1. One planted value at 14
   structural positions (nested tool inputs, `tool_result` content arrays,
   `toolUseResult` siblings, thinking blocks, JSON-inside-a-JSON-string, dict
-  keys, URL query parameters) crossed with four payload families. Asserts on
+  keys, URL query parameters) crossed with four payload families — **19
+  positions as of the #194 work below**, which added one cell per skip
+  mechanism. Asserts on
   the verdict rather than on output bytes, so the jitter work planned for v1
   cannot turn it spuriously red; byte-exactness stays owned by
   `test_golden_determinism.py`.
 - **This is a coverage net, not the leak gate.** Enumerating positions cannot
   be one — the position space is tool-defined and open — and this module
-  proved that itself by missing **#194** entirely, since its cells plant
-  payloads under innocuous key names and never collide with a skip-listed
-  name. The guarantee is **#195**, an output-side check for the **literal**
+  proved that itself by missing **#194** entirely, since cells 01-14 plant
+  payloads under innocuous key names and never collided with a skip-listed
+  name. (Cells 15-19, added by the #194 work below, do collide — one per skip
+  mechanism. That closes a blind spot that was known by name; it does not make
+  the module a leak gate.) The guarantee is **#195**, an output-side check for the **literal**
   path/identifier rules mirroring what `scan_residual` already does for
   secrets. Literal only: regex rules are scrub-only, tracked in #198. This
   module tells you which positions are *scrubbable*; the oracle
@@ -198,7 +331,7 @@ here so a later reader does not read the version bump as a missed release.
 - `sanitizer-ci.yml` gained two guards that assert the matrix *ran*: a
   `-m adversarial` step in the `tests` job and a skip check on the wheel run,
   both failing on a zero-collection exit or on any reported skip. Without
-  them the `package` job reports green on `57 skipped` — nothing there
+  them the `package` job reports green on a fully skipped module — nothing there
   installs `ccs_sanitize`, so only `CCS_SANITIZE_BIN` can resolve, and a
   typo in it would have silently emptied the step.
 - `test_adversarial_placement.py` joins the security-critical presence list,
