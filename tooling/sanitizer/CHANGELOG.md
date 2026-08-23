@@ -59,7 +59,10 @@ because "refuses more" alone would misdescribe it after #194:
 - #194 **removes** refusals at the traversal positions #195 was catching, by
   making those positions scrubbable in the first place, and visits **more**
   leaves than before. It also closes a *silent* leak for regex configs, which
-  the oracle never covered.
+  the oracle never covered. What it closes is the bare-name MECHANISM, not the
+  whole class: five of the 29 allow-listed paths sit inside the tool-shaped
+  `toolUseResult` envelope, an accepted residual argued at `_ENUM_PATHS` in
+  `pipeline.py` and recorded in PRD §6b B.
 - #199 does something different, and the distinction matters on upgrade: it
   **stops applying a transform** at positions that were never format fields.
 

@@ -132,7 +132,8 @@ into a rubber stamp.
 
 Two instances were found by two different methods — [#190](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/190)
 (dict keys are never visited by the walk) and [#194](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/194)
-(the skip-list exempted user data at any depth, since fixed in 0.4.0) — but enumerating positions
+(the skip-list exempted user data at any depth; its bare-name mechanism was fixed in 0.4.0, with a
+deliberate residual noted in §6b B) — but enumerating positions
 cannot close the class: tool inputs are tool-defined and MCP servers define their own schemas, so the position
 space grows without this project's involvement. As of 0.4.0 the configured **literal** `paths`
 and `identifiers` rules are re-run over the **decoded** output — every string leaf *and every dict
@@ -152,7 +153,7 @@ scrub any file at all.
 
 So for regex rules, #190 remains open — dict keys are still never visited, and the oracle does not
 re-verify a `re:` rule, so a value in a key survives silently — and that is a known, recorded limit
-rather than a silent one. (#194 is closed: its positions are now visited and scrubbed in-walk under
+rather than a silent one. (#194's mechanism is closed: its positions are now visited and scrubbed in-walk under
 both rule kinds.) Scanning the **decoded** tree rather than the serialized text is the other half of this
 amendment and is not cosmetic: rules match decoded leaf values, so a serialized-domain scan was
 blind to every value containing a backslash, a quote or a control character — a Windows home
@@ -366,8 +367,23 @@ fields left untouched:
   requires every entry to appear in the corpus, ablation-tests each entry against a config whose
   rule matches the value at that position, and pins the set of allow-listed *names* appearing at
   non-allow-listed *paths*. What none of that catches is a genuinely new format position with a
-  name nothing on the list uses; the format-watch queue and human review cover that, and the
-  list is only as current as the corpus behind it.
+  name nothing on the list uses. **That gap is open, not covered**, and is tracked in
+  [#201](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/201) — the
+  `format-scan` drift check AC-10 asked for as a fast-follow. Human review is what currently
+  happens there; it is not coverage. (This sentence said "the format-watch queue and human review
+  cover that" through four review rounds, after the same wording had already been retracted in
+  `pipeline.py` and `tests/test_skip_allow_list_corpus.py` — the spec is the authority those
+  comments defer to, so it was the worst of the three places to leave it standing.) The list is
+  also only as current as the corpus behind it.
+
+  **The allow-list carries a deliberate residual.** Five of its 29 entries sit inside
+  `toolUseResult` (`agentId` and the four `usage` leaves), which §6b B argues is a tool-shaped
+  envelope — the same argument that took `toolUseResult.type` off the list. A nonconforming tool
+  writing user data into one of those five exact keys plants it at a position the walk still
+  refuses to visit. It is accepted because scrubbing the runtime's billing rollup and its graph
+  link corrupts format-owned fields, and because the residual secret scan still sweeps those
+  positions for literal secrets. Recorded here so "#194 is closed" is read as the mechanism being
+  closed, not the class.
 - **Everything else that is a string leaf is scrubbed**, including the nested surfaces a
   line-level view hides: `message.content[].text`, `tool_use.input.*` (Bash `command`, Agent
   `prompt`, MCP inputs), `tool_result.content` (both string and array shapes),
