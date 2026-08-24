@@ -282,7 +282,7 @@ cannot illustrate `/rewind` semantics. When a fixture needs that surface, build 
 
 Each surviving line is walked **structurally**: the parsed JSON object is traversed recursively
 and rules are applied to every **string-valued leaf**, governed by an explicit **skip-list** of
-fields left untouched:
+fields left untouched (specified in the bullet list below the following note).
 
 > **"String-valued leaf" is exact, and a dict KEY is not one (#190).** The walk extends the JSON
 > path with each key and re-emits the key verbatim; it is never passed to `transform`. So a

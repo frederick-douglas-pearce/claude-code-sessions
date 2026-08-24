@@ -180,23 +180,16 @@ by construction.
   implementer would have re-derived the current behavior as a bug.
 - **Nested key coverage added.** Every existing key-position test planted the
   key exactly one level deep, and the nearest nested test planted a nested
-  *value* (#194's shape). Measured by editing `_iter_decoded_strings` to stop
-  yielding keys below depth 2: **4 failed, 503 passed** — the new test plus the
-  three `13-dict-key-not-value` PII cells, which plant their key deeper still.
-  Within `test_residual_rules.py` the new cell is the only one that dies; the
-  sibling one-deep test survives, which is precisely the gap it closes.
-  (An earlier draft of this entry claimed "and nothing else — 1 failed". That
-  figure came from an **in-process** monkeypatch, which never reaches the
-  placement matrix because the matrix drives the console script as a
-  subprocess. The in-process number measures the harness, not the code.)
+  *value* (#194's shape), so "the oracle reaches a key at any depth" was a
+  property nothing asserted.
 - **The placement matrix's cell-13 entries now assert FAIL-CLOSED positively**
   instead of carrying a strict `xfail` on "expected REDACTED". The xfail could
   not tell a safe abort from a leak: `_classify` returns `FAIL-CLOSED` and
   `LEAKED` for opposite outcomes and **both** fail the `== "REDACTED"`
-  assertion, so both satisfied the xfail. Measured by forcing cell 13 to
-  `LEAKED`: pre-change **1 failed, 75 passed, 4 xfailed** — only the `secret`
-  payload was caught, by a separate unconditional assertion, while the three
-  PII payloads leaked with the suite green. Post-change, all four cells fail.
+  assertion, so both satisfied the xfail. Only the `secret` payload had a
+  positive guard (`test_secret_never_survives_any_placement`, which is
+  unconditional); the three PII payloads had none, so a regression from
+  FAIL-CLOSED to LEAKED at those cells would have read as an expected failure.
 
 ### Fixed (issue #194 — the skip-list exempted user data inside tool inputs)
 - **The traversal skip-list is now an allow-list of ROOT-ANCHORED paths.** It
@@ -288,10 +281,12 @@ by construction.
   (at the default `remap_uuids: false` the UUID-graph fields are skip-listed so
   the parent/subagent graph stays linkable). Scanning regex rules aborted every
   such session at exit 2 with nothing mis-scrubbed, and with no override that
-  config could never scrub any file. For regex rules, #190 stays open — dict keys
-  are never visited and the oracle skips regex, so a value in a key still leaks
-  silently; tracked in **#198**, not silently accepted. (#194 is closed in this
-  release: its positions are now visited and scrubbed in-walk under both rule
+  config could never scrub any file. For regex rules the dict-key gap stays
+  open — keys are never visited and the oracle skips regex, so a value in a key
+  still leaks silently. **Tracked in #198**, not silently accepted; #190, which
+  originally carried this, was scoped to detect-only and is closed in this
+  release, with #208 carrying the scrubbability half. (#194 is also closed
+  here: its positions are now visited and scrubbed in-walk under both rule
   kinds.)
 - **The diagnostic names `section[index]`, never the rule or the match.**
   Stricter than `ResidualSecretError`, deliberately: a secret pattern's `kind`
@@ -371,10 +366,12 @@ by construction.
   secrets. Literal only: regex rules are scrub-only, tracked in #198. This
   module tells you which positions are *scrubbable*; the oracle
   tells you that nothing leaked.
-- Four cells land as `xfail(strict=True)` against **#190**: a config-driven
-  rule cannot reach a value in a dict key, because the structural walk
-  transforms string leaves only. Strict, so closing #190 turns them red and
-  forces them out of `KNOWN_DEVIATIONS`.
+- Four cells cover the dict-key position, where a config-driven rule cannot
+  reach the value because the structural walk transforms string leaves only.
+  They landed here as `xfail(strict=True)` entries in `KNOWN_DEVIATIONS`
+  against **#190**; the #190 work in this same release **replaced them with
+  positive `FAIL-CLOSED` assertions** in `FAIL_CLOSED_BY_DESIGN`, keyed to
+  **#208**. See that entry for why an xfail was the wrong shape.
 - The verdict is exact (`== "REDACTED"`), and every deviation is an explicit
   issue-tagged entry. An earlier draft accepted `FAIL-CLOSED` as a pass,
   which meant a stub binary consisting of `echo boom >&2; exit 1` passed 54

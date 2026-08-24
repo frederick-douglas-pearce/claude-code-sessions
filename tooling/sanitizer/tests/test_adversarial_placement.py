@@ -102,8 +102,11 @@ EMAIL = "test" + ".person@" + "example.net"
 NAME = "Testy " + "McTestface"
 
 # The secret is caught by a built-in pattern and needs no config. The three
-# PII payloads are config-driven, which is exactly the asymmetry #190 is
-# about: nothing re-scans the output for these after the fact.
+# PII payloads are config-driven, which used to be the asymmetry #190 was
+# about: nothing re-scanned the output for those after the fact. **#195 closed
+# that for LITERAL rules** -- `scan_residual_rules` re-runs them over the
+# decoded output, keys included. The asymmetry that remains is narrower: a
+# `re:` rule is still scrub-only (#198).
 PAYLOADS = {
     "secret": SECRET,
     "pii-home": HOME,
@@ -696,17 +699,6 @@ def test_fail_closed_by_design_cells_actually_fail_closed(
     from FAIL-CLOSED to LEAKED at these cells was reported as an expected
     failure.
 
-    MEASURED, NOT ARGUED. Forcing `_classify` to return "LEAKED" for cell 13
-    and running this module both ways:
-
-      pre-change   1 failed, 75 passed, 4 xfailed  -- the four cell-13 xfails
-                   still reported as expected failures. Only
-                   test_secret_never_survives_any_placement caught it, and
-                   only for the `secret` payload: the three PII payloads
-                   leaked with the suite green.
-      post-change  5 failed -- all four cells here, plus that same secret
-                   assertion.
-
     Exact equality, for the reason the module docstring gives about the
     permissive form: ERROR-<rc> from a broken invocation must not read as a
     safety outcome either.
@@ -715,10 +707,14 @@ def test_fail_closed_by_design_cells_actually_fail_closed(
     issue, why = FAIL_CLOSED_BY_DESIGN[(cell, label)]
     assert verdict == "FAIL-CLOSED", (
         f"cell {cell} with {label} returned {verdict}, expected FAIL-CLOSED. "
-        f"If #{issue} made this position scrubbable, the verdict is now "
-        f"REDACTED: delete this entry from FAIL_CLOSED_BY_DESIGN so the cell "
-        f"rejoins test_placement_is_redacted. If it is LEAKED, that is the "
-        f"leak this module exists to catch. ({why})"
+        f"If #{issue} made this position scrubbable for this payload, the "
+        f"verdict is now REDACTED: delete this entry from "
+        f"FAIL_CLOSED_BY_DESIGN so the cell rejoins "
+        f"test_placement_is_redacted. Note #{issue} leaves it explicitly "
+        f"undecided whether keys run the SECRET layer too, so the `secret` "
+        f"payload may legitimately stay FAIL-CLOSED while the three PII "
+        f"payloads move. If the verdict is LEAKED, that is the leak this "
+        f"module exists to catch. ({why})"
     )
 
 
@@ -748,13 +744,13 @@ def test_module_docstring_cell_count_is_current() -> None:
     )
 
 
-def test_known_deviations_reference_real_cells() -> None:
-    """A cell rename must not silently delete a tracked deviation.
+def test_deviation_mappings_reference_real_cells() -> None:
+    """A cell rename must not silently detach an entry in EITHER mapping.
 
     KNOWN_DEVIATIONS is consulted with .get(), so a renamed cell id makes an
-    entry stop matching. Today that would go red (the leak is real), but a
-    future entry for a different cell would silently stop applying and turn
-    a tracked known-leak into an untracked one with no signal.
+    entry stop matching, silently turning a tracked known-leak into an
+    untracked one with no signal. FAIL_CLOSED_BY_DESIGN fails louder but
+    worse -- see the comment below.
     """
     for name, mapping in (
         ("KNOWN_DEVIATIONS", KNOWN_DEVIATIONS),
