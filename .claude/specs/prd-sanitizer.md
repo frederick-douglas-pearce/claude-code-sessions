@@ -151,8 +151,8 @@ fields are skip-listed so the parent/subagent graph stays linkable). Scanning re
 every such session at exit 2 with nothing mis-scrubbed, and with no override the config could never
 scrub any file at all.
 
-So for regex rules the dict-key position is still open — keys are never visited by the walk, and the
-oracle does not re-verify a `re:` rule, so a value in a key survives silently — and that is a known,
+So for regex rules the dict-key position is still open. Keys are never visited by the walk, and the
+oracle does not re-verify a `re:` rule, so a value in a key survives silently. That is a known,
 recorded limit rather than a silent one. **The gap is tracked as #198** (regex re-verification),
 with #208 carrying the separate question of making the key position *scrubbable*. #190, which
 originally carried both, was scoped to detect-only and is closed: see §6b B, which states what the
@@ -287,21 +287,21 @@ fields left untouched (specified in the bullet list below the following note).
 > **"String-valued leaf" is exact, and a dict KEY is not one (#190).** The walk extends the JSON
 > path with each key and re-emits the key verbatim; it is never passed to `transform`. So a
 > configured `paths`/`identifiers` match value sitting in a key is a position this step **cannot
-> reach**, by design rather than by omission — rewriting keys changes document *shape*, and two
+> reach**, by design rather than by omission. Rewriting keys changes document *shape*, and two
 > keys scrubbing to the same placeholder would silently merge, dropping a record with no
 > exception and no sidecar entry.
 >
 > **That position is covered by the output-side residual scan instead, not by this step** (§5,
 > "the role of the post-scrub residual scan"). For a **literal** rule the value survives into the
-> serialized output, `scan_residual_rules` sees it — §5 states that the re-run covers "every string
-> leaf *and every dict key*" — and the run **aborts at exit 2 writing nothing**.
+> serialized output, `scan_residual_rules` sees it (§5 states that the re-run covers "every string
+> leaf *and every dict key*"), and the run **aborts at exit 2 writing nothing**.
 > The result is safe but **not publishable**: there is no override, so a session carrying such a
 > key cannot be sanitized at all. Making the position *scrubbable* is deliberately out of scope
 > here and tracked in **#208**.
 >
 > **The gap that remains is `re:` rules.** The oracle deliberately does not re-verify a regex rule
 > ("present in the output" means "leaked" for a literal value and not for a shape), and this step
-> never visits the key — so for a regex config the two layers miss the same position and the value
+> never visits the key, so for a regex config the two layers miss the same position and the value
 > is written with the sidecar reporting a clean run. **#198** closes it.
 
 - **Skip-list (never scrubbed):** an **allow-list of ROOT-ANCHORED paths**. An entry is an

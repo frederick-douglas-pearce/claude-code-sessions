@@ -133,15 +133,15 @@ for.** `__version__` is 0.4.0 as of this change. The hold was originally
 written as "wait for both known traversal gaps to carry *coverage* rather than
 only *refusal*", with **#194 landed** (this release) and #190 outstanding.
 
-**#190 has now landed and does not satisfy that condition** — it was scoped to
+**#190 has now landed and does not satisfy that condition.** It was scoped to
 **detect-only**, so the dict-key position carries **refusal only**, and will
 until **#208** makes it scrubbable. So the hold's original wording can no
 longer be met by anything in this release. Two readings are open and the
 maintainer decides which:
 
 - **Release 0.4.0 now**, accepting that one of the two traversal gaps ships
-  refusal-only. Everything the hold was protecting against — a `pip` user
-  meeting a *silent* leak — is already closed for literal rules by #195; the
+  refusal-only. Everything the hold was protecting against, a `pip` user
+  meeting a *silent* leak, is already closed for literal rules by #195; the
   residual is a *refusal*, which is loud.
 - **Transfer the hold to #208**, keeping the original "coverage, not refusal"
   bar. Note this also implicates **#198**, since regex keys are neither
@@ -151,7 +151,7 @@ Recorded rather than resolved here so a later reader does not read the version
 bump as a missed release, and does not read the hold as still meaning what it
 said before #190 was rescoped.
 
-### Changed (issue #190 — dict keys are never transformed; scoped to detect-only)
+### Changed (issue #190: dict keys are never transformed; scoped to detect-only)
 
 **No behavior change, and that is the decision rather than an oversight.** This
 entry records a *scope* ruling and the test/spec work that follows from it, so
@@ -162,17 +162,17 @@ by construction.
 - **The dict-key position stays unreachable by the walk, on purpose.** Keys
   carry structural meaning and are re-emitted verbatim; scrubbing them would
   change document *shape*, and two keys scrubbing to the same placeholder
-  **silently merge** — verified: two distinct `toolUseResult` keys collapse to
+  **silently merge**. Verified: two distinct `toolUseResult` keys collapse to
   one entry, the first record gone, with no exception and no sidecar entry.
 - **Safety at that position is owned by the output-side oracle, not the walk.**
   For a **literal** rule #195 already catches the survivor and aborts (exit 2,
   nothing written). `scan_residual_rules` walks keys as well as leaves, so this
-  holds at any depth — now asserted rather than assumed, see below.
+  holds at any depth, now asserted rather than assumed. See below.
 - **What this costs the user, stated plainly:** a session legitimately carrying
   a configured value in a dict key **cannot be published at all**. There is no
   override. Making the position scrubbable is **#208**.
 - **The remaining hole is `re:` rules**, which the oracle deliberately does not
-  re-verify and the walk never visits — so a regex config still writes the
+  re-verify and the walk never visits, so a regex config still writes the
   value with a sidecar reporting a clean run. **#198** closes it; a test now
   asserts that leak explicitly so the fix inverts it visibly.
 - **PRD §6b Step B amended.** It specified the walk applies rules "to every
@@ -282,7 +282,7 @@ by construction.
   the parent/subagent graph stays linkable). Scanning regex rules aborted every
   such session at exit 2 with nothing mis-scrubbed, and with no override that
   config could never scrub any file. For regex rules the dict-key gap stays
-  open — keys are never visited and the oracle skips regex, so a value in a key
+  open. Keys are never visited and the oracle skips regex, so a value in a key
   still leaks silently. **Tracked in #198**, not silently accepted; #190, which
   originally carried this, was scoped to detect-only and is closed in this
   release, with #208 carrying the scrubbability half. (#194 is also closed
