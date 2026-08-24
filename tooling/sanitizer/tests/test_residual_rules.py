@@ -296,12 +296,28 @@ def test_value_in_a_NESTED_dict_key_aborts_rather_than_writing(tmp_path: Path) -
     one-deep case generalizes on its own -- which is exactly why it needs its
     own cell.
 
-    THAT THIS CELL IS LOAD-BEARING WAS MEASURED, NOT ASSERTED. Monkeypatching
+    THAT THIS CELL IS LOAD-BEARING WAS MEASURED, NOT ASSERTED. Editing
     ``_iter_decoded_strings`` to stop yielding keys below depth 2 -- so
     ``toolUseResult.<key>`` is still scanned and ``toolUseResult.outer.<key>``
-    is not -- kills THIS TEST AND NOTHING ELSE: 1 failed, 501 passed, 4 xfailed
-    across the sanitizer suite. Note the sibling one-deep test above does NOT
-    cover it: its key sits at depth 2, so the same mutation leaves it green.
+    is not -- gives **4 failed, 503 passed** across the sanitizer suite: this
+    test, plus the three ``13-dict-key-not-value`` PII cells in
+    ``test_adversarial_placement.py``.
+
+    Read that number carefully, because an earlier draft of this docstring got
+    it wrong in the direction that flatters the test. It said "kills this test
+    and nothing else, 1 failed" -- a figure taken by monkeypatching the
+    function IN-PROCESS. The placement matrix drives the console script as a
+    SUBPROCESS, so an in-process patch never reaches it and the matrix cells
+    survive an injury they would really suffer. A source-level edit is the
+    faithful mutation; the in-process one measures the harness, not the code.
+
+    What this cell uniquely covers is therefore narrower than "nothing else
+    catches it", and it is still real: within THIS module it is the only test
+    the mutation kills. The sibling one-deep test above survives, because its
+    key sits at depth 2. And no monotonic depth cutoff can separate this test
+    from cell 13 in the other direction either -- cell 13 plants its key
+    deeper still -- so the two guard the same property at different depths
+    through different entry points, which is why both are worth having.
 
     Asserts the SECTION AND INDEX, not merely that something raised: the
     mechanism under test is *which rule the oracle attributes the survivor to*,
@@ -352,7 +368,14 @@ def test_nested_dict_key_under_a_regex_rule_still_leaks(tmp_path: Path) -> None:
     ]
     out, _, subtable, _ = sanitize_session(lines, config)
     assert _REAL_USER_HOME in out[0]
-    assert list(subtable) == []
+    # Scoped to the `paths` layer rather than `list(subtable) == []`: the
+    # property under test is that the paths regex never fired at the key
+    # position, not that nothing anywhere on the line was substituted. The
+    # broad form would go red for unrelated reasons -- flipping the
+    # `remap_uuids` default adds subtable rows, and so would the PRD section 9b
+    # timestamp jitter planned for v1 -- with a failure message pointing at
+    # #198, which would not be the cause.
+    assert [e for e in subtable if e.label == "paths"] == []
 
 
 @pytest.mark.parametrize(

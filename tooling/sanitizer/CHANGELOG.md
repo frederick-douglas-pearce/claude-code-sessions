@@ -180,9 +180,15 @@ by construction.
   implementer would have re-derived the current behavior as a bug.
 - **Nested key coverage added.** Every existing key-position test planted the
   key exactly one level deep, and the nearest nested test planted a nested
-  *value* (#194's shape). Measured: making the scan stop yielding keys below
-  depth 2 killed the new test **and nothing else** — 1 failed, 501 passed
-  across the sanitizer suite.
+  *value* (#194's shape). Measured by editing `_iter_decoded_strings` to stop
+  yielding keys below depth 2: **4 failed, 503 passed** — the new test plus the
+  three `13-dict-key-not-value` PII cells, which plant their key deeper still.
+  Within `test_residual_rules.py` the new cell is the only one that dies; the
+  sibling one-deep test survives, which is precisely the gap it closes.
+  (An earlier draft of this entry claimed "and nothing else — 1 failed". That
+  figure came from an **in-process** monkeypatch, which never reaches the
+  placement matrix because the matrix drives the console script as a
+  subprocess. The in-process number measures the harness, not the code.)
 - **The placement matrix's cell-13 entries now assert FAIL-CLOSED positively**
   instead of carrying a strict `xfail` on "expected REDACTED". The xfail could
   not tell a safe abort from a leak: `_classify` returns `FAIL-CLOSED` and

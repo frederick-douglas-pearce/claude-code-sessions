@@ -132,17 +132,20 @@ BASE = {
     "timestamp": "2026-08-19T00:00:00.000Z",
 }
 
-# Cells whose verdict is knowingly not REDACTED today, with the issue that
-# tracks each and the reason. Keyed (cell, payload_label); the value carries
-# its own explanation so a second entry cannot inherit the first one's
-# wording. Every entry is a strict xfail: when the tracked issue is fixed the
-# cell starts passing, the strict xfail turns red, and whoever fixed it is
-# forced to remove the entry rather than leaving a stale exemption behind.
+# Cells that SHOULD redact and do not yet, with the issue that tracks each and
+# the reason. Keyed (cell, payload_label); the value carries its own
+# explanation so a second entry cannot inherit the first one's wording. Every
+# entry is a strict xfail: when the tracked issue is fixed the cell starts
+# passing, the strict xfail turns red, and whoever fixed it is forced to remove
+# the entry rather than leaving a stale exemption behind.
 #
-# The secret row is here too. It is SAFE today -- a secret in a dict key
-# still trips the residual scan and fails closed -- but "safe" is not the
-# contract this module asserts, and silently accepting FAIL-CLOSED is what
-# let a brick binary pass. It gets an entry like any other deviation.
+# THIS IS THE WRONG MAPPING FOR A CELL THAT IS FAIL-CLOSED BY DESIGN -- use
+# FAIL_CLOSED_BY_DESIGN below. The distinction is not bookkeeping: a strict
+# xfail here asserts only "not REDACTED", and FAIL-CLOSED and LEAKED both
+# satisfy that, so an entry parked here cannot tell a safe abort from a leak.
+# The four `13-dict-key-not-value` entries -- the three PII payloads AND the
+# secret one -- used to live here for exactly that reason and moved out in
+# #190. Do not move them back.
 KNOWN_DEVIATIONS: dict[tuple[str, str], tuple[int, str]] = {
     # DELIBERATELY EMPTY. The four `13-dict-key-not-value` entries that lived
     # here moved to FAIL_CLOSED_BY_DESIGN below when #190 was scoped to

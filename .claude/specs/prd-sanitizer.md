@@ -151,9 +151,12 @@ fields are skip-listed so the parent/subagent graph stays linkable). Scanning re
 every such session at exit 2 with nothing mis-scrubbed, and with no override the config could never
 scrub any file at all.
 
-So for regex rules, #190 remains open — dict keys are still never visited, and the oracle does not
-re-verify a `re:` rule, so a value in a key survives silently — and that is a known, recorded limit
-rather than a silent one. (#194's mechanism is closed: its positions are now visited and scrubbed in-walk under
+So for regex rules the dict-key position is still open — keys are never visited by the walk, and the
+oracle does not re-verify a `re:` rule, so a value in a key survives silently — and that is a known,
+recorded limit rather than a silent one. **The gap is tracked as #198** (regex re-verification),
+with #208 carrying the separate question of making the key position *scrubbable*. #190, which
+originally carried both, was scoped to detect-only and is closed: see §6b B, which states what the
+walk does and does not reach and why. (#194's mechanism is closed: its positions are now visited and scrubbed in-walk under
 both rule kinds.) Scanning the **decoded** tree rather than the serialized text is the other half of this
 amendment and is not cosmetic: rules match decoded leaf values, so a serialized-domain scan was
 blind to every value containing a backslash, a quote or a control character — a Windows home
