@@ -282,6 +282,79 @@ def test_value_in_a_dict_key_aborts_rather_than_writing(tmp_path: Path) -> None:
         sanitize_session(lines, config)
 
 
+def test_value_in_a_NESTED_dict_key_aborts_rather_than_writing(tmp_path: Path) -> None:
+    """#190 AC-1. A key inside ANOTHER key's value -- the depth the suite missed.
+
+    Every other key-position test in this module plants the key exactly one
+    level deep (``toolUseResult.<key>``), and the nearest nested test,
+    ``test_nested_value_under_tool_input_is_redacted``, plants a nested
+    *value*, which is #194's shape rather than this one. So "the oracle reaches
+    a key at any depth" was a property nothing here asserted.
+
+    It holds because ``_iter_decoded_strings`` recurses into a dict's values
+    after yielding its keys (``residual.py``), not because anything about the
+    one-deep case generalizes on its own -- which is exactly why it needs its
+    own cell.
+
+    THAT THIS CELL IS LOAD-BEARING WAS MEASURED, NOT ASSERTED. Monkeypatching
+    ``_iter_decoded_strings`` to stop yielding keys below depth 2 -- so
+    ``toolUseResult.<key>`` is still scanned and ``toolUseResult.outer.<key>``
+    is not -- kills THIS TEST AND NOTHING ELSE: 1 failed, 501 passed, 4 xfailed
+    across the sanitizer suite. Note the sibling one-deep test above does NOT
+    cover it: its key sits at depth 2, so the same mutation leaves it green.
+
+    Asserts the SECTION AND INDEX, not merely that something raised: the
+    mechanism under test is *which rule the oracle attributes the survivor to*,
+    and a bare ``pytest.raises`` would stay green if the scan started blaming
+    the wrong rule.
+    """
+    config = _config(tmp_path, _BASE_CONFIG)
+    lines = [
+        _line(
+            {
+                "type": "user",
+                "toolUseResult": {
+                    "outer": {f"{_REAL_USER_HOME}/notes.md": {"size": 42}}
+                },
+            }
+        )
+    ]
+    with pytest.raises(ResidualRuleError) as excinfo:
+        sanitize_session(lines, config)
+    assert excinfo.value.section == "paths"
+    assert excinfo.value.index == 0
+
+
+def test_nested_dict_key_under_a_regex_rule_still_leaks(tmp_path: Path) -> None:
+    """#190 AC-1, the other direction -- and it documents a LIVE defect, #198.
+
+    The oracle skips ``re:`` rules (``residual.py``, ``if not rule.is_regex``),
+    and the walk never visits a key, so for a regex config the two layers miss
+    the same position: **exit 0, the value present in the written output, and a
+    sidecar reporting a clean run**. That is the population #190 could not close
+    without a traversal change, and #208 was split out to carry that work.
+
+    This asserts the leak on purpose. When #198 lands, this assertion INVERTS
+    -- the same way ``test_value_under_a_formerly_skip_listed_name_in_tool_
+    input_is_redacted`` inverted when #194 was fixed -- and a red test here is
+    the intended signal that the gap closed, not a regression.
+    """
+    config = _config(tmp_path, _REGEX_CONFIG)
+    lines = [
+        _line(
+            {
+                "type": "user",
+                "toolUseResult": {
+                    "outer": {f"{_REAL_USER_HOME}/notes.md": {"size": 42}}
+                },
+            }
+        )
+    ]
+    out, _, subtable, _ = sanitize_session(lines, config)
+    assert _REAL_USER_HOME in out[0]
+    assert list(subtable) == []
+
+
 @pytest.mark.parametrize(
     "field",
     [

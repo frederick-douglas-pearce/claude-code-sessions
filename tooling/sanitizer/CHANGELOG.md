@@ -128,13 +128,69 @@ corpus, and ablation-tests each entry against a config whose rule matches the
 value at that position. What nothing here catches is a genuinely new format
 position with an unfamiliar name.
 
-**Publish is deliberately held.** `__version__` is 0.4.0 as of this change.
-The PyPI release waits for both known traversal gaps to carry *coverage*
-rather than only *refusal*, so that is what the first version a `pip` user
-sees. **#194 has landed** (this release); **#190 has not**, so the hold stands
-on #190 alone. #195 anticipated this ("one 0.4.0 release covers both"); the
-decision to hold the publish rather than release twice is recorded here so a
-later reader does not read the version bump as a missed release.
+**Publish is deliberately held, and #190 changed what the hold is waiting
+for.** `__version__` is 0.4.0 as of this change. The hold was originally
+written as "wait for both known traversal gaps to carry *coverage* rather than
+only *refusal*", with **#194 landed** (this release) and #190 outstanding.
+
+**#190 has now landed and does not satisfy that condition** — it was scoped to
+**detect-only**, so the dict-key position carries **refusal only**, and will
+until **#208** makes it scrubbable. So the hold's original wording can no
+longer be met by anything in this release. Two readings are open and the
+maintainer decides which:
+
+- **Release 0.4.0 now**, accepting that one of the two traversal gaps ships
+  refusal-only. Everything the hold was protecting against — a `pip` user
+  meeting a *silent* leak — is already closed for literal rules by #195; the
+  residual is a *refusal*, which is loud.
+- **Transfer the hold to #208**, keeping the original "coverage, not refusal"
+  bar. Note this also implicates **#198**, since regex keys are neither
+  scrubbed nor refused today.
+
+Recorded rather than resolved here so a later reader does not read the version
+bump as a missed release, and does not read the hold as still meaning what it
+said before #190 was rescoped.
+
+### Changed (issue #190 — dict keys are never transformed; scoped to detect-only)
+
+**No behavior change, and that is the decision rather than an oversight.** This
+entry records a *scope* ruling and the test/spec work that follows from it, so
+the bump trigger under Bump policy does not fire: no rule, no traversal, no
+serialization parameter and no sidecar field moved. Output bytes are identical
+by construction.
+
+- **The dict-key position stays unreachable by the walk, on purpose.** Keys
+  carry structural meaning and are re-emitted verbatim; scrubbing them would
+  change document *shape*, and two keys scrubbing to the same placeholder
+  **silently merge** — verified: two distinct `toolUseResult` keys collapse to
+  one entry, the first record gone, with no exception and no sidecar entry.
+- **Safety at that position is owned by the output-side oracle, not the walk.**
+  For a **literal** rule #195 already catches the survivor and aborts (exit 2,
+  nothing written). `scan_residual_rules` walks keys as well as leaves, so this
+  holds at any depth — now asserted rather than assumed, see below.
+- **What this costs the user, stated plainly:** a session legitimately carrying
+  a configured value in a dict key **cannot be published at all**. There is no
+  override. Making the position scrubbable is **#208**.
+- **The remaining hole is `re:` rules**, which the oracle deliberately does not
+  re-verify and the walk never visits — so a regex config still writes the
+  value with a sidecar reporting a clean run. **#198** closes it; a test now
+  asserts that leak explicitly so the fix inverts it visibly.
+- **PRD §6b Step B amended.** It specified the walk applies rules "to every
+  **string-valued leaf**" with no statement that a key is not one, so the next
+  implementer would have re-derived the current behavior as a bug.
+- **Nested key coverage added.** Every existing key-position test planted the
+  key exactly one level deep, and the nearest nested test planted a nested
+  *value* (#194's shape). Measured: making the scan stop yielding keys below
+  depth 2 killed the new test **and nothing else** — 1 failed, 501 passed
+  across the sanitizer suite.
+- **The placement matrix's cell-13 entries now assert FAIL-CLOSED positively**
+  instead of carrying a strict `xfail` on "expected REDACTED". The xfail could
+  not tell a safe abort from a leak: `_classify` returns `FAIL-CLOSED` and
+  `LEAKED` for opposite outcomes and **both** fail the `== "REDACTED"`
+  assertion, so both satisfied the xfail. Measured by forcing cell 13 to
+  `LEAKED`: pre-change **1 failed, 75 passed, 4 xfailed** — only the `secret`
+  payload was caught, by a separate unconditional assertion, while the three
+  PII payloads leaked with the suite green. Post-change, all four cells fail.
 
 ### Fixed (issue #194 — the skip-list exempted user data inside tool inputs)
 - **The traversal skip-list is now an allow-list of ROOT-ANCHORED paths.** It

@@ -281,6 +281,26 @@ Each surviving line is walked **structurally**: the parsed JSON object is traver
 and rules are applied to every **string-valued leaf**, governed by an explicit **skip-list** of
 fields left untouched:
 
+> **"String-valued leaf" is exact, and a dict KEY is not one (#190).** The walk extends the JSON
+> path with each key and re-emits the key verbatim; it is never passed to `transform`. So a
+> configured `paths`/`identifiers` match value sitting in a key is a position this step **cannot
+> reach**, by design rather than by omission — rewriting keys changes document *shape*, and two
+> keys scrubbing to the same placeholder would silently merge, dropping a record with no
+> exception and no sidecar entry.
+>
+> **That position is covered by the output-side residual scan instead, not by this step** (§5,
+> "the role of the post-scrub residual scan"). For a **literal** rule the value survives into the
+> serialized output, `scan_residual_rules` sees it — §5 states that the re-run covers "every string
+> leaf *and every dict key*" — and the run **aborts at exit 2 writing nothing**.
+> The result is safe but **not publishable**: there is no override, so a session carrying such a
+> key cannot be sanitized at all. Making the position *scrubbable* is deliberately out of scope
+> here and tracked in **#208**.
+>
+> **The gap that remains is `re:` rules.** The oracle deliberately does not re-verify a regex rule
+> ("present in the output" means "leaked" for a literal value and not for a shape), and this step
+> never visits the key — so for a regex config the two layers miss the same position and the value
+> is written with the sidecar reporting a clean run. **#198** closes it.
+
 - **Skip-list (never scrubbed):** an **allow-list of ROOT-ANCHORED paths**. An entry is an
   exact path from the line object (list indices elided, as `walk_strings` elides them). A path
   not on the list is **visited and scrubbed**.
