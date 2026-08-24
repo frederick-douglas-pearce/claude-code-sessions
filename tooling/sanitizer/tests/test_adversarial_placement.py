@@ -34,7 +34,9 @@ Verdict vocabulary, and why the assertion is exact:
   REDACTED     Output written, exit 0, value gone. The ONLY passing verdict.
   FAIL-CLOSED  Exit 2 (PRD section 11 safety failure) and no output. Safe,
                but degraded: the transform missed and the residual scan
-               caught it. Not accepted as a pass.
+               caught it. Never a pass for `test_placement_is_redacted` --
+               but it IS the asserted outcome for the cells in
+               FAIL_CLOSED_BY_DESIGN, where it is the design and not a miss.
   ERROR-<rc>   Any other nonzero exit with no output. A broken CLI, not a
                safety outcome.
   LEAKED       Output written, exit 0, value present. The unacceptable one.
@@ -45,9 +47,17 @@ of this file and it meant a stub binary consisting of `echo boom >&2; exit
 1` passed 54 of 57 assertions, because every cell read as FAIL-CLOSED and
 FAIL-CLOSED read as safe. Ordinary regressions produce exactly that shape:
 a renamed flag (exit 1), a config-schema change (exit 3), a re-run hitting
-`output already exists` (exit 1). Every known deviation from REDACTED is
-therefore an explicit, issue-tagged `xfail(strict=True)` entry rather than
-a blanket allowance.
+`output already exists` (exit 1). Every departure from REDACTED is
+therefore explicit and issue-tagged rather than a blanket allowance, in one
+of two forms that must not be confused:
+
+  KNOWN_DEVIATIONS      a position that SHOULD redact and does not yet.
+                        `xfail(strict=True)`, so the fix turns it red.
+  FAIL_CLOSED_BY_DESIGN a position that is fail-closed on purpose. Asserted
+                        POSITIVELY as `== "FAIL-CLOSED"`, because a strict
+                        xfail on "expected REDACTED" is satisfied by LEAKED
+                        just as well as by FAIL-CLOSED -- so it cannot tell a
+                        safe abort from the leak this module exists to catch.
 
 Why this drives the console script instead of importing the orchestrator:
 PRD D-5a declares the module surface private and the CLI + sidecar the
@@ -92,8 +102,11 @@ EMAIL = "test" + ".person@" + "example.net"
 NAME = "Testy " + "McTestface"
 
 # The secret is caught by a built-in pattern and needs no config. The three
-# PII payloads are config-driven, which is exactly the asymmetry #190 is
-# about: nothing re-scans the output for these after the fact.
+# PII payloads are config-driven, which used to be the asymmetry #190 was
+# about: nothing re-scanned the output for those after the fact. **#195 closed
+# that for LITERAL rules** -- `scan_residual_rules` re-runs them over the
+# decoded output, keys included. The asymmetry that remains is narrower: a
+# `re:` rule is still scrub-only (#198).
 PAYLOADS = {
     "secret": SECRET,
     "pii-home": HOME,
@@ -122,51 +135,79 @@ BASE = {
     "timestamp": "2026-08-19T00:00:00.000Z",
 }
 
-# Cells whose verdict is knowingly not REDACTED today, with the issue that
-# tracks each and the reason. Keyed (cell, payload_label); the value carries
-# its own explanation so a second entry cannot inherit the first one's
-# wording. Every entry is a strict xfail: when the tracked issue is fixed the
-# cell starts passing, the strict xfail turns red, and whoever fixed it is
-# forced to remove the entry rather than leaving a stale exemption behind.
+# Cells that SHOULD redact and do not yet, with the issue that tracks each and
+# the reason. Keyed (cell, payload_label); the value carries its own
+# explanation so a second entry cannot inherit the first one's wording. Every
+# entry is a strict xfail: when the tracked issue is fixed the cell starts
+# passing, the strict xfail turns red, and whoever fixed it is forced to remove
+# the entry rather than leaving a stale exemption behind.
 #
-# The secret row is here too. It is SAFE today -- a secret in a dict key
-# still trips the residual scan and fails closed -- but "safe" is not the
-# contract this module asserts, and silently accepting FAIL-CLOSED is what
-# let a brick binary pass. It gets an entry like any other deviation.
+# THIS IS THE WRONG MAPPING FOR A CELL THAT IS FAIL-CLOSED BY DESIGN -- use
+# FAIL_CLOSED_BY_DESIGN below. The distinction is not bookkeeping: a strict
+# xfail here asserts only "not REDACTED", and FAIL-CLOSED and LEAKED both
+# satisfy that, so an entry parked here cannot tell a safe abort from a leak.
+# The four `13-dict-key-not-value` entries -- the three PII payloads AND the
+# secret one -- used to live here for exactly that reason and moved out in
+# #190. Do not move them back.
 KNOWN_DEVIATIONS: dict[tuple[str, str], tuple[int, str]] = {
+    # DELIBERATELY EMPTY. The four `13-dict-key-not-value` entries that lived
+    # here moved to FAIL_CLOSED_BY_DESIGN below when #190 was scoped to
+    # detect-only; see that mapping for why an xfail was the wrong shape for
+    # them. The mapping and its consistency test stay for the next genuine
+    # deviation -- a position that SHOULD redact and does not.
+}
+
+
+# Positions that are fail-closed BY DESIGN, not pending a fix (#190, #208).
+#
+# WHY THESE ARE NOT `KNOWN_DEVIATIONS` ENTRIES, which is the whole point of
+# AC-2: a strict xfail on `test_placement_is_redacted` asserts only that the
+# cell is NOT REDACTED. `_classify` returns "FAIL-CLOSED" for a safe abort and
+# "LEAKED" for a written output still carrying the payload -- and BOTH fail the
+# `== "REDACTED"` assertion, so both satisfy the xfail. A regression from
+# FAIL-CLOSED to LEAKED at these cells would have been reported as an expected
+# failure and gone unnoticed.
+#
+# The secret payload was already covered: `test_secret_never_survives_any_
+# placement` asserts REDACTED-or-FAIL-CLOSED over every cell unconditionally.
+# The three PII payloads had NO positive assertion at all, which is the hole
+# this mapping closes.
+#
+# These cells stay fail-closed until #208 makes the key position scrubbable.
+# When it does, this mapping is what goes red and forces the update -- the same
+# forcing function the strict xfail provided, now pointed at the right verdict.
+FAIL_CLOSED_BY_DESIGN: dict[tuple[str, str], tuple[int, str]] = {
     ("13-dict-key-not-value", "pii-home"): (
-        190,
+        208,
         "dict keys are never transformed, so a config-driven rule cannot "
-        "reach this position. As of #195 this fails closed rather than "
-        "leaking -- the output-side oracle catches the survivor and aborts "
-        "(exit 2, nothing written), so the verdict is FAIL-CLOSED, not "
-        "LEAKED. #190 stays open because the file is still unscrubbable: "
-        "safe, but the user cannot publish it at all",
+        "reach this position. #195's output-side oracle catches the survivor "
+        "and aborts (exit 2, nothing written). #190 was scoped to detect-only, "
+        "so this is the designed outcome, not a pending fix: the file is safe "
+        "and deliberately not publishable. #208 carries the scrub work",
     ),
     ("13-dict-key-not-value", "pii-email"): (
-        190,
+        208,
         "dict keys are never transformed, so a config-driven rule cannot "
-        "reach this position. As of #195 this fails closed rather than "
-        "leaking -- the output-side oracle catches the survivor and aborts "
-        "(exit 2, nothing written), so the verdict is FAIL-CLOSED, not "
-        "LEAKED. #190 stays open because the file is still unscrubbable: "
-        "safe, but the user cannot publish it at all",
+        "reach this position. #195's output-side oracle catches the survivor "
+        "and aborts (exit 2, nothing written). #190 was scoped to detect-only, "
+        "so this is the designed outcome, not a pending fix: the file is safe "
+        "and deliberately not publishable. #208 carries the scrub work",
     ),
     ("13-dict-key-not-value", "pii-name"): (
-        190,
+        208,
         "dict keys are never transformed, so a config-driven rule cannot "
-        "reach this position. As of #195 this fails closed rather than "
-        "leaking -- the output-side oracle catches the survivor and aborts "
-        "(exit 2, nothing written), so the verdict is FAIL-CLOSED, not "
-        "LEAKED. #190 stays open because the file is still unscrubbable: "
-        "safe, but the user cannot publish it at all",
+        "reach this position. #195's output-side oracle catches the survivor "
+        "and aborts (exit 2, nothing written). #190 was scoped to detect-only, "
+        "so this is the designed outcome, not a pending fix: the file is safe "
+        "and deliberately not publishable. #208 carries the scrub work",
     ),
     ("13-dict-key-not-value", "secret"): (
-        190,
+        208,
         "dict keys are never transformed, so the secret transform misses it "
-        "and the residual scan catches it instead -- safe, but degraded. "
-        "Unchanged by #195: this cell already failed closed, via the secret "
-        "residual scan rather than the new rule oracle",
+        "and `scan_residual` catches it instead -- safe, but degraded. Unlike "
+        "the three PII cells this one was already positively asserted by "
+        "test_secret_never_survives_any_placement; it is listed here so the "
+        "cell's four payloads carry one consistent explanation",
     ),
 }
 
@@ -567,6 +608,11 @@ def verdicts(tmp_path_factory) -> dict[tuple[str, str], str]:
 def _params():
     for label in PAYLOADS:
         for cell in CELLS:
+            if (cell, label) in FAIL_CLOSED_BY_DESIGN:
+                # Not a deviation from REDACTED awaiting a fix, so not an
+                # xfail. Asserted positively by
+                # test_fail_closed_by_design_cells_actually_fail_closed.
+                continue
             entry = KNOWN_DEVIATIONS.get((cell, label))
             marks = ()
             if entry is not None:
@@ -634,6 +680,55 @@ def test_secret_never_survives_any_placement(verdicts) -> None:
     assert not bad, f"secret reached a written output or a broken exit at: {bad}"
 
 
+@pytest.mark.parametrize(
+    "cell,label",
+    sorted(FAIL_CLOSED_BY_DESIGN),
+    ids=lambda v: v if isinstance(v, str) else str(v),
+)
+def test_fail_closed_by_design_cells_actually_fail_closed(
+    verdicts, cell: str, label: str
+) -> None:
+    """#190 AC-2. Assert the verdict these cells DO have, not merely that it
+    is not REDACTED.
+
+    The strict xfail these entries used to carry asserted `not REDACTED`, and
+    `_classify` has two non-REDACTED verdicts that mean opposite things:
+    FAIL-CLOSED (exit 2, nothing written -- safe) and LEAKED (output written,
+    payload present -- the thing the whole module exists to catch). Both fail
+    the `== "REDACTED"` assertion, so both satisfied the xfail. A regression
+    from FAIL-CLOSED to LEAKED at these cells was reported as an expected
+    failure.
+
+    Exact equality, for the reason the module docstring gives about the
+    permissive form: ERROR-<rc> from a broken invocation must not read as a
+    safety outcome either.
+    """
+    verdict = verdicts[(label, cell)]
+    issue, why = FAIL_CLOSED_BY_DESIGN[(cell, label)]
+    assert verdict == "FAIL-CLOSED", (
+        f"cell {cell} with {label} returned {verdict}, expected FAIL-CLOSED. "
+        f"If #{issue} made this position scrubbable for this payload, the "
+        f"verdict is now REDACTED: delete this entry from "
+        f"FAIL_CLOSED_BY_DESIGN so the cell rejoins "
+        f"test_placement_is_redacted. Note #{issue} leaves it explicitly "
+        f"undecided whether keys run the SECRET layer too, so the `secret` "
+        f"payload may legitimately stay FAIL-CLOSED while the three PII "
+        f"payloads move. If the verdict is LEAKED, that is the leak this "
+        f"module exists to catch. ({why})"
+    )
+
+
+def test_no_cell_is_both_a_deviation_and_fail_closed_by_design() -> None:
+    """The two mappings partition; an overlap would silently win one way.
+
+    A cell in both would be skipped by `_params` (so its xfail never applies)
+    AND asserted FAIL-CLOSED -- readable as either, which is how a tracked
+    deviation quietly becomes something else.
+    """
+    overlap = set(KNOWN_DEVIATIONS) & set(FAIL_CLOSED_BY_DESIGN)
+    assert not overlap, f"cells listed in both mappings: {overlap}"
+
+
 def test_module_docstring_cell_count_is_current() -> None:
     """The docstring's cell count is a claim, so pin it like any other.
 
@@ -649,15 +744,23 @@ def test_module_docstring_cell_count_is_current() -> None:
     )
 
 
-def test_known_deviations_reference_real_cells() -> None:
-    """A cell rename must not silently delete a tracked deviation.
+def test_deviation_mappings_reference_real_cells() -> None:
+    """A cell rename must not silently detach an entry in EITHER mapping.
 
     KNOWN_DEVIATIONS is consulted with .get(), so a renamed cell id makes an
-    entry stop matching. Today that would go red (the leak is real), but a
-    future entry for a different cell would silently stop applying and turn
-    a tracked known-leak into an untracked one with no signal.
+    entry stop matching, silently turning a tracked known-leak into an
+    untracked one with no signal. FAIL_CLOSED_BY_DESIGN fails louder but
+    worse -- see the comment below.
     """
-    unknown_cells = {c for c, _ in KNOWN_DEVIATIONS} - set(CELLS)
-    assert not unknown_cells, f"KNOWN_DEVIATIONS names cells that do not exist: {unknown_cells}"
-    unknown_labels = {l for _, l in KNOWN_DEVIATIONS} - set(PAYLOADS)
-    assert not unknown_labels, f"KNOWN_DEVIATIONS names payloads that do not exist: {unknown_labels}"
+    for name, mapping in (
+        ("KNOWN_DEVIATIONS", KNOWN_DEVIATIONS),
+        # FAIL_CLOSED_BY_DESIGN is consulted with `in` by `_params`, so a
+        # renamed cell there does not merely stop matching -- the cell silently
+        # rejoins test_placement_is_redacted and starts asserting REDACTED at a
+        # position that cannot redact. Same failure shape, louder consequence.
+        ("FAIL_CLOSED_BY_DESIGN", FAIL_CLOSED_BY_DESIGN),
+    ):
+        unknown_cells = {c for c, _ in mapping} - set(CELLS)
+        assert not unknown_cells, f"{name} names cells that do not exist: {unknown_cells}"
+        unknown_labels = {l for _, l in mapping} - set(PAYLOADS)
+        assert not unknown_labels, f"{name} names payloads that do not exist: {unknown_labels}"

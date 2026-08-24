@@ -181,9 +181,12 @@ def scan_residual_rules(
     newline, which JSON escapes. Tracked in #198.) Paths and identifiers had no
     such pass, so
     any traversal gap leaked **silently** -- exit 0, output written, sidecar
-    reporting ``residual_scan: clean``. One such gap is open (#190: dict keys
-    are never visited); #194, the skip-list exempting user data at any depth,
-    is closed for the bare-name MECHANISM -- those positions are now visited
+    reporting ``residual_scan: clean``. One such gap is open: dict keys are
+    never visited by the walk, and this scan skips ``re:`` rules, so under a
+    regex config a value in a key still leaks (#198; #208 covers making the
+    position scrubbable, and #190 -- which originally carried both -- was
+    scoped to detect-only and is closed). #194, the skip-list exempting user
+    data at any depth, is closed for the bare-name MECHANISM -- those positions are now visited
     and scrubbed. Say "the mechanism", not "the class": five of the 29
     allow-listed paths sit inside ``toolUseResult``, which is a tool-shaped
     envelope, so a tool whose result carries a top-level ``agentId`` or a
