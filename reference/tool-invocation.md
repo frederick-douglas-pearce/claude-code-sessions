@@ -1,6 +1,6 @@
 # Tool Invocation
 
-The canonical walkthrough of the `tool_use` → `tool_result` cycle in Claude Code's JSONL session format: how the pairing works, what the sibling `toolUseResult` envelope carries per tool, how the `Agent` tool differs, and how to parse error and parallel-call patterns.
+The canonical walkthrough of the `tool_use` → `tool_result` cycle in Claude Code's JSONL session format: how the pairing works, how a turn is laid out across lines, what the sibling `toolUseResult` envelope carries per tool, how the `Agent` tool differs, where oversized results spill to, and how to parse error and parallel-call patterns.
 
 This doc is the depth layer to the brief [Tool invocation pattern](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#tool-invocation-pattern) section in [`data-dictionary.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md). Field-level definitions live there; this doc walks the pattern end-to-end and breaks the `toolUseResult` envelope out by tool.
 
@@ -114,7 +114,7 @@ The **Agent SDK** exposes a different built-in tool surface; tools listed here a
 
 ### Built-in tools (Claude Code v2.1.243)
 
-The set has grown substantially past the v2.1.150 baseline this doc was first written against. Names below were observed in `tool_use.name` across the scan corpus.
+The set has grown substantially past the v2.1.150 baseline this doc was first written against. Names below were observed in `tool_use.name` across the scan corpus, except where a row says otherwise.
 
 **File and shell:**
 
