@@ -1,0 +1,50 @@
+slug = "2026-08-25-linkedin-the-tool-call-completely"
+
+title = ["The tool call, completely"]
+
+subhead = "The pair is the unit. The line is not."
+
+json_sample = """
+{
+  "type": "assistant",
+  "requestId": "req_017Xq",
+  "message": {
+    "content": [{"type": "tool_use", "id": "toolu_01"}],
+    "stop_reason": "tool_use"
+  }
+}
+{
+  "type": "user",
+  "message": {
+    "content": [
+      {"type": "tool_result", "tool_use_id": "toolu_01"}
+    ]
+  }
+}
+"""
+
+notes = """
+Part 5. The hero is the two-line cycle: a tool_use block on an assistant line
+paired to a tool_result block on a user line by a shared id. That pairing is the
+post's central framing (the smallest semantically complete unit of agent
+activity), so the repeated "toolu_01" is the thing the eye should catch.
+
+requestId is included deliberately even though the pairing does not need it. It
+is the post's headline correction: Claude Code writes one JSONL line per content
+block, so the blocks of one turn share a requestId rather than a line, and the
+documented "count tool_use blocks per assistant line" method finds 4 parallel
+turns in a corpus containing 9,257. Putting requestId on the card seeds that
+idea without needing to explain it.
+
+Subhead does double duty for both readings. "The pair is the unit" is the
+two-line cycle. "The line is not" is the block-splitting correction.
+
+Data is synthetic: hand-fabricated ids in the toolu_NNN / req_NNNNN shape used
+by fixtures/synthetic/, no real session content.
+
+Line budget: 15 lines. The first render warned that two lines (the inlined
+assistant content array and the tool_result object) overran the window right
+edge by 32px at 59 chars. Fixed by dropping the inner brace padding on those two
+inline objects and shortening the ids to "toolu_01", which brings both to 56
+chars. requestId was kept, per the reasoning above.
+"""
