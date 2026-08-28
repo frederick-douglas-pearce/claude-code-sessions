@@ -40,7 +40,7 @@ When a session produces data that doesn't belong inline, Claude Code writes it u
 ```
 
 - **`subagents/`** — each subagent invocation produces a trace file plus a small `agent-<agentId>.meta.json` manifest (keys: `agentType`, `description`, `toolUseId`, `spawnDepth`, `model`, `name`, `worktreePath`, `worktreeBranch`, `spawnedWithWorktree`, `worktreeCleanlyRemoved`, `parentAgentId` — only `agentType` is guaranteed, and `spawnDepth` appears from v2.1.187). The `agentId` in the trace file name matches the `toolUseResult.agentId` on the parent session's user message that carried the subagent's `tool_result`. The directory is **flat at every nesting depth** in both runtimes, so it carries no parent or depth information. Note the casing split: the manifest uses `toolUseId` while session lines use `toolUseID`. Full treatment in [`subagent-traces.md` § File layout](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#file-layout).
-- **`tool-results/`** — when a tool result is large (observed spill ≈ 20 KB and up), the in-session `tool_result.content` carries a `<persisted-output>` wrapper with a truncated preview, and the full payload is written here, named after the producing tool call. The in-JSONL reference is that text wrapper, not a dedicated pointer key. Full treatment in [`tool-invocation.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/tool-invocation.md).
+- **`tool-results/`** — when a tool result is large (observed spill ≈ 20 KB and up), the in-session `tool_result.content` carries a `<persisted-output>` wrapper with a truncated preview, and the full payload is written here, named after the producing tool call. The `tool_result` block itself carries no pointer key — only that text wrapper — but the sibling `toolUseResult` envelope does: `persistedOutputPath` and `persistedOutputSize`, since v2.1.109. Full treatment in [`tool-invocation.md` § Spilled tool results](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/tool-invocation.md#spilled-tool-results).
 
 See [Subagent traces](#subagent-traces) below for the line-level shape of the trace files.
 
@@ -209,7 +209,9 @@ The shape is **tool-dependent** — different tools populate different keys. A u
 | `type` | string | Tool-specific | Tool-specific subtype indicator. |
 | `codeText` | string | Code-bearing tools | Code content returned by the tool. |
 
-This envelope is one of the highest-information surfaces in the format. The Agent-tool subset (`agentId`, `totalDurationMs`, `totalTokens`, `toolStats`, `agentType`, `prompt`) is the most stable and most analyzed — it's what AgentFluent uses for agent-quality diagnostics. Full per-tool walkthroughs belong in [`tool-invocation.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/tool-invocation.md) (forthcoming).
+> **Four rows above are superseded (2026-08-25, [#210](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/210)).** A v2.1.243 observational scan found no `code` key on `Bash`, no `bytes` or `isImage` on `Read` (whose envelope is nested under a `file` object), and none of `query` / `matches` / `searchCount` / `results` on `Grep` or `Glob`. The corrected per-tool tables, with observed counts, are in [`tool-invocation.md` § The `toolUseResult` envelope by tool](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/tool-invocation.md#the-tooluseresult-envelope-by-tool). Reconciling this union table against that scan is tracked separately; until it lands, prefer the per-tool tables.
+
+This envelope is one of the highest-information surfaces in the format. The Agent-tool subset (`agentId`, `totalDurationMs`, `totalTokens`, `toolStats`, `agentType`, `prompt`) is the most stable and most analyzed — it's what AgentFluent uses for agent-quality diagnostics. Full per-tool walkthroughs live in [`tool-invocation.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/tool-invocation.md).
 
 #### `toolStats` shape
 
@@ -436,7 +438,7 @@ The `tool_use` → `tool_result` cycle is how every tool call is recorded:
 
 The `Agent` tool is structurally identical to other tools at the parent-session level, but additionally produces its own subagent JSONL file (see [Subagent traces](#subagent-traces)). The `toolUseResult.agentId` on the parent's user line is the link.
 
-A full walkthrough — covering edge cases like interrupted tool calls, parallel tool invocations, and the subagent trace file's relationship to the parent envelope — belongs in [`tool-invocation.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/tool-invocation.md) (forthcoming).
+A full walkthrough — covering edge cases like interrupted tool calls, parallel tool invocations, and the subagent trace file's relationship to the parent envelope — lives in [`tool-invocation.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/tool-invocation.md).
 
 ---
 

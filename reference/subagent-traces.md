@@ -55,7 +55,7 @@ A session that delegates work grows a `<session-uuid>/` directory beside its `<s
 | `subagents/` | The session's subagent-files directory. Present when the session invoked at least one subagent. |
 | `agent-<agentId>.jsonl` | The subagent trace. One file per subagent invocation. The `<agentId>` segment in the file name is the same UUID that appears in the parent's `toolUseResult.agentId` on the `user` line that carried the subagent's `tool_result`. |
 | `agent-<agentId>.meta.json` | A small manifest written beside each trace. See [The `meta.json` manifest](#the-metajson-manifest). |
-| `tool-results/` | Sibling to `subagents/`. Holds large tool outputs spilled out of the session JSONL — **not** subagent-specific. See [Spilled tool results](#spilled-tool-results) below, and [`tool-invocation.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/tool-invocation.md) for the full mechanism. |
+| `tool-results/` | Sibling to `subagents/`. Holds large tool outputs spilled out of the session JSONL — **not** subagent-specific. See [Spilled tool results](#spilled-tool-results) below, and [`tool-invocation.md` § Spilled tool results](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/tool-invocation.md#spilled-tool-results) for the full mechanism. |
 
 A subagent **invocation** (one `Agent` `tool_use` from the parent) maps to exactly one trace file plus its manifest. If the parent invokes the same `subagent_type` multiple times in the same session, you get multiple pairs — one per invocation, each with its own `agentId`.
 
@@ -87,11 +87,16 @@ Note that `spawnDepth` is the only integer and the two `worktree*` flags are the
 
 ### Spilled tool results
 
-**Verified against Claude Code v2.1.150.** Directory presence, file-size band, and the in-content wrapper were confirmed by the observational scan (89 spilled files across 40 sessions).
+**Verified against Claude Code v2.1.243.** Directory presence, file-size band, and the in-content wrapper were confirmed by an observational scan (89 spilled files across 40 sessions); the envelope pointer keys were added from the 2026-08-25 scan ([#210](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/210)).
 
-Alongside `subagents/`, a session often grows a `tool-results/` directory. It is **not** subagent-specific: it holds *large* tool outputs that would otherwise bloat a single JSONL line. When a tool result is big, the in-session `tool_result` content carries a `<persisted-output>` wrapper with a truncated preview, and the full payload lands in `tool-results/`, named after the tool call that produced it (`<tool-use-id>.txt` or `.json`). Observed spilled files ranged from ~20 KB to ~860 KB (median ~64 KB), implying a spill threshold near 20 KB. The in-JSONL reference is that plain-text `<persisted-output>` wrapper inside `tool_result.content` — **not** a dedicated JSON pointer key (the scan's tool_result-line key set carries no spill-pointer field).
+Alongside `subagents/`, a session often grows a `tool-results/` directory. It is **not** subagent-specific: it holds *large* tool outputs that would otherwise bloat a single JSONL line. When a tool result is big, the in-session `tool_result` content carries a `<persisted-output>` wrapper with a truncated preview, and the full payload lands in `tool-results/`, named after the tool call that produced it (`<tool-use-id>.txt` or `.json`). Observed spilled files ranged from ~20 KB to ~860 KB (median ~64 KB), implying a spill threshold near 20 KB. There are two in-JSONL references to a spilled payload, at two different levels, and the distinction matters:
 
-This is a tool-invocation concern, not a subagent one; it is documented in full in [`tool-invocation.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/tool-invocation.md). It appears here only so the `<session-uuid>/` directory listing makes sense.
+- **Inside the `tool_result` block** there is no pointer key — only the plain-text `<persisted-output>` wrapper in `tool_result.content`. The scan's `tool_result` block key set carries no spill-pointer field.
+- **One level up, in the `toolUseResult` envelope**, there is: `persistedOutputPath` (string) and `persistedOutputSize` (int), since v2.1.109 — observed together on 162 `Bash` results in the 2026-08-25 scan, which broke the keys out per tool for `Bash` only.
+
+> **Correction (2026-08-25, [#210](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/210)).** An earlier revision of this paragraph said the wrapper was the reference and there was no dedicated JSON pointer key, full stop. That holds for the `tool_result` block, which is what the earlier scan looked at, but not for the envelope beside it. Narrowed above.
+
+This is a tool-invocation concern, not a subagent one; it is documented in full in [`tool-invocation.md` § Spilled tool results](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/tool-invocation.md#spilled-tool-results). It appears here only so the `<session-uuid>/` directory listing makes sense.
 
 ### Nesting
 
