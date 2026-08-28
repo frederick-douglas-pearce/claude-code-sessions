@@ -36,6 +36,13 @@ Found a scrubbing hole, or real personal data in a committed fixture? Report it 
 not a public issue. The disclosure path, the supported-version policy, and the response play are in
 [SECURITY.md](SECURITY.md).
 
+## AI assistance
+
+This repo documents Claude Code and was built with it. The standing diligence statement in
+[AI-DISCLOSURE.md](AI-DISCLOSURE.md) says what Claude Code did on each surface, how the output was
+verified, and where the responsibility sits. Individual posts carry a one-line version-pinned footer;
+the file is the fuller statement behind it.
+
 ## Supplemental study
 
 Readers studying for Anthropic's [Claude Certified Architect program](https://anthropic.skilljar.com/claude-certified-architect-foundations-access-request) (currently gated to Anthropic Partner organizations) may find this series useful as supplemental study material — the JSONL session format and tool invocation primitives documented here are foundational to that material. This repo is not affiliated with or endorsed by Anthropic.

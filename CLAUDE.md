@@ -47,6 +47,7 @@ Mechanical enforcement is in place via `.claude/hooks/block_secret_reads.py` (Pr
 - **AI-assistance disclosure footer is required.** Every post under `posts/` ends with a horizontal rule and the line:
   `_Drafted with Claude Code (verified against <version>). The ideas, claims, and any errors are mine._`
   where `<version>` matches the post's `claude_code_version_verified`. Short-form derivatives (LinkedIn, Medium, X, dev.to) carry the shorter form: `_Drafted with Claude Code. Ideas and any errors are mine._` (no version clause). The marketer agent (`~/.claude/agents/marketer.md`) is also instructed to include this. Use underscores (`_…_`) for the emphasis, not asterisks — the `posts/` Prettier gate (issue #76) normalizes emphasis to underscores, so authoring with `*…*` would fail the check.
+- **The repo-level diligence statement is [`AI-DISCLOSURE.md`](AI-DISCLOSURE.md)** (issue #215), linked from the README. It is the fuller statement behind the per-post footer and covers `reference/`, `tooling/`, and `fixtures/` too. Keep the two in sync: if the footer wording changes, or a verification claim in the disclosure stops being true (a CI gate is removed, a review rule changes), update the file in the same change.
 
 ### Reference docs
 
