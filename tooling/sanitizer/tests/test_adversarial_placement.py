@@ -100,23 +100,36 @@ SECRET = "sk-" + "ant-" + ("Q7x" * 9)
 HOME = "/home/" + "testsubject"
 EMAIL = "test" + ".person@" + "example.net"
 NAME = "Testy " + "McTestface"
+# #198's payload family. Every other payload above is matched by a LITERAL
+# rule, so before this entry existed the matrix could not observe the `re:`
+# class in ANY cell -- the oracle treated the two kinds differently and no cell
+# exercised the difference. Distinct from HOME on purpose (`regex` vs `test`
+# infix) so the two families cannot be scrubbed by each other's rule, which
+# would make this one inert while looking covered.
+REGEX_HOME = "/home/" + "regexsubject"
 
-# The secret is caught by a built-in pattern and needs no config. The three
+# The secret is caught by a built-in pattern and needs no config. The four
 # PII payloads are config-driven, which used to be the asymmetry #190 was
 # about: nothing re-scanned the output for those after the fact. **#195 closed
 # that for LITERAL rules** -- `scan_residual_rules` re-runs them over the
-# decoded output, keys included. The asymmetry that remains is narrower: a
-# `re:` rule is still scrub-only (#198).
+# decoded output, keys included -- and **#198 closed it for `re:` rules at
+# reachable positions**. What remains is narrower still and is #194's residual:
+# a skip-listed position is exempt from the regex check by construction, so a
+# `re:` config is verified everywhere the walk could have acted and nowhere it
+# deliberately preserves.
 PAYLOADS = {
     "secret": SECRET,
     "pii-home": HOME,
     "pii-email": EMAIL,
     "pii-name": NAME,
+    "pii-regex": REGEX_HOME,
 }
 
 CONFIG = f"""version: 1
 paths:
   - match: "{HOME}"
+    replace: "/home/user"
+  - match: "re:/home/regex[a-z]+"
     replace: "/home/user"
 identifiers:
   - match: "{EMAIL}"
@@ -208,6 +221,16 @@ FAIL_CLOSED_BY_DESIGN: dict[tuple[str, str], tuple[int, str]] = {
         "the three PII cells this one was already positively asserted by "
         "test_secret_never_survives_any_placement; it is listed here so the "
         "cell's four payloads carry one consistent explanation",
+    ),
+    ("13-dict-key-not-value", "pii-regex"): (
+        208,
+        "dict keys are never transformed, and before #198 a `re:` rule got no "
+        "output-side check at all -- so this cell LEAKED: exit 0, the value in "
+        "the written output, sidecar reporting clean. #198 gives regex rules a "
+        "position-gated oracle, and a dict key sits at a reachable position, "
+        "so the survivor is now caught and the run aborts. The verdict moved "
+        "LEAKED -> FAIL-CLOSED, which is the whole of what #198 buys at this "
+        "cell; #208 carries the scrub work that would make it REDACTED",
     ),
 }
 

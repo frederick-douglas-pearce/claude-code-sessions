@@ -56,6 +56,25 @@ because "refuses more" alone would misdescribe it after #194:
 
 - #195 **adds** a fail-closed refusal surface — the output-side oracle for
   literal path/identifier rules.
+- #198 **extends that refusal surface to `re:` rules**, under a position gate
+  rather than the literal rules' unconditional one. The behavior change an
+  operator will actually notice: a regex config whose value survives at a
+  reachable position — a dict key above all — now **exits 2 and writes
+  nothing**, where 0.3.x and the pre-#198 0.4.0 wrote the file and reported
+  `residual_scan: clean`. That is a silent leak becoming a loud refusal, and
+  for a `re:` config it is the largest single change in this release.
+
+  **It does not fire on the sanitizer's own output.** The gate is the
+  `remap_uuids: false` skip predicate, always — never the predicate the run
+  scrubbed with. Under `remap_uuids: true` the UUID-graph paths become visited
+  and the identifier layer mints values into them, so gating on the run's own
+  predicate would abort every such run at exit 2 with nothing mis-scrubbed. The
+  exemption is **positional** (a fixed five-path set), never a comparison
+  against synthesized values — that shape is the allow-set #195 removed for
+  producing a real leak.
+
+  **Unchanged for literal rules.** They stay position-agnostic; #198 narrows
+  nothing that #195 shipped.
 - #194 **removes** refusals at the traversal positions #195 was catching, by
   making those positions scrubbable in the first place, and visits **more**
   leaves than before. It also closes a *silent* leak for regex configs, which

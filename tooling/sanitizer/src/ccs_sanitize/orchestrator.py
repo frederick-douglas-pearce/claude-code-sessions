@@ -72,11 +72,13 @@ def sanitize_session(
 
     The two scans are complementary, not redundant (#195): ``scan_residual``
     re-runs the *secret* patterns over the serialized lines, and
-    ``scan_residual_rules`` re-runs the **literal** ``paths``/``identifiers``
-    rules over the decoded tree. Before the second existed, a value the
-    structural walk could not reach was caught for secrets and leaked silently
-    for the other two layers. **Regex** path/identifier rules are covered by
-    the in-walk scrub only -- see ``scan_residual_rules`` for why an
+    ``scan_residual_rules`` re-runs the ``paths``/``identifiers`` rules over the
+    decoded tree. Before the second existed, a value the structural walk could
+    not reach was caught for secrets and leaked silently for the other two
+    layers. The rule scan applies **two different properties by rule kind**
+    (#198): a literal is refused wherever it appears, while a ``re:`` rule is
+    refused only at positions the scrub could have acted on -- see
+    ``scan_residual_rules`` and ``_regex_rule_survives`` for why an
     unconditional output-side abort is sound for a literal value and not for a
     shape.
 
@@ -148,18 +150,29 @@ def sanitize_session(
     # avoids any cross-line spillover from join-separator interaction with
     # patterns that match across whitespace.
     scan_residual(out, config.extra_secret_patterns)
-    # #195: the same treatment for the config rule family, for LITERAL rules.
-    # The secret scan above is position-agnostic, so a traversal gap fails
-    # CLOSED for secrets; paths and identifiers had no output-side pass at
-    # all, so the same gap leaked SILENTLY with a sidecar reporting a clean
-    # run. Runs second so a surviving secret still reports as a secret (D-1 is
-    # the higher-severity floor); both map to CLI exit 2, so the only
-    # observable difference is which diagnostic prints.
+    # #195: the same treatment for the config rule family. The secret scan
+    # above is position-agnostic, so a traversal gap fails CLOSED for secrets;
+    # paths and identifiers had no output-side pass at all, so the same gap
+    # leaked SILENTLY with a sidecar reporting a clean run. Runs second so a
+    # surviving secret still reports as a secret (D-1 is the higher-severity
+    # floor); both map to CLI exit 2, so the only observable difference is
+    # which diagnostic prints. Keep this ordering.
     #
-    # Regex rules are deliberately NOT re-verified here: "present in the
-    # output" means "leaked" for a literal value and does not for a shape.
-    # ``scan_residual_rules`` carries the argument and PRD section 10 carries
-    # what the sidecar may therefore claim.
+    # #198: regex rules are now verified too, but under a DIFFERENT property --
+    # "present in the output" means "leaked" for a literal value and does not
+    # for a shape, so regex matches count only at positions the scrub could
+    # have acted on. ``scan_residual_rules`` carries the argument and PRD
+    # section 10 carries what the sidecar may therefore claim.
+    #
+    # NOTE the deliberate asymmetry: no skip predicate is passed from here, and
+    # this call site must NOT grow one. The regex check gates on the
+    # ``remap_uuids=False`` predicate, which is NOT the predicate this run
+    # scrubbed with (built above from ``config.options.remap_uuids``). Under
+    # ``remap_uuids: true`` the UUID paths become VISITED and the identifier
+    # layer mints canonical UUIDs into them, so gating on the run's own
+    # predicate would abort on the sanitizer's own output -- every run,
+    # deterministically. Keeping the predicate internal to ``residual.py`` is
+    # what makes that impossible to get wrong from a call site.
     #
     # No allow-set is passed, deliberately. Excusing spans that matched a
     # recorded replacement leaked: a regex rule's replacement is produced at

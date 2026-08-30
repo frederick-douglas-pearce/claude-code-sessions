@@ -135,29 +135,45 @@ Two instances were found by two different methods — [#190](https://github.com/
 (the skip-list exempted user data at any depth; its bare-name mechanism was fixed in 0.4.0, with a
 deliberate residual noted in §6b B) — but enumerating positions
 cannot close the class: tool inputs are tool-defined and MCP servers define their own schemas, so the position
-space grows without this project's involvement. As of 0.4.0 the configured **literal** `paths`
-and `identifiers` rules are re-run over the **decoded** output — every string leaf *and every dict
-key* — and a survivor aborts the run.
+space grows without this project's involvement. As of 0.4.0 the configured `paths` and
+`identifiers` rules are re-run over the **decoded** output — every string leaf *and every dict
+key* — and a survivor aborts the run. **Literal** rules are checked position-agnostically;
+**regex** rules are checked at the positions the scrub could have acted on (#198, below).
 
-**What this deliberately does not cover, stated plainly because the sidecar attests to it.**
-**Regex** `paths`/`identifiers` rules are covered by the in-walk scrub only and are **not**
-re-verified output-side. The restriction is semantic, not a shortcut. The property the scan
-asserts is *"presence in the output is a leak, unconditionally"*. That holds for a literal rule,
-whose `match` **is** a specific real-world string the operator wants gone. It does not hold for a
-regex rule, whose `match` is a *shape* — and shapes legitimately survive scrub. Two demonstrated
-cases: a runtime-synthesized value (`remap_uuids: true` mints UUIDs no load-time check has seen),
-and a field the pipeline preserves *on purpose* (at the default `remap_uuids: false` the UUID-graph
-fields are skip-listed so the parent/subagent graph stays linkable). Scanning regex rules aborted
-every such session at exit 2 with nothing mis-scrubbed, and with no override the config could never
-scrub any file at all.
+**Two rule kinds, two different properties — and the split is semantic, not a shortcut.** The
+property the *literal* scan asserts is *"presence in the output is a leak, unconditionally"*. That
+holds for a literal rule, whose `match` **is** a specific real-world string the operator wants gone.
+It does not hold for a regex rule, whose `match` is a *shape* — and shapes legitimately survive
+scrub. Two demonstrated cases: a runtime-synthesized value (`remap_uuids: true` mints UUIDs no
+load-time check has seen), and a field the pipeline preserves *on purpose* (at the default
+`remap_uuids: false` the UUID-graph fields are skip-listed so the parent/subagent graph stays
+linkable). Scanning regex rules *unconditionally* aborted every such session at exit 2 with nothing
+mis-scrubbed, and with no override the config could never scrub any file at all.
 
-So for regex rules the dict-key position is still open. Keys are never visited by the walk, and the
-oracle does not re-verify a `re:` rule, so a value in a key survives silently. That is a known,
-recorded limit rather than a silent one. **The gap is tracked as #198** (regex re-verification),
-with #208 carrying the separate question of making the key position *scrubbable*. #190, which
-originally carried both, was scoped to detect-only and is closed: see §6b B, which states what the
-walk does and does not reach and why. (#194's mechanism is closed: its positions are now visited and scrubbed in-walk under
-both rule kinds.) Scanning the **decoded** tree rather than the serialized text is the other half of this
+**As of #198 regex rules are re-verified too, under a position gate rather than unconditionally.**
+A regex match counts only where the scrub could have acted — that is, at a position the
+`remap_uuids: false` skip predicate does not exempt. So the dict-key position, which the walk
+reaches but cannot transform, is now **refused** for a `re:` config as well as for a literal one:
+the leak that used to be silent (exit 0, value present, sidecar reporting clean) is now exit 2 with
+nothing written. #208 carries the separate question of making that position *scrubbable*. #190,
+which originally carried both, was scoped to detect-only and is closed: see §6b B, which states what
+the walk does and does not reach and why. (#194's mechanism is closed: its positions are now visited
+and scrubbed in-walk under both rule kinds.)
+
+**The gate is deliberately NOT the predicate the run scrubbed with, and this is load-bearing.** It
+is the `remap_uuids: false` predicate, always. Under `remap_uuids: true` the UUID-graph paths are
+dropped from the skip set and therefore *visited* — and it is exactly there that the identifier
+layer **mints** a canonical UUID via `match.expand()`/`_remap_uuid`, which load-time I-3 never sees.
+Gating on the run's own predicate would therefore abort on the sanitizer's **own synthesized
+output**, every run, deterministically. Exempting the UUID-graph paths unconditionally is what
+closes that, and the exemption is **positional** — a fixed five-path set known at load time. It must
+never be reimplemented as a *value* comparison against synthesized values or the substitution table:
+that is the allow-set described below, which produced a real leak.
+
+**What #198 does not close: #194's residual, for regex only.** A skip-listed position is exempt from
+the regex check by construction, so the five allow-listed paths under `toolUseResult` keep the
+residual argued in §6b B. Literal rules are unaffected and remain position-agnostic everywhere. A
+`re:` config is verified wherever the walk could have acted and nowhere it deliberately preserves. Scanning the **decoded** tree rather than the serialized text is the other half of this
 amendment and is not cosmetic: rules match decoded leaf values, so a serialized-domain scan was
 blind to every value containing a backslash, a quote or a control character — a Windows home
 directory (`C:\Users\name`) is the canonical `paths` case and serializes with doubled backslashes,
@@ -224,7 +240,7 @@ input.jsonl
 └─────────────────────────────────────────────┘
    │  accumulate substitution table + counts
    ▼  (all lines processed)
-residual scans: secrets over the output text, literal rules over the decoded tree (#195)  ──► match? ABORT, no output
+residual scans: secrets over the output text, rules over the decoded tree (#195, #198)     ──► match? ABORT, no output
    │  clean
    ▼
 atomic write: output.jsonl  +  output.jsonl.scrubbed
@@ -299,10 +315,12 @@ fields left untouched (specified in the bullet list below the following note).
 > key cannot be sanitized at all. Making the position *scrubbable* is deliberately out of scope
 > here and tracked in **#208**.
 >
-> **The gap that remains is `re:` rules.** The oracle deliberately does not re-verify a regex rule
-> ("present in the output" means "leaked" for a literal value and not for a shape), and this step
-> never visits the key, so for a regex config the two layers miss the same position and the value
-> is written with the sidecar reporting a clean run. **#198** closes it.
+> **`re:` rules are covered too, as of #198, but under a different property.** "Present in the
+> output" means "leaked" for a literal value and not for a shape, so a regex match counts only at a
+> position the scrub could have acted on. This step still never visits a key, but a key *is* such a
+> position — so the value is now **refused** rather than written with a clean sidecar. What stays
+> uncovered for regex is the deliberate skip-list residual below, and the UUID-graph paths under
+> `remap_uuids: true`, where the identifier layer mints the value itself.
 
 - **Skip-list (never scrubbed):** an **allow-list of ROOT-ANCHORED paths**. An entry is an
   exact path from the line object (list indices elided, as `walk_strings` elides them). A path
@@ -601,7 +619,7 @@ substitutions:                                    # placeholders + replacement, 
   - {rule: paths,       placeholder: "<home-dir>",     replacement: "/home/user",          occurrences: 9}
   - {rule: paths,       placeholder: "<project-slug>", replacement: "-home-user-project",  occurrences: 5}
   - {rule: identifiers, placeholder: "<email>",        replacement: "user@example.com",    occurrences: 6}
-residual_scan: clean                              # post-scrub re-scans: secrets + literal rules (#195)
+residual_scan: clean                              # post-scrub re-scans: secrets + rules (#195, #198)
 ```
 
 Notes:
@@ -631,37 +649,69 @@ Notes:
   not clean, the file would not have been written. **Be precise about what it attests to**, since
   this line is the human review gate before publishing and an overclaim here is exactly the
   rubber-stamp failure [§5](#5-design-principles--the-role-of-the-post-scrub-residual-scan)
-  describes. As of 0.4.0 (#195) it attests to: the secret patterns (position-agnostic over the
-  serialized output) **and the LITERAL `paths`/`identifiers` rules** (decoded output, leaves and
-  dict keys).
+  describes. As of 0.4.0 it attests to: the secret patterns (position-agnostic over the
+  serialized output), **the LITERAL `paths`/`identifiers` rules** (decoded output, leaves and
+  dict keys, position-agnostic — #195), **and the REGEX `paths`/`identifiers` rules at reachable
+  positions** (decoded output, leaves and dict keys, excluding skip-listed and UUID-graph
+  positions — #198).
 
   It does **not** attest to the four things below. The list is written out because an unstated
   exclusion is how this line starts overclaiming again — and it is **not** a closed set: add to it
   whenever a new limit is found, rather than letting the omission do the claiming.
 
-  - **Regex `paths`/`identifiers` rules**, which are scrub-only — for those, `clean` means the walk
-    scrubbed what it reached, not that nothing survived (#198).
+  - **Regex rules at positions the walk deliberately preserves.** #198 gave regex rules an
+    output-side check, but gated on position: a skip-listed path, and the UUID-graph paths under
+    `remap_uuids: true`, are exempt. For a `re:` config `clean` therefore means *no survivor
+    anywhere the scrub could have acted*, which is stronger than the pre-#198 "the walk scrubbed
+    what it reached" and weaker than the literal rules' unconditional guarantee. The exempt set is
+    #194's documented residual (§6b B) plus the synthesis positions, and the reason the latter are
+    exempt is that the sanitizer wrote those values itself.
   - **Values nested inside a JSON-encoded string leaf.** Both the scrub and the rule scan decode one
     level, so a value carrying its own escaping inside an inner JSON document is missed by both. A
     plain nested value *is* caught; it is the inner escaping that defeats it. A pre-existing limit
-    of the transform rather than of the scan, tracked in #198.
+    of the transform rather than of the scan, tracked in [#220](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/220).
   - **A configured value that appears as a JSON number rather than a string.** The structural walk
     transforms string leaves, and the rule scan walks decoded strings, so neither sees a numeric
     leaf: `{"account_id": 1004728391}` survives a rule whose match is `1004728391`. This one is
     worth watching rather than filing away, because [#126](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/126)
-    (numeric GitHub user ids) is exactly that shape. Tracked in #198.
+    (numeric GitHub user ids) is exactly that shape — and it is *blocking* for that issue's
+    derived-rule direction, which is recorded on #126 itself rather than as a competing issue.
   - **A secret whose bytes differ between the serialized and decoded forms.** `scan_residual` reads
     serialized text, so an escapable byte (backslash, quote, control character) inside a match makes
-    the serialized and decoded forms diverge. **The built-in floor is not encoding-complete**, and
-    the set has not been audited pattern by pattern for this — one confirmed gap is enough to
-    retire the claim that it is. `bearer-token` is
-    `(?i)authorization:\s*bearer\s+[A-Za-z0-9._-]+`, and `\s` matches a newline or tab, which JSON
-    escapes, so a bearer token whose separator is a newline, in a position the walk cannot reach, is
-    missed by both layers. Reproduced. Do **not** replace this with a generalization about the
-    built-ins being alphanumeric: `conn-string-pw` matches its user and password through negated
-    classes (`[^:\s/]+`, `[^@\s]+`) that accept quotes and backslashes, and `pem-private-key` is a
-    literal containing spaces and dashes. Those two happen to still match in serialized form, but
-    the reason is per-pattern rather than structural. Auditing the set is #198's.
+    the serialized and decoded forms diverge. **The built-in floor is not encoding-complete.** The
+    code fix is [#217](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/217);
+    it changes the D-1 floor's semantics and so is deliberately not carried by the rule-oracle work.
+
+    **The set HAS now been audited, pattern by pattern (#198), and exactly one member diverges.**
+    Method: where every character a pattern can match is one JSON escaping leaves alone, the matched
+    span is byte-identical in both domains and the two provably agree; where it is not, a probe
+    carrying the escapable character was matched against the decoded form and against
+    `json.dumps(...)` of it.
+
+    | Pattern kind | Tier | Verdict |
+    | --- | --- | --- |
+    | `anthropic-key` | vendored | AGREE (alphabet is JSON-safe) |
+    | `openai-project-key` | vendored | AGREE (alphabet is JSON-safe) |
+    | `openai-key-legacy` | vendored | AGREE (alphabet is JSON-safe) |
+    | `github-pat-classic` | vendored | AGREE (alphabet is JSON-safe) |
+    | `github-pat-fine` | vendored | AGREE (alphabet is JSON-safe) |
+    | `aws-access-key-id` | vendored | AGREE (alphabet is JSON-safe) |
+    | `gcp-api-key` | vendored | AGREE (alphabet is JSON-safe) |
+    | `pem-private-key` | vendored | AGREE (spaces and dashes are not escaped) |
+    | **`bearer-token`** | batch | **DIVERGES** |
+    | `jwt` | batch | AGREE (alphabet is JSON-safe) |
+    | `conn-string-pw` | batch | AGREE (verified by probe, not assumed) |
+    | `slack-token` | batch | AGREE (alphabet is JSON-safe) |
+
+    `bearer-token` is `(?i)authorization:\s*bearer\s+[A-Za-z0-9._-]+`, and `\s` matches a newline or
+    tab, which JSON escapes, so a bearer token whose separator is a newline, in a position the walk
+    cannot reach, is missed by both layers. Reproduced.
+
+    Do **not** replace the table with a generalization about the built-ins being alphanumeric.
+    `conn-string-pw` matches its user and password through negated classes (`[^:\s/]+`, `[^@\s]+`)
+    that **accept** quotes and backslashes, and `pem-private-key` is a literal containing spaces and
+    dashes. Both still match in serialized form, but the reason is per-pattern rather than
+    structural — so a newly-added pattern is **not** covered by this audit and must be re-checked.
 
   Before 0.4.0 this field attested to secrets alone, so it could appear on a file that still held a
   configured path or identifier. The planned fixture-validator
@@ -692,7 +742,7 @@ Options:
 |---|---|---|
 | 0 | Success | yes (+ sidecar) |
 | 1 | Usage error (bad args, missing input, output exists without `--force`) | no |
-| 2 | **Safety failure** — rule raised, line failed to parse, or either output-side scan found a survivor (a secret, or — as of 0.4.0, #195 — a **literal** `paths`/`identifiers` value) | **no** |
+| 2 | **Safety failure** — rule raised, line failed to parse, or either output-side scan found a survivor (a secret; a **literal** `paths`/`identifiers` value, #195; or a **regex** one at a reachable position, #198) | **no** |
 | 3 | Config error (YAML invalid, regex won't compile, attempt to disable a built-in pattern) | no |
 
 **Atomicity & rename order (I-5).** Output and sidecar are written to temp files in the
@@ -890,12 +940,13 @@ in `fixtures/sanitized/`, it:
 3. Optionally verifies `input_sha256` shape and required sidecar keys.
 
 **`residual_scan: clean` does not yet mean "no configured value survived."** The output-side
-oracle (#195) re-verifies **literal** `paths`/`identifiers` rules only; a `re:` rule is
-deliberately not re-verified, so for a regex config the field attests to the secret scan and to
-the literal rules, and to nothing about the regex ones (#198). #194 narrowed what that gap can
-reach — the traversal positions it used to leak through are now visited and scrubbed — but it
-did not close it, and the validator should not read the field as a full guarantee until #198
-lands.
+oracle re-verifies **literal** `paths`/`identifiers` rules position-agnostically (#195) and
+**regex** rules at reachable positions (#198), so for a regex config the field attests to the
+secret scan, the literal rules, and the regex rules everywhere the scrub could have acted — but
+not at skip-listed positions or the UUID-graph synthesis positions. #194 narrowed what that
+residual can reach — the traversal positions it used to leak through are now visited and
+scrubbed — and the validator should still re-derive rather than read the field as a full
+guarantee.
 
 The validator does *not* trust the sidecar's `residual_scan: clean` as proof — it re-derives
 it. This is defense in depth: a stale sidecar (output edited after scrub), a forged sidecar, or
