@@ -470,8 +470,9 @@ def _regex_rule_survives(
       ``rules/_engine.apply_rule`` also no-ops on a zero-width match -- so a rule
       matching ONLY zero-width scrubs nothing and is reported by neither layer.
       That is a pre-existing silent no-op rather than something this check
-      introduced, and it is tracked separately; see the ``scan_residual_rules``
-      note and PRD section 10.
+      introduced -- before #198 regex rules were not scanned at all, so such a
+      rule leaked identically -- and it is tracked as #222. PRD section 10 lists
+      it among the things ``residual_scan: clean`` does not attest to.
     - **``finditer``, not ``search``.** A regex's match spans vary within one
       string, so a zero-width first match must not excuse a genuine survivor
       later in the same string.

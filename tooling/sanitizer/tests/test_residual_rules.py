@@ -449,7 +449,8 @@ def test_nested_dict_key_under_a_regex_rule_still_leaks(tmp_path: Path) -> None:
     assertion inverts and a red test here is the intended signal.
 
     Literal rules are unaffected: they still refuse this exact position, which
-    ``test_dict_key_is_scanned`` and its siblings cover.
+    ``test_value_in_a_dict_key_aborts_rather_than_writing`` and
+    ``test_value_in_a_NESTED_dict_key_aborts_rather_than_writing`` cover.
     """
     config = _config(tmp_path, _REGEX_CONFIG)
     lines = [
@@ -616,7 +617,9 @@ def test_format_owned_keys_do_not_abort_an_ordinary_regex_rule(
 
     A plain snake_case identifier rule is an ordinary thing to write. Before the
     key exclusion it aborted **8 of 8** files in this repo's ``fixtures/``
-    corpus, tripping on ``input_tokens`` (617 occurrences), ``output_tokens``,
+    corpus, tripping on ``input_tokens`` (617 occurrences at
+    ``message.usage.input_tokens``; 1211 across all four paths carrying that
+    key), ``output_tokens``,
     ``cache_read_input_tokens``, ``stop_reason`` and ``cache_creation`` -- all
     format schema key names whose values are integers, null or dicts and can
     never carry PII.
@@ -653,26 +656,33 @@ identifiers:
     assert "input_tokens" in out[0]
 
 
-def test_layer_order_leak_still_aborts_under_the_regex_path(tmp_path: Path) -> None:
-    """No value-based allow-set crept back in while adding the regex gate (#198).
+def test_no_value_based_allow_set_crept_into_the_REGEX_path(tmp_path: Path) -> None:
+    """No value-based allow-set crept into ``_regex_rule_survives`` (#198).
 
     PRD section 5's worked leak: the identifiers layer MINTS ``/home/realuser``
     at runtime via ``match.expand()``, which I-3 never vets, and an allow-set
-    that excused spans equal to a recorded replacement then excused the paths
+    excusing spans equal to a recorded replacement then excused the ``paths``
     rule that would have caught it -- exit 0, the real home directory in the
     output, sidecar clean.
 
-    #198's exemption is positional (``_UUID_PATHS``), never value-based, so it
-    cannot reach this case: ``("k",)`` is not a UUID position. This cell is the
-    regression guard on that distinction -- it goes red the moment someone
-    "optimizes" the exemption into a comparison against synthesized values.
+    **The `paths` rule here is a REGEX on purpose, and that is the whole point
+    of this cell.** An earlier revision used a literal one and was reported as
+    passing without ever calling ``_regex_rule_survives``: the literal is
+    evaluated first and raises, so the regex path was never reached and a
+    value-based exemption added *inside* it would have left this green. With a
+    regex ``paths`` rule the abort comes through the code under test.
+
+    ``test_regex_expanded_replacement_does_not_excuse_a_literal_leak`` above is
+    the sibling that covers the same leak on the LITERAL path; the two are kept
+    separate because they guard different functions, and that distinction is
+    exactly what the earlier revision lost.
     """
     config = _config(
         tmp_path,
         r"""
 version: 1
 paths:
-  - match: "/home/realuser"
+  - match: "re:/home/real[a-z]+"
     replace: "/home/user"
 identifiers:
   - match: "re:HOME_(\\w+)"
@@ -682,6 +692,47 @@ identifiers:
     with pytest.raises(ResidualRuleError) as exc:
         sanitize_session([_line({"type": "user", "k": "HOME_realuser"})], config)
     assert exc.value.section == "paths"
+    assert exc.value.index == 0
+
+
+def test_a_regex_rule_whose_expansion_rematches_itself_aborts(
+    tmp_path: Path,
+) -> None:
+    """A KNOWN false-abort class introduced by #198, pinned rather than left latent.
+
+    A regex rule whose runtime-expanded replacement re-matches its own pattern
+    aborts at a reachable value position. Here ``user_1234`` scrubs to
+    ``user_0000``, which the rule matches again, so the oracle refuses the
+    output: exit 2, nothing written.
+
+    **Whether this is a false abort or a correct one is a genuine judgment call,
+    and this cell is written to survive either answer.** By the operator's own
+    declaration anything matching ``(user)_[0-9]+`` is sensitive, and the output
+    contains ``user_0000``, which matches -- so refusing is *consistent* with
+    what the config asked for, and it is the same class load-time I-3 rejects
+    outright for static replacements. I-3 cannot reach this one: it vets the
+    literal template (``\\1_0000``), and the expansion exists only at runtime.
+
+    What is NOT a judgment call is that it must be written down. On ``main``
+    this config ran clean, because the oracle skipped regex rules entirely, so
+    it is a behavior change on upgrade. Recorded in the CHANGELOG and PRD
+    section 10 rather than asserted away.
+    """
+    config = _config(
+        tmp_path,
+        r"""
+version: 1
+identifiers:
+  - match: "re:(user)_[0-9]+"
+    replace: "\\1_0000"
+""",
+    )
+    with pytest.raises(ResidualRuleError) as exc:
+        sanitize_session(
+            [_line({"type": "user", "message": {"content": "hello user_1234 bye"}})],
+            config,
+        )
+    assert exc.value.section == "identifiers"
     assert exc.value.index == 0
 
 

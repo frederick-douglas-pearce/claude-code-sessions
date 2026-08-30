@@ -70,7 +70,7 @@ because "refuses more" alone would misdescribe it after #194:
   therefore remains a silent leak for a regex config; #208 carries it, together
   with making the position scrubbable. Literal rules refuse keys as before.
 
-  **It does not fire on the sanitizer's own output.** The gate is the
+  **It does not fire on a UUID the sanitizer minted.** The gate is the
   `remap_uuids: false` skip predicate, always — never the predicate the run
   scrubbed with. Under `remap_uuids: true` the UUID-graph paths become visited
   and the identifier layer mints values into them, so gating on the run's own
@@ -78,6 +78,23 @@ because "refuses more" alone would misdescribe it after #194:
   exemption is **positional** (a fixed five-path set), never a comparison
   against synthesized values — that shape is the allow-set #195 removed for
   producing a real leak.
+
+  **It CAN fire on a rule's own expanded replacement, and that is a behavior
+  change worth reading before you upgrade.** A regex rule whose runtime
+  expansion re-matches its own pattern now aborts at a reachable value
+  position — `match: "re:(user)_[0-9]+"` with `replace: "\1_0000"` turns
+  `user_1234` into `user_0000`, which the rule matches again. On 0.3.x this ran
+  clean, because regex rules were not re-verified at all. Load-time I-3 cannot
+  catch it: it vets the literal template, and the expansion exists only at
+  runtime.
+
+  Whether that is a false abort or a correct one is arguable both ways, and the
+  claim here is deliberately the narrow one. By the operator's own declaration
+  the output still matches what they called sensitive, which is the same class
+  I-3 rejects outright for static replacements. It is availability-only, never
+  a leak, deterministic per input, and fixed by rewriting the rule so its
+  replacement falls outside its own pattern. Pinned by
+  `test_a_regex_rule_whose_expansion_rematches_itself_aborts`.
 
   **Unchanged for literal rules.** They stay position-agnostic; #198 narrows
   nothing that #195 shipped.
@@ -196,10 +213,14 @@ by construction.
 - **What this costs the user, stated plainly:** a session legitimately carrying
   a configured value in a dict key **cannot be published at all**. There is no
   override. Making the position scrubbable is **#208**.
-- **The remaining hole is `re:` rules**, which the oracle deliberately does not
-  re-verify and the walk never visits, so a regex config still writes the
-  value with a sidecar reporting a clean run. **#198** closes it; a test now
-  asserts that leak explicitly so the fix inverts it visibly.
+- **The remaining hole is `re:` rules**, which the oracle did not re-verify at
+  the time and the walk never visits, so a regex config still writes the value
+  with a sidecar reporting a clean run. A test asserts that leak explicitly.
+  **#198 did NOT close it** — it gave regex rules an output-side check at
+  reachable *value* positions only, because gating dict keys on the leaf
+  allow-list false-aborted 8 of 8 fixture files on the format's own key names.
+  The dict-key position for regex configs moved to **#208**, together with
+  making that position scrubbable.
 - **PRD §6b Step B amended.** It specified the walk applies rules "to every
   **string-valued leaf**" with no statement that a key is not one, so the next
   implementer would have re-derived the current behavior as a bug.
@@ -230,7 +251,8 @@ by construction.
   `input.message.id`.
 - **What that meant, and it is not what the issue was originally filed as.**
   For a **literal** rule the #195 oracle caught the survivor and aborted — safe
-  but unusable. For a **`re:` rule the oracle does not re-verify**, so the same
+  but unusable. For a **`re:` rule the oracle did not re-verify** (it does, at
+  reachable value positions, as of #198 below), so the same
   positions leaked **silently**: exit 0, value present, sidecar
   `residual_scan: clean`. Reproduced on merged `main` across 16 positions, with
   a positive control, before the fix; all 16 now redact under both rule kinds.
@@ -374,7 +396,7 @@ by construction.
   structural-traversal test PRD section 14 calls C-1. One planted value at 14
   structural positions (nested tool inputs, `tool_result` content arrays,
   `toolUseResult` siblings, thinking blocks, JSON-inside-a-JSON-string, dict
-  keys, URL query parameters) crossed with four payload families — **19
+  keys, URL query parameters) crossed with the payload families — **19
   positions as of the #194 work below**, which added one cell per skip
   mechanism. Asserts on
   the verdict rather than on output bytes, so the jitter work planned for v1
@@ -388,7 +410,8 @@ by construction.
   mechanism. That closes a blind spot that was known by name; it does not make
   the module a leak gate.) The guarantee is **#195**, an output-side check for the **literal**
   path/identifier rules mirroring what `scan_residual` already does for
-  secrets. Literal only: regex rules are scrub-only, tracked in #198. This
+  secrets. Literal only at the time; #198 later added regex coverage at
+  reachable *value* positions, leaving dict keys literal-only (#208). This
   module tells you which positions are *scrubbable*; the oracle
   tells you that nothing leaked.
 - Four cells cover the dict-key position, where a config-driven rule cannot

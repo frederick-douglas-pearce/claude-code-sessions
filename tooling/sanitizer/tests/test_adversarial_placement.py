@@ -117,8 +117,9 @@ REGEX_HOME = "/home/" + "regexsubject"
 # reachable VALUE positions**. Two things stay uncovered for a `re:` config,
 # and the matrix shows both: skip-listed positions (#194's documented
 # residual), and DICT KEYS (#208) -- which is why the `pii-regex` entry in
-# KNOWN_DEVIATIONS below is a LEAK while its four literal siblings in
-# FAIL_CLOSED_BY_DESIGN are refusals.
+# KNOWN_DEVIATIONS below is a LEAK while the other four payloads at that cell
+# -- the three config-driven literal ones and the built-in `secret` -- are
+# FAIL_CLOSED_BY_DESIGN refusals.
 PAYLOADS = {
     "secret": SECRET,
     "pii-home": HOME,
@@ -237,7 +238,10 @@ FAIL_CLOSED_BY_DESIGN: dict[tuple[str, str], tuple[int, str]] = {
         "and `scan_residual` catches it instead -- safe, but degraded. Unlike "
         "the three PII cells this one was already positively asserted by "
         "test_secret_never_survives_any_placement; it is listed here so the "
-        "cell's four payloads carry one consistent explanation",
+        "cell's literal payloads carry one consistent explanation. The fifth, "
+        "`pii-regex`, is NOT here: its verdict is LEAKED, not FAIL-CLOSED, so "
+        "it sits in KNOWN_DEVIATIONS with a positive verdict assertion of its "
+        "own",
     ),
 }
 
@@ -742,9 +746,54 @@ def test_fail_closed_by_design_cells_actually_fail_closed(
         f"FAIL_CLOSED_BY_DESIGN so the cell rejoins "
         f"test_placement_is_redacted. Note #{issue} leaves it explicitly "
         f"undecided whether keys run the SECRET layer too, so the `secret` "
-        f"payload may legitimately stay FAIL-CLOSED while the three PII "
-        f"payloads move. If the verdict is LEAKED, that is the leak this "
+        f"payload may legitimately stay FAIL-CLOSED while the PII payloads "
+        f"move. If the verdict is LEAKED, that is the leak this "
         f"module exists to catch. ({why})"
+    )
+
+
+# Cells whose CURRENT verdict is LEAKED and which are tracked rather than fixed.
+# Separate from KNOWN_DEVIATIONS' strict xfail on purpose: that xfail asserts only
+# `!= REDACTED`, which FAIL-CLOSED, ERROR-<rc> and LEAKED all satisfy -- the exact
+# critique this module makes of the permissive form everywhere else. Without a
+# positive assertion a silent move from LEAKED to FAIL-CLOSED (or to a broken
+# invocation) would go unnoticed, and so would the cell being quietly fixed.
+KNOWN_LEAK_VERDICTS: dict[tuple[str, str], int] = {
+    ("13-dict-key-not-value", "pii-regex"): 208,
+}
+
+
+@pytest.mark.parametrize(
+    "cell,label",
+    sorted(KNOWN_LEAK_VERDICTS),
+    ids=lambda v: v if isinstance(v, str) else str(v),
+)
+def test_known_leak_cells_have_exactly_the_leaked_verdict(
+    verdicts, cell: str, label: str
+) -> None:
+    """Pin the verdict a known-leaking cell actually has.
+
+    This is the LEAKED counterpart to
+    ``test_fail_closed_by_design_cells_actually_fail_closed``, and it exists for
+    the same reason: the entry in KNOWN_DEVIATIONS records that the cell should
+    redact and does not, but its strict xfail cannot say *how* it fails. Asserting
+    the verdict exactly means three distinct futures are all visible -- the cell
+    getting fixed (REDACTED), the cell degrading differently (ERROR-<rc>), and the
+    cell being made safe-but-unscrubbable (FAIL-CLOSED, which #208 might well
+    choose as a first step).
+
+    Asserting a LEAK as the expected value is uncomfortable, and deliberately so:
+    the discomfort is the point of tracking it in a mapping with an issue number
+    rather than leaving it to an xfail that cannot tell a leak from a refusal.
+    """
+    verdict = verdicts[(label, cell)]
+    issue = KNOWN_LEAK_VERDICTS[(cell, label)]
+    assert verdict == "LEAKED", (
+        f"cell {cell} with {label} returned {verdict}, not the LEAKED verdict "
+        f"recorded here. If #{issue} closed it the verdict is REDACTED and this "
+        f"entry plus the KNOWN_DEVIATIONS entry both come out. If it is now "
+        f"FAIL-CLOSED the position became refusable without becoming scrubbable, "
+        f"which is a real improvement that still needs both entries updated."
     )
 
 

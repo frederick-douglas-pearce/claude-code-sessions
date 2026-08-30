@@ -137,8 +137,9 @@ deliberate residual noted in §6b B) — but enumerating positions
 cannot close the class: tool inputs are tool-defined and MCP servers define their own schemas, so the position
 space grows without this project's involvement. As of 0.4.0 the configured `paths` and
 `identifiers` rules are re-run over the **decoded** output — every string leaf *and every dict
-key* — and a survivor aborts the run. **Literal** rules are checked position-agnostically, keys
-included; **regex** rules are checked at reachable **value** positions only (#198, below).
+key* — and a survivor aborts the run. That describes the traversal *domain*, not the coverage:
+**literal** rules are checked position-agnostically over all of it, keys included, while **regex**
+rules are checked at reachable **value** positions only (#198, below).
 
 **Two rule kinds, two different properties — and the split is semantic, not a shortcut.** The
 property the *literal* scan asserts is *"presence in the output is a leak, unconditionally"*. That
@@ -176,6 +177,21 @@ output**, every run, deterministically. Exempting the UUID-graph paths unconditi
 closes that, and the exemption is **positional** — a fixed five-path set known at load time. It must
 never be reimplemented as a *value* comparison against synthesized values or the substitution table:
 that is the allow-set described below, which produced a real leak.
+
+**One new false-abort class comes with this, and it is recorded rather than denied.** A regex rule
+whose **runtime-expanded replacement re-matches its own pattern** now aborts at a reachable value
+position: `match: "re:(user)_[0-9]+"` with `replace: "\1_0000"` scrubs `user_1234` to `user_0000`,
+which the rule matches again. Load-time I-3 cannot reach it — it vets the literal `replace`
+*template*, and the expansion exists only at runtime. Before #198 such a config ran clean, because
+regex rules were not re-verified at all.
+
+Arguing it both ways, since the reading is genuinely open: by the operator's own declaration the
+output still matches what they called sensitive, so refusing is *consistent*, and it is the same
+class I-3 rejects outright when the replacement is static. Against that, nothing leaked and the run
+produces nothing. What settles the disposition rather than the argument is the failure profile:
+availability-only, never a leak, deterministic per input rather than intermittent, surfaced on the
+first run, and fixed by rewriting the rule so its replacement falls outside its own pattern. It is
+pinned by a test so it stays a known contract rather than a latent surprise.
 
 **What #198 does not close, for regex rules:** dict keys (above, #208); skip-listed positions —
 #194's residual, so the five allow-listed paths under `toolUseResult` keep the exemption argued in
@@ -663,9 +679,10 @@ Notes:
   VALUE positions** (decoded output, string leaves only, excluding dict keys, skip-listed positions
   and UUID-graph positions — #198).
 
-  It does **not** attest to the four things below. The list is written out because an unstated
-  exclusion is how this line starts overclaiming again — and it is **not** a closed set: add to it
-  whenever a new limit is found, rather than letting the omission do the claiming.
+  It does **not** attest to the things below. The list is deliberately **not numbered** — an
+  earlier revision said "the four things below" and went stale the moment a fifth was added — and
+  it is **not** a closed set: add to it whenever a new limit is found, rather than letting the
+  omission do the claiming. An unstated exclusion is how this line starts overclaiming again.
 
   - **Regex rules at any position other than a reachable value.** #198 gave regex rules an
     output-side check, gated on position. Three classes are exempt: **dict keys** (#208 — gating
