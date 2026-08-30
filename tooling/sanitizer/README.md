@@ -131,10 +131,10 @@ substitutions: # placeholder + replacement, never the original
   - { rule: identifiers, placeholder: "<email>", replacement: "user@example.com", occurrences: 6 }
 residual_scan: clean # post-scrub re-scans: secret patterns (position-agnostic
                      # over the serialized output), the LITERAL paths/identifiers
-                     # rules (decoded output, position-agnostic, #195), AND the
-                     # REGEX ones at positions the scrub could have acted on
-                     # (#198). See PRD section 10 for the four things this does
-                     # NOT attest to. Not clean is never written.
+                     # rules (decoded output, position-agnostic, keys included,
+                     # #195), AND the REGEX ones at reachable VALUE positions
+                     # (#198 -- NOT dict keys). See PRD section 10 for what this
+                     # does NOT attest to. Not clean is never written.
 ```
 
 The field-level contract is [PRD §10](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/.claude/specs/prd-sanitizer.md#10-the-scrubbed-sidecar).

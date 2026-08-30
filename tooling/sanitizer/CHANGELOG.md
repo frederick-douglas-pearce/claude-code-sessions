@@ -56,13 +56,19 @@ because "refuses more" alone would misdescribe it after #194:
 
 - #195 **adds** a fail-closed refusal surface — the output-side oracle for
   literal path/identifier rules.
-- #198 **extends that refusal surface to `re:` rules**, under a position gate
-  rather than the literal rules' unconditional one. The behavior change an
-  operator will actually notice: a regex config whose value survives at a
-  reachable position — a dict key above all — now **exits 2 and writes
-  nothing**, where 0.3.x and the pre-#198 0.4.0 wrote the file and reported
-  `residual_scan: clean`. That is a silent leak becoming a loud refusal, and
-  for a `re:` config it is the largest single change in this release.
+- #198 **extends that refusal surface to `re:` rules at reachable VALUE
+  positions**, under a position gate rather than the literal rules'
+  unconditional one. A regex config whose value survives where the scrub could
+  have acted now **exits 2 and writes nothing**, where 0.3.x and the pre-#198
+  0.4.0 wrote the file and reported `residual_scan: clean`.
+
+  **Dict keys are NOT covered for `re:` rules, deliberately**, and this is the
+  scope an upgrader should read carefully: gating keys on the skip allow-list
+  aborted **8 of 8** files in this repo's fixture corpus on the format's own key
+  names (`input_tokens`, `stop_reason`, `cache_creation`), because that list
+  enumerates string *leaves* and so exempts no key. A value planted in a key
+  therefore remains a silent leak for a regex config; #208 carries it, together
+  with making the position scrubbable. Literal rules refuse keys as before.
 
   **It does not fire on the sanitizer's own output.** The gate is the
   `remap_uuids: false` skip predicate, always — never the predicate the run

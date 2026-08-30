@@ -76,11 +76,11 @@ def sanitize_session(
     decoded tree. Before the second existed, a value the structural walk could
     not reach was caught for secrets and leaked silently for the other two
     layers. The rule scan applies **two different properties by rule kind**
-    (#198): a literal is refused wherever it appears, while a ``re:`` rule is
-    refused only at positions the scrub could have acted on -- see
+    (#198): a literal is refused wherever it appears, keys included, while a
+    ``re:`` rule is refused only at reachable **value** positions -- see
     ``scan_residual_rules`` and ``_regex_rule_survives`` for why an
     unconditional output-side abort is sound for a literal value and not for a
-    shape.
+    shape, and why the key position is literal-only.
 
     Args:
         lines: input JSONL records. Iterated exactly once.
@@ -106,10 +106,12 @@ def sanitize_session(
             Maps to CLI exit 2. The exception's ``kind`` field names the
             matching pattern label; the matched bytes are never recorded
             (D-2 invariant).
-        ResidualRuleError: a **literal** ``paths``/``identifiers`` rule matched
-            the decoded output (#195). Maps to CLI exit 2. Carries only
-            ``section`` and ``index`` -- never the rule's ``match`` value,
-            which is itself the literal PII, and never the matched span.
+        ResidualRuleError: a ``paths``/``identifiers`` rule matched the decoded
+            output -- a **literal** one anywhere including a dict key (#195), or
+            a **regex** one at a reachable value position (#198). Maps to CLI
+            exit 2. Carries only ``section`` and ``index`` -- never the rule's
+            ``match`` value, which is itself the literal PII, and never the
+            matched span.
     """
     subtable = SubstitutionTable()
     secret_counts = SecretCounts()
@@ -160,9 +162,11 @@ def sanitize_session(
     #
     # #198: regex rules are now verified too, but under a DIFFERENT property --
     # "present in the output" means "leaked" for a literal value and does not
-    # for a shape, so regex matches count only at positions the scrub could
-    # have acted on. ``scan_residual_rules`` carries the argument and PRD
-    # section 10 carries what the sidecar may therefore claim.
+    # for a shape, so regex matches count only at reachable VALUE positions.
+    # Dict keys are literal-only: gating keys on the leaf allow-list aborted 8
+    # of 8 fixture files on format key names, so that position is #208's.
+    # ``scan_residual_rules`` carries the argument and PRD section 10 carries
+    # what the sidecar may therefore claim.
     #
     # NOTE the deliberate asymmetry: no skip predicate is passed from here, and
     # this call site must NOT grow one. The regex check gates on the

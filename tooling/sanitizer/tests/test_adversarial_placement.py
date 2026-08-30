@@ -23,7 +23,8 @@ by name.
 
 The guarantee lives in #195: an output-side check for the **literal**
 path/identifier rules, mirroring what `scan_residual` already does for
-secrets. Literal only -- regex rules are scrub-only, tracked in #198 -- so
+secrets. #198 extended it to `re:` rules at reachable VALUE positions only --
+dict keys stay regex-uncovered (#208), as does any skip-listed position -- so
 this net still covers positions the oracle does not speak for. This module is
 the coverage net BEHIND that guarantee -- it
 tells you which positions are scrubbable, where the oracle only tells you
@@ -113,10 +114,11 @@ REGEX_HOME = "/home/" + "regexsubject"
 # about: nothing re-scanned the output for those after the fact. **#195 closed
 # that for LITERAL rules** -- `scan_residual_rules` re-runs them over the
 # decoded output, keys included -- and **#198 closed it for `re:` rules at
-# reachable positions**. What remains is narrower still and is #194's residual:
-# a skip-listed position is exempt from the regex check by construction, so a
-# `re:` config is verified everywhere the walk could have acted and nowhere it
-# deliberately preserves.
+# reachable VALUE positions**. Two things stay uncovered for a `re:` config,
+# and the matrix shows both: skip-listed positions (#194's documented
+# residual), and DICT KEYS (#208) -- which is why the `pii-regex` entry in
+# KNOWN_DEVIATIONS below is a LEAK while its four literal siblings in
+# FAIL_CLOSED_BY_DESIGN are refusals.
 PAYLOADS = {
     "secret": SECRET,
     "pii-home": HOME,
@@ -163,11 +165,26 @@ BASE = {
 # secret one -- used to live here for exactly that reason and moved out in
 # #190. Do not move them back.
 KNOWN_DEVIATIONS: dict[tuple[str, str], tuple[int, str]] = {
-    # DELIBERATELY EMPTY. The four `13-dict-key-not-value` entries that lived
-    # here moved to FAIL_CLOSED_BY_DESIGN below when #190 was scoped to
-    # detect-only; see that mapping for why an xfail was the wrong shape for
-    # them. The mapping and its consistency test stay for the next genuine
-    # deviation -- a position that SHOULD redact and does not.
+    # The four LITERAL `13-dict-key-not-value` entries that lived here moved to
+    # FAIL_CLOSED_BY_DESIGN below when #190 was scoped to detect-only; see that
+    # mapping for why an xfail was the wrong shape for them.
+    #
+    # The one entry that belongs HERE rather than there is the regex payload,
+    # and the distinction is exactly the one this file is careful about: the
+    # literal payloads FAIL CLOSED at this cell (the oracle catches them and the
+    # run aborts), while the regex payload LEAKS -- exit 0, the value in the
+    # written output, sidecar reporting clean. Those are different verdicts and
+    # must not share a mapping.
+    ("13-dict-key-not-value", "pii-regex"): (
+        208,
+        "dict keys are never transformed, and the #198 oracle does not scan "
+        "keys for `re:` rules -- gating them on the skip allow-list aborted 8 "
+        "of 8 fixture files on format key names like `input_tokens`, since that "
+        "list enumerates string LEAVES and exempts no key. So both layers miss "
+        "this position for a regex config and the value is WRITTEN, not "
+        "refused. Closing it needs the key position to become visitable, which "
+        "is #208",
+    ),
 }
 
 
@@ -221,16 +238,6 @@ FAIL_CLOSED_BY_DESIGN: dict[tuple[str, str], tuple[int, str]] = {
         "the three PII cells this one was already positively asserted by "
         "test_secret_never_survives_any_placement; it is listed here so the "
         "cell's four payloads carry one consistent explanation",
-    ),
-    ("13-dict-key-not-value", "pii-regex"): (
-        208,
-        "dict keys are never transformed, and before #198 a `re:` rule got no "
-        "output-side check at all -- so this cell LEAKED: exit 0, the value in "
-        "the written output, sidecar reporting clean. #198 gives regex rules a "
-        "position-gated oracle, and a dict key sits at a reachable position, "
-        "so the survivor is now caught and the run aborts. The verdict moved "
-        "LEAKED -> FAIL-CLOSED, which is the whole of what #198 buys at this "
-        "cell; #208 carries the scrub work that would make it REDACTED",
     ),
 }
 

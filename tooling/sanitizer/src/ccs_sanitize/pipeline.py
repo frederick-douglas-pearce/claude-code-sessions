@@ -75,9 +75,9 @@ DEFAULT_STRIP_TYPES: frozenset[str] = frozenset({"file-history-snapshot", "attac
 # ``max_tokens`` sat at a position the walker refused to visit. The value
 # survived, the run exited 0, and the sidecar reported ``residual_scan:
 # clean``. #195's output-side oracle turns that into a fail-closed refusal for
-# *literal* rules, but it deliberately does not re-verify regex rules
-# (``residual.scan_residual_rules``), so for a ``re:`` config it stayed a
-# SILENT leak.
+# *literal* rules. #198 extended the oracle to ``re:`` rules at reachable VALUE
+# positions, so a regex config is covered here too -- but NOT at dict keys,
+# which stay a silent leak for ``re:`` configs and are tracked on #208.
 #
 # The fix is an inversion, not a longer name list: enumerating positions
 # cannot close an unbounded space, but enumerating the FORMAT's own positions

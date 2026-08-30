@@ -137,8 +137,8 @@ deliberate residual noted in §6b B) — but enumerating positions
 cannot close the class: tool inputs are tool-defined and MCP servers define their own schemas, so the position
 space grows without this project's involvement. As of 0.4.0 the configured `paths` and
 `identifiers` rules are re-run over the **decoded** output — every string leaf *and every dict
-key* — and a survivor aborts the run. **Literal** rules are checked position-agnostically;
-**regex** rules are checked at the positions the scrub could have acted on (#198, below).
+key* — and a survivor aborts the run. **Literal** rules are checked position-agnostically, keys
+included; **regex** rules are checked at reachable **value** positions only (#198, below).
 
 **Two rule kinds, two different properties — and the split is semantic, not a shortcut.** The
 property the *literal* scan asserts is *"presence in the output is a leak, unconditionally"*. That
@@ -151,14 +151,21 @@ linkable). Scanning regex rules *unconditionally* aborted every such session at 
 mis-scrubbed, and with no override the config could never scrub any file at all.
 
 **As of #198 regex rules are re-verified too, under a position gate rather than unconditionally.**
-A regex match counts only where the scrub could have acted — that is, at a position the
-`remap_uuids: false` skip predicate does not exempt. So the dict-key position, which the walk
-reaches but cannot transform, is now **refused** for a `re:` config as well as for a literal one:
-the leak that used to be silent (exit 0, value present, sidecar reporting clean) is now exit 2 with
-nothing written. #208 carries the separate question of making that position *scrubbable*. #190,
-which originally carried both, was scoped to detect-only and is closed: see §6b B, which states what
-the walk does and does not reach and why. (#194's mechanism is closed: its positions are now visited
-and scrubbed in-walk under both rule kinds.)
+A regex match counts at a reachable **value** position — one the `remap_uuids: false` skip predicate
+does not exempt. That is defense-in-depth: the walk did reach such a position, so a survivor there
+means the scrub failed. #190, which originally carried both, was scoped to detect-only and is
+closed: see §6b B. (#194's mechanism is closed: its positions are now visited and scrubbed in-walk
+under both rule kinds.)
+
+**Dict keys are literal-only, and the reason is measured rather than assumed.** #198 first tried
+attributing a key its value's path and gating it on the skip predicate. That is a category error:
+the allow-list enumerates the string **leaves** the walk must not rewrite, so a format-owned key
+whose value is an int, a dict or null (`input_tokens`, `stop_reason`, `cache_creation`) has no entry
+there and never needed one. An ordinary `re:[a-z]{3,}_[a-z]{3,}` rule aborted **8 of 8** files in
+this repo's own `fixtures/` corpus — exit 2, nothing written, no override, and unfixable by the
+scrub, since a key cannot be addressed. So a value planted in a key remains a **silent leak for a
+`re:` config**, and closing it requires making keys *visitable* rather than merely scannable, which
+is #208's work. Literal rules refuse the key position exactly as before.
 
 **The gate is deliberately NOT the predicate the run scrubbed with, and this is load-bearing.** It
 is the `remap_uuids: false` predicate, always. Under `remap_uuids: true` the UUID-graph paths are
@@ -170,10 +177,10 @@ closes that, and the exemption is **positional** — a fixed five-path set known
 never be reimplemented as a *value* comparison against synthesized values or the substitution table:
 that is the allow-set described below, which produced a real leak.
 
-**What #198 does not close: #194's residual, for regex only.** A skip-listed position is exempt from
-the regex check by construction, so the five allow-listed paths under `toolUseResult` keep the
-residual argued in §6b B. Literal rules are unaffected and remain position-agnostic everywhere. A
-`re:` config is verified wherever the walk could have acted and nowhere it deliberately preserves. Scanning the **decoded** tree rather than the serialized text is the other half of this
+**What #198 does not close, for regex rules:** dict keys (above, #208); skip-listed positions —
+#194's residual, so the five allow-listed paths under `toolUseResult` keep the exemption argued in
+§6b B; and the UUID-graph synthesis positions. Literal rules are unaffected and remain
+position-agnostic everywhere, keys included. Scanning the **decoded** tree rather than the serialized text is the other half of this
 amendment and is not cosmetic: rules match decoded leaf values, so a serialized-domain scan was
 blind to every value containing a backslash, a quote or a control character — a Windows home
 directory (`C:\Users\name`) is the canonical `paths` case and serializes with doubled backslashes,
@@ -317,10 +324,11 @@ fields left untouched (specified in the bullet list below the following note).
 >
 > **`re:` rules are covered too, as of #198, but under a different property.** "Present in the
 > output" means "leaked" for a literal value and not for a shape, so a regex match counts only at a
-> position the scrub could have acted on. This step still never visits a key, but a key *is* such a
-> position — so the value is now **refused** rather than written with a clean sidecar. What stays
-> uncovered for regex is the deliberate skip-list residual below, and the UUID-graph paths under
-> `remap_uuids: true`, where the identifier layer mints the value itself.
+> reachable **value** position. This step never visits a key, and the oracle does not scan keys for
+> regex rules either — gating them on this allow-list aborted 8 of 8 fixture files on the format's
+> own key names, since the list enumerates leaves and exempts no key. So for a `re:` config a value
+> in a key stays a silent leak (#208). Also uncovered for regex: the skip-list residual below, and
+> the UUID-graph paths under `remap_uuids: true`, where the identifier layer mints the value.
 
 - **Skip-list (never scrubbed):** an **allow-list of ROOT-ANCHORED paths**. An entry is an
   exact path from the line object (list indices elided, as `walk_strings` elides them). A path
@@ -652,20 +660,26 @@ Notes:
   describes. As of 0.4.0 it attests to: the secret patterns (position-agnostic over the
   serialized output), **the LITERAL `paths`/`identifiers` rules** (decoded output, leaves and
   dict keys, position-agnostic — #195), **and the REGEX `paths`/`identifiers` rules at reachable
-  positions** (decoded output, leaves and dict keys, excluding skip-listed and UUID-graph
-  positions — #198).
+  VALUE positions** (decoded output, string leaves only, excluding dict keys, skip-listed positions
+  and UUID-graph positions — #198).
 
   It does **not** attest to the four things below. The list is written out because an unstated
   exclusion is how this line starts overclaiming again — and it is **not** a closed set: add to it
   whenever a new limit is found, rather than letting the omission do the claiming.
 
-  - **Regex rules at positions the walk deliberately preserves.** #198 gave regex rules an
-    output-side check, but gated on position: a skip-listed path, and the UUID-graph paths under
-    `remap_uuids: true`, are exempt. For a `re:` config `clean` therefore means *no survivor
-    anywhere the scrub could have acted*, which is stronger than the pre-#198 "the walk scrubbed
-    what it reached" and weaker than the literal rules' unconditional guarantee. The exempt set is
-    #194's documented residual (§6b B) plus the synthesis positions, and the reason the latter are
-    exempt is that the sanitizer wrote those values itself.
+  - **Regex rules at any position other than a reachable value.** #198 gave regex rules an
+    output-side check, gated on position. Three classes are exempt: **dict keys** (#208 — gating
+    them on the leaf allow-list aborted 8 of 8 fixture files on format key names), **skip-listed
+    paths** (#194's documented residual, §6b B), and the **UUID-graph paths** under
+    `remap_uuids: true` (the sanitizer minted those values itself). For a `re:` config `clean`
+    therefore means *no survivor at a reachable value position* — stronger than the pre-#198 "the
+    walk scrubbed what it reached", weaker than the literal rules' unconditional guarantee, and in
+    particular **it does not speak for the dict-key position at all**.
+  - **A regex rule that can only ever match zero-width.** A pure lookahead (`re:(?=/home/realuser)`)
+    scrubs nothing — `apply_rule` no-ops on an empty match — and is reported by nothing: load-time
+    validation tests only `compiled.match("")`, which a lookahead passes, and the oracle skips
+    zero-width spans. Exit 0, value verbatim, empty substitution table, `clean`. Pre-existing rather
+    than introduced by #198, and tracked as [#222](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/222).
   - **Values nested inside a JSON-encoded string leaf.** Both the scrub and the rule scan decode one
     level, so a value carrying its own escaping inside an inner JSON document is missed by both. A
     plain nested value *is* caught; it is the inner escaping that defeats it. A pre-existing limit
@@ -742,7 +756,7 @@ Options:
 |---|---|---|
 | 0 | Success | yes (+ sidecar) |
 | 1 | Usage error (bad args, missing input, output exists without `--force`) | no |
-| 2 | **Safety failure** — rule raised, line failed to parse, or either output-side scan found a survivor (a secret; a **literal** `paths`/`identifiers` value, #195; or a **regex** one at a reachable position, #198) | **no** |
+| 2 | **Safety failure** — rule raised, line failed to parse, or either output-side scan found a survivor (a secret; a **literal** `paths`/`identifiers` value anywhere including a dict key, #195; or a **regex** one at a reachable value position, #198) | **no** |
 | 3 | Config error (YAML invalid, regex won't compile, attempt to disable a built-in pattern) | no |
 
 **Atomicity & rename order (I-5).** Output and sidecar are written to temp files in the
@@ -941,9 +955,9 @@ in `fixtures/sanitized/`, it:
 
 **`residual_scan: clean` does not yet mean "no configured value survived."** The output-side
 oracle re-verifies **literal** `paths`/`identifiers` rules position-agnostically (#195) and
-**regex** rules at reachable positions (#198), so for a regex config the field attests to the
-secret scan, the literal rules, and the regex rules everywhere the scrub could have acted — but
-not at skip-listed positions or the UUID-graph synthesis positions. #194 narrowed what that
+**regex** rules at reachable **value** positions (#198), so for a regex config the field attests to
+the secret scan, the literal rules, and regex rules at reachable values — but **not** at dict keys
+(#208), skip-listed positions, or the UUID-graph synthesis positions. #194 narrowed what that
 residual can reach — the traversal positions it used to leak through are now visited and
 scrubbed — and the validator should still re-derive rather than read the field as a full
 guarantee.
