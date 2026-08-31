@@ -131,3 +131,89 @@ def test_anchored_extra_matches_per_line_not_only_at_buffer_start() -> None:
     with pytest.raises(ResidualSecretError) as exc:
         scan_residual(lines, (extra,))
     assert exc.value.kind == "corp-token"
+
+
+# ----- the serialized-vs-decoded audit, pinned (#198 AC-4) ----------------
+#
+# PRD section 10 carries a 12-row table recording which built-in secret
+# patterns diverge between the serialized and the decoded domain. That table is
+# the evidence behind the claim that the D-1 floor is "not encoding-complete",
+# and it is the input to #217. The PRD says a newly-added pattern "must be
+# re-checked" -- these cells are what make that true rather than aspirational,
+# in the same spirit as `test_module_docstring_cell_count_is_current` pinning
+# the adversarial matrix's cell count.
+
+
+_AUDITED_KINDS = (
+    # VENDORED_PATTERNS, declaration order
+    "anthropic-key",
+    "openai-project-key",
+    "openai-key-legacy",
+    "github-pat-classic",
+    "github-pat-fine",
+    "aws-access-key-id",
+    "gcp-api-key",
+    "pem-private-key",
+    # BATCH_PATTERNS, declaration order
+    "bearer-token",
+    "jwt",
+    "conn-string-pw",
+    "slack-token",
+)
+
+
+def test_audited_pattern_set_matches_the_prd_table() -> None:
+    """A new built-in pattern must force a look at PRD section 10's audit table.
+
+    Membership and order, because the PRD table is written in declaration order
+    and a reader matches the two by position. This fails on an addition, a
+    removal, a rename or a reorder -- all four of which invalidate the table,
+    and none of which any other test notices.
+    """
+    from ccs_sanitize.rules.secrets import BATCH_PATTERNS, VENDORED_PATTERNS
+
+    live = tuple(kind for _pattern, kind in VENDORED_PATTERNS + BATCH_PATTERNS)
+    assert live == _AUDITED_KINDS, (
+        "the built-in secret-pattern set changed. PRD section 10's "
+        "serialized-vs-decoded audit table is keyed to this list: re-run the "
+        "audit for the new/changed pattern, update that table, and update "
+        "_AUDITED_KINDS here. A pattern that admits a JSON-escapable byte "
+        "inside a match (as bearer-token's `\\s` does) is a new instance of "
+        "the #217 blind spot, not a formality."
+    )
+
+
+def test_bearer_token_is_the_only_diverging_builtin() -> None:
+    """The audit's substantive claim, re-derived rather than restated.
+
+    ``scan_residual`` reads the SERIALIZED output, so a pattern that can match
+    an escapable byte finds the secret in one domain and not the other. The
+    table's three named results are asserted here:
+
+      - ``bearer-token`` DIVERGES (`\\s` matches a newline, which JSON escapes);
+      - ``conn-string-pw`` and ``pem-private-key`` look like candidates and are
+        NOT, for per-pattern reasons -- negated classes that accept quotes and
+        backslashes, and a literal containing only spaces and dashes.
+
+    The PRD warns against replacing the table with "the built-ins are
+    alphanumeric"; these two cells are why that generalization is wrong.
+    """
+    import json
+
+    from ccs_sanitize.rules.secrets import COMPILED_SECRET_PATTERNS
+
+    compiled = {kind: pattern for pattern, kind in COMPILED_SECRET_PATTERNS}
+
+    diverging = "Authorization:\nBearer abc123XYZ"
+    assert compiled["bearer-token"].search(diverging) is not None
+    assert compiled["bearer-token"].search(json.dumps(diverging)) is None
+
+    for kind, probe in (
+        ("conn-string-pw", 'postgres://user:pw"12\\3@h'),
+        ("pem-private-key", "-----BEGIN RSA PRIVATE KEY-----"),
+    ):
+        assert compiled[kind].search(probe) is not None, kind
+        assert compiled[kind].search(json.dumps(probe)) is not None, (
+            f"{kind} now diverges between the serialized and decoded domains; "
+            f"PRD section 10's audit table says it does not"
+        )

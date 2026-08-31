@@ -209,7 +209,8 @@ def scan_residual_rules(
     two forms diverge. That is not confined to user-supplied extras: the
     built-in ``bearer-token`` is
     ``(?i)authorization:\\s*bearer\\s+[A-Za-z0-9._-]+`` and ``\\s`` matches a
-    newline, which JSON escapes. Tracked in #198.) Paths and identifiers had no
+    newline, which JSON escapes. Tracked in #217, split out of #198.) Paths and
+    identifiers had no
     such pass, so
     any traversal gap leaked **silently** -- exit 0, output written, sidecar
     reporting ``residual_scan: clean``. Dict keys are never visited by the walk,
@@ -291,7 +292,8 @@ def scan_residual_rules(
     this replaced would have matched it, so moving to the decoded domain closed
     the escaped-byte blind spot and opened a non-string-leaf one. Not a
     regression -- before #195 there was no rule scan at all -- and it matters
-    because #126 (numeric GitHub user ids) is that shape. Both are in #198.
+    because #126 (numeric GitHub user ids) is that shape. The nested-string limit
+    is #220; the numeric-leaf one is recorded on #126 itself, which it blocks.
 
     **There is deliberately no allow-set.** An earlier version excused a match
     whose span was exactly a replacement the run had recorded, to stop a
@@ -322,9 +324,10 @@ def scan_residual_rules(
     such a config fails on its first run rather than intermittently and keeps
     failing until it is edited. That is **pre-existing, availability-only, and
     recoverable by narrowing the rule** -- never a leak -- and it is tracked in
-    #198 rather than fixed here, because any guard that excuses a match falling
-    inside a synthesized value re-introduces the class of mechanism this
-    function exists without.
+    **#218** rather than fixed here, because any guard that excuses a match
+    falling inside a synthesized value re-introduces the class of mechanism this
+    function exists without. (#198 fixed only the *regex* analog, which it
+    created; see ``_regex_rule_survives``.)
 
     ``run_pipeline`` drops strip-types lines before returning, so a configured
     value on a dropped line is correctly **not** an abort -- it never reaches

@@ -50,7 +50,7 @@ FAIL-CLOSED read as safe. Ordinary regressions produce exactly that shape:
 a renamed flag (exit 1), a config-schema change (exit 3), a re-run hitting
 `output already exists` (exit 1). Every departure from REDACTED is
 therefore explicit and issue-tagged rather than a blanket allowance, in one
-of two forms that must not be confused:
+of three forms that must not be confused:
 
   KNOWN_DEVIATIONS      a position that SHOULD redact and does not yet.
                         `xfail(strict=True)`, so the fix turns it red.
@@ -59,6 +59,12 @@ of two forms that must not be confused:
                         xfail on "expected REDACTED" is satisfied by LEAKED
                         just as well as by FAIL-CLOSED -- so it cannot tell a
                         safe abort from the leak this module exists to catch.
+  KNOWN_LEAK_VERDICTS   a cell whose CURRENT verdict is LEAKED, tracked rather
+                        than fixed. Overlaps KNOWN_DEVIATIONS deliberately --
+                        that entry records "should redact, does not", this one
+                        records HOW it fails -- and it is asserted POSITIVELY
+                        for the same reason FAIL_CLOSED_BY_DESIGN is, so a
+                        silent move to FAIL-CLOSED or ERROR-<rc> is visible.
 
 Why this drives the console script instead of importing the orchestrator:
 PRD D-5a declares the module surface private and the CLI + sidecar the
@@ -824,15 +830,20 @@ def test_module_docstring_cell_count_is_current() -> None:
 
 
 def test_deviation_mappings_reference_real_cells() -> None:
-    """A cell rename must not silently detach an entry in EITHER mapping.
+    """A cell rename must not silently detach an entry in ANY of the three mappings.
 
     KNOWN_DEVIATIONS is consulted with .get(), so a renamed cell id makes an
     entry stop matching, silently turning a tracked known-leak into an
     untracked one with no signal. FAIL_CLOSED_BY_DESIGN fails louder but
-    worse -- see the comment below.
+    worse -- see the comment below. KNOWN_LEAK_VERDICTS fails loudest of the
+    three (a KeyError in its own parametrized test rather than a silent
+    detach), and is included anyway: this test is the module's single statement
+    of the discipline, and a mapping exempted from it because its failure
+    happens to be noisy is one the next mapping gets compared against.
     """
     for name, mapping in (
         ("KNOWN_DEVIATIONS", KNOWN_DEVIATIONS),
+        ("KNOWN_LEAK_VERDICTS", KNOWN_LEAK_VERDICTS),
         # FAIL_CLOSED_BY_DESIGN is consulted with `in` by `_params`, so a
         # renamed cell there does not merely stop matching -- the cell silently
         # rejoins test_placement_is_redacted and starts asserting REDACTED at a

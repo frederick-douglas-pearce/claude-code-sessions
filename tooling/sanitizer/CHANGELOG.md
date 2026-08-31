@@ -329,10 +329,13 @@ by construction.
   the parent/subagent graph stays linkable). Scanning regex rules aborted every
   such session at exit 2 with nothing mis-scrubbed, and with no override that
   config could never scrub any file. For regex rules the dict-key gap stays
-  open. Keys are never visited and the oracle skips regex, so a value in a key
-  still leaks silently. **Tracked in #198**, not silently accepted; #190, which
-  originally carried this, was scoped to detect-only and is closed in this
-  release, with #208 carrying the scrubbability half. (#194 is also closed
+  open. Keys are never visited, and the oracle does not scan keys for regex
+  rules (#198 covers regex at reachable *value* positions only), so a value in
+  a key still leaks silently. **Tracked in #208**, not silently accepted --
+  #198 attempted it and reverted before merge, since the only available gate is
+  the leaf allow-list and it exempts no key; #190, which originally carried
+  this, was scoped to detect-only and is closed in this release, with #208
+  carrying the scrubbability half too. (#194 is also closed
   here: its positions are now visited and scrubbed in-walk under both rule
   kinds.)
 - **The diagnostic names `section[index]`, never the rule or the match.**
@@ -346,9 +349,13 @@ by construction.
   attests to the secret patterns (position-agnostic over the serialized output,
   which is not the same as encoding-complete: `bearer-token` matches across
   `\s`, and a newline there is JSON-escaped, so that built-in has the same
-  blind spot — #198) **and** the literal path/identifier rules (decoded
-  output). PRD section 10 enumerates the four things it does not attest to.
-  It does **not** attest to regex path/identifier rules.
+  blind spot — #217, split out of #198) **and** the literal path/identifier
+  rules (decoded output), **and**, as of #198, regex path/identifier rules at
+  reachable *value* positions. PRD section 10 enumerates what it does not
+  attest to — deliberately unnumbered there, because an earlier count went
+  stale the moment a limit was added. For regex rules it does **not** speak for
+  dict keys (#208), skip-listed positions, or the UUID-graph synthesis
+  positions.
   Stated in PRD section 10 as well, because this field is the human review gate
   before publishing and an overclaim there is the rubber-stamp failure the whole
   issue is about.
@@ -390,6 +397,48 @@ by construction.
   (exit 3, author editing their own config) but the same shape, and left as one
   strict site plus one leaky site it invites copying the wrong one. Out of
   scope here; tracked there.
+
+### Added (issue #198 — output-side verification for regex path/identifier rules)
+
+- **`re:` `paths`/`identifiers` rules are now re-verified against the output**,
+  at reachable **value** positions. #195 shipped the oracle for literal rules
+  only, so a regex config leaked silently wherever the walk could not act. The
+  release preamble above carries the operator-facing behavior change; this
+  section records what landed and what deliberately did not.
+- **Dict keys are literal-only, and that is a narrowing decided during review.**
+  The first implementation scanned keys too, gating them on the skip
+  allow-list. That list enumerates the string *leaves* the walk must not
+  rewrite, so it exempts no format-owned key: an ordinary
+  `re:[a-z]{3,}_[a-z]{3,}` rule aborted **8 of 8** files in the repo's fixture
+  corpus on `input_tokens`, `stop_reason` and `cache_creation`. Reverted before
+  merge; the position moved to **#208**, where making keys *visitable* is what
+  gives the oracle a principled way to tell a format key from a planted one.
+- **The gate is the `remap_uuids: false` predicate, never the run's own.** Under
+  `remap_uuids: true` the UUID-graph paths become visited and the identifier
+  layer mints values into them, so the run's own predicate would abort on the
+  sanitizer's own output. The exemption is **positional** — never a comparison
+  against synthesized values, which is the allow-set #195 removed for producing
+  a real leak.
+- **Two guards the literal path does not need:** a zero-width guard (load-time
+  validation only tests `compiled.match("")`, so an input-dependent
+  `re:(?=…)` reaches the scan) and `finditer` rather than `search`.
+- **Audited all 12 built-in secret patterns** for serialized-vs-decoded
+  divergence. Exactly one diverges (`bearer-token`); `conn-string-pw` and
+  `pem-private-key` were confirmed safe **by probe**, not by the
+  "built-ins are alphanumeric" generalization, which is wrong. Table in PRD
+  §10, pinned by `test_audited_pattern_set_matches_the_prd_table` and
+  `test_bearer_token_is_the_only_diverging_builtin`; code fix is **#217**.
+- **Adversarial matrix gains a fifth payload family, `pii-regex`** — before it,
+  no cell could observe the `re:` class at all. It redacts in 18 of 19 cells;
+  the 19th (`13-dict-key-not-value`) is the tracked leak above, pinned by a
+  positive `== "LEAKED"` assertion in the new `KNOWN_LEAK_VERDICTS` mapping
+  rather than by an xfail that cannot tell a leak from a refusal.
+- **Follow-ups filed rather than folded in:** #217 (decoded-domain secret
+  scan), #218 (literal substring of a synthesized UUID false-aborts), #219
+  (load-time contradiction guard), #220 (nested JSON-in-a-string), #222 (a rule
+  that can only ever match zero-width scrubs nothing and is reported by
+  nothing), plus a note on #126 recording that the JSON-number blind spot
+  blocks its derived-rule direction.
 
 ### Added (issue #191 — adversarial placement matrix)
 - **`tests/test_adversarial_placement.py`** — the parametrized form of the

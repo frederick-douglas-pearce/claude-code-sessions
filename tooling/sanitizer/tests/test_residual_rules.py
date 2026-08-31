@@ -718,6 +718,32 @@ def test_a_regex_rule_whose_expansion_rematches_itself_aborts(
     it is a behavior change on upgrade. Recorded in the CHANGELOG and PRD
     section 10 rather than asserted away.
     """
+    line = _line({"type": "user", "message": {"content": "hello user_1234 bye"}})
+
+    # CONTROL FIRST, and it is what makes this cell assert the mechanism rather
+    # than the outcome. `scan_residual_rules` raises identically on the scrubbed
+    # and the unscrubbed string, so the abort below is NOT by itself evidence
+    # that the scrub ran and its own output re-matched: it would look the same
+    # if the identifiers layer had simply stopped reaching `message.content`,
+    # and this cell would stay green while its whole story went false.
+    #
+    # The control differs in one character class -- a replacement that CANNOT
+    # re-match the pattern -- so it isolates exactly that. It must scrub and
+    # exit clean. If the scrub ever stops reaching this position, the control
+    # fails here instead of the leak quietly passing there.
+    control = _config(
+        tmp_path,
+        r"""
+version: 1
+identifiers:
+  - match: "re:(user)_[0-9]+"
+    replace: "\\1_XXXX"
+""",
+    )
+    out, _, _, _ = sanitize_session([line], control)
+    assert "user_XXXX" in out[0], "the scrub did not reach this position at all"
+    assert "user_1234" not in out[0]
+
     config = _config(
         tmp_path,
         r"""
@@ -728,10 +754,7 @@ identifiers:
 """,
     )
     with pytest.raises(ResidualRuleError) as exc:
-        sanitize_session(
-            [_line({"type": "user", "message": {"content": "hello user_1234 bye"}})],
-            config,
-        )
+        sanitize_session([line], config)
     assert exc.value.section == "identifiers"
     assert exc.value.index == 0
 
@@ -901,8 +924,12 @@ def test_format_markers_are_still_skipped_at_their_real_positions(tmp_path: Path
     pre-existing behaviour on ``main`` -- verified by running this same
     config against the unmodified tree -- and it means a literal rule whose
     match value equals a format-marker value can never produce output. A
-    ``re:`` rule is not re-verified by the oracle, so it isolates the
-    property under test. The interaction itself is recorded on the PR; it is
+    ``re:`` rule sidesteps that: through #195 because regex was not re-verified
+    at all, and since #198 because the oracle exempts regex matches at exactly
+    the skip-listed positions these cells plant at. The isolation still holds,
+    but it now rests on the positional gate agreeing with the allow-list under
+    test rather than on regex being unscanned -- narrow that gate and these
+    cells start aborting. The interaction itself is recorded on the PR; it is
     a real constraint, it predates this change, and it is not this issue's to
     fix."""
     config = _config(

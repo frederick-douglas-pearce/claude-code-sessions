@@ -194,8 +194,10 @@ first run, and fixed by rewriting the rule so its replacement falls outside its 
 pinned by a test so it stays a known contract rather than a latent surprise.
 
 **What #198 does not close, for regex rules:** dict keys (above, #208); skip-listed positions —
-#194's residual, so the five allow-listed paths under `toolUseResult` keep the exemption argued in
-§6b B; and the UUID-graph synthesis positions. Literal rules are unaffected and remain
+#194's residual, so the four `usage` leaves under `toolUseResult` keep the exemption argued in §6b B
+(`toolUseResult.agentId` is the fifth allow-listed path under that key, but it is exempt as a
+UUID-graph member for linkability, not by the tool-envelope argument — two rationales that a single
+count blurs); and the UUID-graph synthesis positions. Literal rules are unaffected and remain
 position-agnostic everywhere, keys included. Scanning the **decoded** tree rather than the serialized text is the other half of this
 amendment and is not cosmetic: rules match decoded leaf values, so a serialized-domain scan was
 blind to every value containing a backslash, a quote or a control character — a Windows home
