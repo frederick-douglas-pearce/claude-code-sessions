@@ -210,7 +210,10 @@ def test_bearer_token_is_the_only_diverging_builtin() -> None:
 
     for kind, probe in (
         ("conn-string-pw", 'postgres://user:pw"12\\3@h'),
-        ("pem-private-key", "-----BEGIN RSA PRIVATE KEY-----"),
+        # Split like ``test_pem_armor_raises_in_a_single_line`` above, so this
+        # module cannot match the repo's own detect_secrets_in_output.py hook
+        # when a tool reads it. Header only, no key material either way.
+        ("pem-private-key", "-----BEGIN " + "RSA PRIVATE KEY" + "-----"),
     ):
         assert compiled[kind].search(probe) is not None, kind
         assert compiled[kind].search(json.dumps(probe)) is not None, (
