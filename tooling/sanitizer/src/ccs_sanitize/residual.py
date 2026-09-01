@@ -2,10 +2,11 @@
 
 Two of them as of #195, and they are not the same shape. ``scan_residual``
 re-runs the **secret** patterns over the serialized output lines.
-``scan_residual_rules`` re-runs the **literal** ``paths``/``identifiers``
-rules over the **decoded** output tree, keys included. Each function's own
-docstring carries its contract; the module preamble below describes the
-secret scan, which came first.
+``scan_residual_rules`` re-runs the ``paths``/``identifiers`` rules over the
+**decoded** output tree -- literals position-agnostically and keys included,
+and (as of #198) ``re:`` rules at reachable **value** positions only. Each
+function's own docstring carries its contract; the module preamble below
+describes the secret scan, which came first.
 
 PRD reference: section 5 (the residual-scan philosophy) and section 11
 (fail-closed posture / exit codes). The same ``COMPILED_SECRET_PATTERNS``
@@ -44,6 +45,7 @@ import json
 from typing import Iterable, Iterator, Sequence
 
 from .config import ExtraSecretPattern, Rule
+from .pipeline import JsonPath, default_skip_predicate
 from .rules.secrets import iter_all_secret_patterns
 
 
@@ -141,8 +143,10 @@ class ResidualRuleError(Exception):
         self.index = index
 
 
-def _iter_decoded_strings(node: object) -> Iterator[str]:
-    """Yield every string in a decoded JSONL record, **keys included**.
+def _iter_decoded_strings(
+    node: object, path: JsonPath = ()
+) -> Iterator[tuple[str, JsonPath, bool]]:
+    """Yield ``(text, path, is_key)`` for every string in a decoded record, **keys included**.
 
     Dict keys are yielded because they are the whole of #190: ``walk_strings``
     recurses into a dict's *values* and copies its keys verbatim
@@ -151,16 +155,43 @@ def _iter_decoded_strings(node: object) -> Iterator[str]:
 
     Document order, so a caller iterating rules outer and strings inner reports
     a stable ``section[index]``.
+
+    **The path mirrors ``walk_strings``' discipline exactly** (#198), because
+    the regex scan compares it against the same skip-list the walk consults and
+    a divergence would silently mis-scope the exemption:
+
+    - a dict value under key ``k`` at parent path ``p`` gets ``p + (k,)``;
+    - **list indices are elided** -- ``[_walk(item, path) for item in value]``
+      in ``pipeline.py`` passes the *parent* path down, which is what lets one
+      allow-list entry like ``("message","content","id")`` cover
+      ``message.content[3].id``. Eliding here too is not a simplification; the
+      allow-list depends on it.
+
+    A dict **key** is attributed **its value's path** (``p + (k,)``) and flagged
+    ``is_key=True``. **The flag is load-bearing and the path is NOT sufficient
+    on its own**, which is the whole of why this yields three values:
+
+    ``walk_strings`` structurally cannot address a key at any path, so a key is
+    never a position the walk "reached and declined to scrub". Worse, the skip
+    allow-list cannot exempt one: ``_FORMAT_PATHS`` enumerates the **string
+    leaves** the walk must not rewrite, so a format-owned key whose value is an
+    int, a dict or null (``input_tokens``, ``stop_reason``, ``cache_creation``)
+    has no entry there and never needed one. Treating "not skip-listed" as "user
+    data" therefore misreads every one of those keys. Consumers must decide what
+    a key means for themselves; ``_literal_rule_survives`` and
+    ``_regex_rule_survives`` answer it differently, and the difference is the
+    point.
     """
     if isinstance(node, str):
-        yield node
+        yield node, path, False
     elif isinstance(node, dict):
         for key, value in node.items():
-            yield key
-            yield from _iter_decoded_strings(value)
+            child = path + (key,)
+            yield key, child, True
+            yield from _iter_decoded_strings(value, child)
     elif isinstance(node, list):
         for item in node:
-            yield from _iter_decoded_strings(item)
+            yield from _iter_decoded_strings(item, path)
 
 
 def scan_residual_rules(
@@ -178,14 +209,18 @@ def scan_residual_rules(
     two forms diverge. That is not confined to user-supplied extras: the
     built-in ``bearer-token`` is
     ``(?i)authorization:\\s*bearer\\s+[A-Za-z0-9._-]+`` and ``\\s`` matches a
-    newline, which JSON escapes. Tracked in #198.) Paths and identifiers had no
+    newline, which JSON escapes. Tracked in #217, split out of #198.) Paths and
+    identifiers had no
     such pass, so
     any traversal gap leaked **silently** -- exit 0, output written, sidecar
-    reporting ``residual_scan: clean``. One such gap is open: dict keys are
-    never visited by the walk, and this scan skips ``re:`` rules, so under a
-    regex config a value in a key still leaks (#198; #208 covers making the
-    position scrubbable, and #190 -- which originally carried both -- was
-    scoped to detect-only and is closed). #194, the skip-list exempting user
+    reporting ``residual_scan: clean``. Dict keys are never visited by the walk,
+    and this scan refuses them for **literal** rules (#195/#190), which is what
+    makes a literal value planted in a key a refusal rather than a leak. For
+    ``re:`` rules the key position is **not** covered -- see
+    ``_regex_rule_survives`` for the measured reason -- so it remains a silent
+    leak for a regex config, tracked on #208 along with making the position
+    scrubbable in the first place. (#190, which originally carried both, was
+    scoped to detect-only and is closed.) #194, the skip-list exempting user
     data at any depth, is closed for the bare-name MECHANISM -- those positions are now visited
     and scrubbed. Say "the mechanism", not "the class": five of the 29
     allow-listed paths sit inside ``toolUseResult``, which is a tool-shaped
@@ -199,24 +234,43 @@ def scan_residual_rules(
     rather than a longer skip-list: tool inputs are tool-defined and MCP
     servers define their own schemas.
 
-    **Literal rules only, and the restriction is semantic rather than
-    pragmatic.** The property this function asserts is *"presence in the output
-    is a leak, unconditionally"*. That is true of a literal rule, whose
-    ``match`` **is** a specific real-world string the operator wants gone: its
-    appearance at any depth, in any position, skip-listed or not, is a leak by
-    definition. It is **not** true of a regex rule, whose ``match`` is a
-    *shape*, and shapes legitimately survive scrub -- a runtime-synthesized
-    UUID, or a field the pipeline preserves on purpose. Running an
-    unconditional abort over a shape is a category error, and it is not
-    hypothetical: with the default ``remap_uuids: false`` the UUID-graph fields
-    are skip-listed *deliberately* so the parent/subagent graph stays linkable,
-    so a UUID-shaped identifier rule aborted every session while nothing had
-    been mis-scrubbed. Regex rules are therefore covered by the in-walk scrub
-    only and are **not** re-verified here; see the sidecar note in PRD section
-    10, which must say so rather than implying a guarantee this does not make.
-    The gap is tracked in #198, which also records the two guards a future regex
-    treatment needs and this one does not (a zero-width guard, and ``finditer``
-    rather than ``search``).
+    **Two rule kinds, two different properties -- and the split is semantic
+    rather than pragmatic.** Literals assert *"presence in the output is a leak,
+    unconditionally"*. That is true of a literal rule, whose ``match`` **is** a
+    specific real-world string the operator wants gone: its appearance at any
+    depth, in any position, skip-listed or not, is a leak by definition. It is
+    **not** true of a regex rule, whose ``match`` is a *shape*, and shapes
+    legitimately survive scrub -- a runtime-synthesized UUID, or a field the
+    pipeline preserves on purpose. Running an unconditional abort over a shape
+    is a category error, and it is not hypothetical: with the default
+    ``remap_uuids: false`` the UUID-graph fields are skip-listed *deliberately*
+    so the parent/subagent graph stays linkable, so a UUID-shaped identifier
+    rule aborted every session while nothing had been mis-scrubbed.
+
+    Regex rules were therefore scoped out of #195 entirely and covered by the
+    in-walk scrub alone. #198 gives them a **position-gated** check instead: a
+    match counts at a **value** position the scrub could have acted on.
+    ``_regex_rule_survives`` owns that contract -- including why dict keys are
+    excluded, why the gate is the ``remap_uuids=False`` predicate rather than
+    the run's own, and why the resulting exemption must stay positional rather
+    than value-based. Read it before changing anything here.
+
+    **What this does and does not close, stated exactly, because the scope was
+    narrowed once already.** For regex rules it adds defense-in-depth over
+    reachable value positions: a survivor there means the scrub failed, since
+    the walk did reach it. It does **not** cover:
+
+    - **dict keys**, which stay a silent leak for a regex config (#208) --
+      gating them on the leaf allow-list false-aborted 8 of 8 fixture files;
+    - **skip-listed positions**, #194's documented residual, so the five
+      allow-listed paths under ``toolUseResult`` keep the exemption argued at
+      ``_ENUM_PATHS``;
+    - **the UUID-graph synthesis positions**, where the sanitizer wrote the
+      value itself.
+
+    Literals are unaffected throughout and remain position-agnostic, keys
+    included. PRD section 10 must state that asymmetry rather than implying
+    regex now carries the literal guarantee.
 
     **Scans the DECODED tree, not the serialized text.** Rules match decoded
     leaf values -- that is the domain ``walk_strings`` applies them in -- while
@@ -238,7 +292,8 @@ def scan_residual_rules(
     this replaced would have matched it, so moving to the decoded domain closed
     the escaped-byte blind spot and opened a non-string-leaf one. Not a
     regression -- before #195 there was no rule scan at all -- and it matters
-    because #126 (numeric GitHub user ids) is that shape. Both are in #198.
+    because #126 (numeric GitHub user ids) is that shape. The nested-string limit
+    is #220; the numeric-leaf one is recorded on #126 itself, which it blocks.
 
     **There is deliberately no allow-set.** An earlier version excused a match
     whose span was exactly a replacement the run had recorded, to stop a
@@ -269,9 +324,10 @@ def scan_residual_rules(
     such a config fails on its first run rather than intermittently and keeps
     failing until it is edited. That is **pre-existing, availability-only, and
     recoverable by narrowing the rule** -- never a leak -- and it is tracked in
-    #198 rather than fixed here, because any guard that excuses a match falling
-    inside a synthesized value re-introduces the class of mechanism this
-    function exists without.
+    **#218** rather than fixed here, because any guard that excuses a match
+    falling inside a synthesized value re-introduces the class of mechanism this
+    function exists without. (#198 fixed only the *regex* analog, which it
+    created; see ``_regex_rule_survives``.)
 
     ``run_pipeline`` drops strip-types lines before returning, so a configured
     value on a dropped line is correctly **not** an abort -- it never reaches
@@ -280,16 +336,24 @@ def scan_residual_rules(
     Args:
         lines: serialized output records, one per element. Re-parsed here, so
             each must be a JSON object; everything ``run_pipeline`` returns is.
-        paths: ``Config.paths``. Regex entries are skipped; literals scanned first.
+        paths: ``Config.paths``, scanned first. Literal entries are checked
+            position-agnostically, keys included; ``re:`` entries are checked
+            only at **value** positions the ``remap_uuids=False`` skip predicate
+            does not exempt.
         identifiers: ``Config.identifiers``. Same treatment, scanned second.
             Section order and ascending index within a section are part of the
             contract -- they decide which ``section[index]`` a multi-rule match
-            reports, so tests can assert on it.
+            reports, so tests can assert on it. Rules are **not** partitioned by
+            kind before scanning, precisely so that order survives.
 
     Raises:
-        ResidualRuleError: a literal rule matched somewhere in the decoded
-            output. Carries the section and index only; neither the rule's
-            ``match`` value nor the matched bytes are ever recorded (D-2).
+        ResidualRuleError: a literal rule matched anywhere in the decoded
+            output, or a regex rule matched at a non-exempt value position. Carries
+            the section and index only; neither the rule's ``match`` value nor
+            the matched bytes are ever recorded (D-2). The two kinds raise the
+            same exception on purpose -- the operator's remedy is the same, and
+            distinguishing them in the message would say something about the
+            rule the D-2 posture keeps out of diagnostics.
         json.JSONDecodeError: a line was not valid JSON. (A valid non-object --
             ``123``, ``"foo"`` -- does not raise; the walk simply scans or
             ignores it.) Unreachable through
@@ -301,24 +365,131 @@ def scan_residual_rules(
         (section, index, rule)
         for section, section_rules in (("paths", paths), ("identifiers", identifiers))
         for index, rule in enumerate(section_rules)
-        if not rule.is_regex
     )
     if not rules:
         return
     for line in lines:
-        strings = list(_iter_decoded_strings(json.loads(line)))
+        entries = list(_iter_decoded_strings(json.loads(line)))
+        # Rules stay in ONE list in declaration order -- paths then
+        # identifiers, ascending index -- rather than being split into a
+        # literal pass and a regex pass. The section/index a multi-rule match
+        # reports is a documented contract that tests assert on (see Args), and
+        # two passes would reorder it: a regex ``paths[0]`` would be reported
+        # after a literal ``identifiers[1]``. The dispatch is per rule, so the
+        # order is untouched.
         for section, index, rule in rules:
-            for text in strings:
-                # ``search`` suffices: a literal is compiled ``re.escape``d, so
-                # every match of it has the same span and a second occurrence
-                # could not be classified differently from the first. That also
-                # makes a zero-width match impossible here (an empty ``match``
-                # is rejected in ``_build_rules``), which is why this loop needs
-                # no equivalent of the ``if not original`` guard that
-                # ``rules/_engine.apply_rule`` carries for regex rules. A future
-                # regex treatment (#198) needs both that guard and ``finditer``.
-                if rule.compiled.search(text) is not None:
+            if rule.is_regex:
+                if _regex_rule_survives(rule, entries):
                     raise ResidualRuleError(section, index)
+            elif _literal_rule_survives(rule, entries):
+                raise ResidualRuleError(section, index)
+
+
+def _literal_rule_survives(
+    rule: Rule, entries: Sequence[tuple[str, JsonPath, bool]]
+) -> bool:
+    """Position-agnostic literal check: presence anywhere in the output is a leak.
+
+    ``search`` suffices: a literal is compiled ``re.escape``d, so every match of
+    it has the same span and a second occurrence could not be classified
+    differently from the first. That also makes a zero-width match impossible
+    here (an empty ``match`` is rejected in ``_build_rules``), which is why this
+    check needs no equivalent of the ``if not original`` guard that
+    ``rules/_engine.apply_rule`` carries for regex rules.
+
+    **Both the path and ``is_key`` are deliberately ignored.** A literal
+    ``match`` **is** a specific real-world string the operator wants gone, so its
+    appearance at any depth, in any position, skip-listed or not, key or value,
+    is a leak by definition. This is the #195/#190 guarantee and #198 narrows
+    none of it.
+    """
+    return any(rule.compiled.search(text) is not None for text, _path, _k in entries)
+
+
+def _regex_rule_survives(
+    rule: Rule, entries: Sequence[tuple[str, JsonPath, bool]]
+) -> bool:
+    """Position-gated regex check (#198): VALUE positions the scrub could have acted on.
+
+    A regex ``match`` is a **shape**, not a value, and shapes legitimately
+    survive scrub -- so the unconditional "presence is a leak" property the
+    literal check asserts is a category error here. This check gates on position
+    instead, and carries the two guards the literal path does not need.
+
+    **Dict keys are NOT scanned, and this is a correction to #198 as first
+    written.** The first implementation attributed a key its value's path and
+    gated it on the skip predicate, reasoning that a non-skip-listed position is
+    user-writable. That reasoning is **false**, and measurably so:
+    ``_FORMAT_PATHS`` enumerates the **string leaves** the walk must not rewrite,
+    so a format-owned key whose value is an int, a dict or null has no entry and
+    never needed one. Against this repo's own ``fixtures/`` corpus an ordinary
+    ``re:[a-z]{3,}_[a-z]{3,}`` rule aborted **8 of 8 files** on key names like
+    ``input_tokens``, ``stop_reason`` and ``cache_creation`` -- exit 2, nothing
+    written, no override, and unfixable by the scrub, since a key cannot be
+    addressed. That is "aborted every session with nothing mis-scrubbed" all over
+    again, so the key position is out of scope for regex rules and #208 carries
+    it, alongside the key-visitation work it belongs with. Literal rules are
+    unaffected and still refuse keys.
+
+    **The value-position gate is ``default_skip_predicate`` -- the
+    ``remap_uuids=False`` predicate -- and NOT the predicate the current run
+    scrubbed with.** That divergence is deliberate, load-bearing, and the single
+    most breakable thing in this function, so it is stated here rather than left
+    to a call site:
+
+    - Under ``remap_uuids: true`` ``make_skip_predicate`` **drops**
+      ``_UUID_PATHS`` from the skip set (``pipeline.py``), so ``uuid``,
+      ``parentUuid``, ``sessionId``, ``agentId`` and ``toolUseResult.agentId``
+      become *visited* positions.
+    - At exactly those visited positions the identifier layer **mints** a value:
+      ``_remap_uuid`` returns a canonical 36-char UUID derived from
+      ``sha256(seed + b"\\x00" + original)`` (``rules/identifiers.py``).
+    - Load-time I-3 (``config.py`` ``_check_replacement_leak``) vets only the
+      literal ``replace`` template and the fixed gitBranch / ``<REDACTED:kind>``
+      placeholders. It never sees a runtime ``match.expand()`` value.
+
+    So gating on the *run's* predicate would abort on the sanitizer's **own
+    synthesized output**: a UUID-shaped identifier rule would exit 2 on every
+    run, deterministically, with nothing mis-scrubbed and no override. Using the
+    ``remap_uuids=False`` predicate exempts ``_UUID_PATHS`` unconditionally and
+    closes it.
+
+    **The exemption is POSITIONAL and must never become value-based.** Do not
+    "improve" this by excusing a match whose span equals a recorded replacement
+    or a synthesized value -- that is the allow-set described at length in
+    ``scan_residual_rules``, and it produced a real leak (the ``/home/realuser``
+    layer-order case). A positional exemption cannot excuse that leak, because a
+    path leaf is not a UUID position. ``_UUID_PATHS`` is a fixed five-element
+    set known at load time; a value allow-set is dynamic and unbounded.
+
+    **Two guards the literal path does not need:**
+
+    - **Zero-width.** ``_reject_zero_width_pattern`` only tests
+      ``compiled.match("")``, so an *input-dependent* zero-width pattern
+      (``re:(?=hello)``, ``re:\\b``) passes load and reaches here. An empty
+      subject is skipped, and a match spanning no characters is skipped: it
+      carries no PII, and aborting on one would fail every input containing a
+      word boundary. **This mirrors the scrub rather than compensating for it** --
+      ``rules/_engine.apply_rule`` also no-ops on a zero-width match -- so a rule
+      matching ONLY zero-width scrubs nothing and is reported by neither layer.
+      That is a pre-existing silent no-op rather than something this check
+      introduced -- before #198 regex rules were not scanned at all, so such a
+      rule leaked identically -- and it is tracked as #222. PRD section 10 lists
+      it among the things ``residual_scan: clean`` does not attest to.
+    - **``finditer``, not ``search``.** A regex's match spans vary within one
+      string, so a zero-width first match must not excuse a genuine survivor
+      later in the same string.
+    """
+    for text, path, is_key in entries:
+        if is_key or not text:
+            continue
+        if default_skip_predicate(path):
+            continue
+        for match in rule.compiled.finditer(text):
+            if match.start() == match.end():
+                continue
+            return True
+    return False
 
 
 __all__ = [

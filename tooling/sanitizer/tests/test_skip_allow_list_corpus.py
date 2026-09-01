@@ -255,7 +255,17 @@ def test_allow_list_tiers_are_disjoint() -> None:
 # The rule is a regex, and that is not incidental: with a literal rule the
 # marker survives (which is the point) and the #195 output-side oracle then
 # finds the configured literal in the output and fail-closes, so every cell
-# would abort. A `re:` rule is not re-verified by the oracle.
+# would abort.
+#
+# WHY THE REGEX FORM STILL WORKS, which changed under #198 and is now a
+# coupling worth naming rather than a free pass. Through #195 a `re:` rule was
+# not re-verified by the oracle at all, so the reason was simply "regex is not
+# scanned". #198 does scan regex rules -- but only at positions
+# `default_skip_predicate` does not exempt, and every position these cells
+# plant at is by construction one the allow-list DOES exempt. So the cells pass
+# because the oracle's positional gate agrees with the allow-list under test,
+# not because regex is unscanned. If that gate is ever narrowed, these cells
+# start aborting and this comment is the explanation.
 
 _MARKER = "ALLOWLISTED-MARKER-VALUE"
 

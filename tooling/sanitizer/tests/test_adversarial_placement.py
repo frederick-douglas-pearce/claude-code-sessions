@@ -23,7 +23,8 @@ by name.
 
 The guarantee lives in #195: an output-side check for the **literal**
 path/identifier rules, mirroring what `scan_residual` already does for
-secrets. Literal only -- regex rules are scrub-only, tracked in #198 -- so
+secrets. #198 extended it to `re:` rules at reachable VALUE positions only --
+dict keys stay regex-uncovered (#208), as does any skip-listed position -- so
 this net still covers positions the oracle does not speak for. This module is
 the coverage net BEHIND that guarantee -- it
 tells you which positions are scrubbable, where the oracle only tells you
@@ -49,7 +50,7 @@ FAIL-CLOSED read as safe. Ordinary regressions produce exactly that shape:
 a renamed flag (exit 1), a config-schema change (exit 3), a re-run hitting
 `output already exists` (exit 1). Every departure from REDACTED is
 therefore explicit and issue-tagged rather than a blanket allowance, in one
-of two forms that must not be confused:
+of three forms that must not be confused:
 
   KNOWN_DEVIATIONS      a position that SHOULD redact and does not yet.
                         `xfail(strict=True)`, so the fix turns it red.
@@ -58,6 +59,12 @@ of two forms that must not be confused:
                         xfail on "expected REDACTED" is satisfied by LEAKED
                         just as well as by FAIL-CLOSED -- so it cannot tell a
                         safe abort from the leak this module exists to catch.
+  KNOWN_LEAK_VERDICTS   a cell whose CURRENT verdict is LEAKED, tracked rather
+                        than fixed. Overlaps KNOWN_DEVIATIONS deliberately --
+                        that entry records "should redact, does not", this one
+                        records HOW it fails -- and it is asserted POSITIVELY
+                        for the same reason FAIL_CLOSED_BY_DESIGN is, so a
+                        silent move to FAIL-CLOSED or ERROR-<rc> is visible.
 
 Why this drives the console script instead of importing the orchestrator:
 PRD D-5a declares the module surface private and the CLI + sidecar the
@@ -100,23 +107,38 @@ SECRET = "sk-" + "ant-" + ("Q7x" * 9)
 HOME = "/home/" + "testsubject"
 EMAIL = "test" + ".person@" + "example.net"
 NAME = "Testy " + "McTestface"
+# #198's payload family. Every other payload above is matched by a LITERAL
+# rule, so before this entry existed the matrix could not observe the `re:`
+# class in ANY cell -- the oracle treated the two kinds differently and no cell
+# exercised the difference. Distinct from HOME on purpose (`regex` vs `test`
+# infix) so the two families cannot be scrubbed by each other's rule, which
+# would make this one inert while looking covered.
+REGEX_HOME = "/home/" + "regexsubject"
 
-# The secret is caught by a built-in pattern and needs no config. The three
+# The secret is caught by a built-in pattern and needs no config. The four
 # PII payloads are config-driven, which used to be the asymmetry #190 was
 # about: nothing re-scanned the output for those after the fact. **#195 closed
 # that for LITERAL rules** -- `scan_residual_rules` re-runs them over the
-# decoded output, keys included. The asymmetry that remains is narrower: a
-# `re:` rule is still scrub-only (#198).
+# decoded output, keys included -- and **#198 closed it for `re:` rules at
+# reachable VALUE positions**. Two things stay uncovered for a `re:` config,
+# and the matrix shows both: skip-listed positions (#194's documented
+# residual), and DICT KEYS (#208) -- which is why the `pii-regex` entry in
+# KNOWN_DEVIATIONS below is a LEAK while the other four payloads at that cell
+# -- the three config-driven literal ones and the built-in `secret` -- are
+# FAIL_CLOSED_BY_DESIGN refusals.
 PAYLOADS = {
     "secret": SECRET,
     "pii-home": HOME,
     "pii-email": EMAIL,
     "pii-name": NAME,
+    "pii-regex": REGEX_HOME,
 }
 
 CONFIG = f"""version: 1
 paths:
   - match: "{HOME}"
+    replace: "/home/user"
+  - match: "re:/home/regex[a-z]+"
     replace: "/home/user"
 identifiers:
   - match: "{EMAIL}"
@@ -150,11 +172,26 @@ BASE = {
 # secret one -- used to live here for exactly that reason and moved out in
 # #190. Do not move them back.
 KNOWN_DEVIATIONS: dict[tuple[str, str], tuple[int, str]] = {
-    # DELIBERATELY EMPTY. The four `13-dict-key-not-value` entries that lived
-    # here moved to FAIL_CLOSED_BY_DESIGN below when #190 was scoped to
-    # detect-only; see that mapping for why an xfail was the wrong shape for
-    # them. The mapping and its consistency test stay for the next genuine
-    # deviation -- a position that SHOULD redact and does not.
+    # The four LITERAL `13-dict-key-not-value` entries that lived here moved to
+    # FAIL_CLOSED_BY_DESIGN below when #190 was scoped to detect-only; see that
+    # mapping for why an xfail was the wrong shape for them.
+    #
+    # The one entry that belongs HERE rather than there is the regex payload,
+    # and the distinction is exactly the one this file is careful about: the
+    # literal payloads FAIL CLOSED at this cell (the oracle catches them and the
+    # run aborts), while the regex payload LEAKS -- exit 0, the value in the
+    # written output, sidecar reporting clean. Those are different verdicts and
+    # must not share a mapping.
+    ("13-dict-key-not-value", "pii-regex"): (
+        208,
+        "dict keys are never transformed, and the #198 oracle does not scan "
+        "keys for `re:` rules -- gating them on the skip allow-list aborted 8 "
+        "of 8 fixture files on format key names like `input_tokens`, since that "
+        "list enumerates string LEAVES and exempts no key. So both layers miss "
+        "this position for a regex config and the value is WRITTEN, not "
+        "refused. Closing it needs the key position to become visitable, which "
+        "is #208",
+    ),
 }
 
 
@@ -207,7 +244,10 @@ FAIL_CLOSED_BY_DESIGN: dict[tuple[str, str], tuple[int, str]] = {
         "and `scan_residual` catches it instead -- safe, but degraded. Unlike "
         "the three PII cells this one was already positively asserted by "
         "test_secret_never_survives_any_placement; it is listed here so the "
-        "cell's four payloads carry one consistent explanation",
+        "cell's literal payloads carry one consistent explanation. The fifth, "
+        "`pii-regex`, is NOT here: its verdict is LEAKED, not FAIL-CLOSED, so "
+        "it sits in KNOWN_DEVIATIONS with a positive verdict assertion of its "
+        "own",
     ),
 }
 
@@ -712,9 +752,54 @@ def test_fail_closed_by_design_cells_actually_fail_closed(
         f"FAIL_CLOSED_BY_DESIGN so the cell rejoins "
         f"test_placement_is_redacted. Note #{issue} leaves it explicitly "
         f"undecided whether keys run the SECRET layer too, so the `secret` "
-        f"payload may legitimately stay FAIL-CLOSED while the three PII "
-        f"payloads move. If the verdict is LEAKED, that is the leak this "
+        f"payload may legitimately stay FAIL-CLOSED while the PII payloads "
+        f"move. If the verdict is LEAKED, that is the leak this "
         f"module exists to catch. ({why})"
+    )
+
+
+# Cells whose CURRENT verdict is LEAKED and which are tracked rather than fixed.
+# Separate from KNOWN_DEVIATIONS' strict xfail on purpose: that xfail asserts only
+# `!= REDACTED`, which FAIL-CLOSED, ERROR-<rc> and LEAKED all satisfy -- the exact
+# critique this module makes of the permissive form everywhere else. Without a
+# positive assertion a silent move from LEAKED to FAIL-CLOSED (or to a broken
+# invocation) would go unnoticed, and so would the cell being quietly fixed.
+KNOWN_LEAK_VERDICTS: dict[tuple[str, str], int] = {
+    ("13-dict-key-not-value", "pii-regex"): 208,
+}
+
+
+@pytest.mark.parametrize(
+    "cell,label",
+    sorted(KNOWN_LEAK_VERDICTS),
+    ids=lambda v: v if isinstance(v, str) else str(v),
+)
+def test_known_leak_cells_have_exactly_the_leaked_verdict(
+    verdicts, cell: str, label: str
+) -> None:
+    """Pin the verdict a known-leaking cell actually has.
+
+    This is the LEAKED counterpart to
+    ``test_fail_closed_by_design_cells_actually_fail_closed``, and it exists for
+    the same reason: the entry in KNOWN_DEVIATIONS records that the cell should
+    redact and does not, but its strict xfail cannot say *how* it fails. Asserting
+    the verdict exactly means three distinct futures are all visible -- the cell
+    getting fixed (REDACTED), the cell degrading differently (ERROR-<rc>), and the
+    cell being made safe-but-unscrubbable (FAIL-CLOSED, which #208 might well
+    choose as a first step).
+
+    Asserting a LEAK as the expected value is uncomfortable, and deliberately so:
+    the discomfort is the point of tracking it in a mapping with an issue number
+    rather than leaving it to an xfail that cannot tell a leak from a refusal.
+    """
+    verdict = verdicts[(label, cell)]
+    issue = KNOWN_LEAK_VERDICTS[(cell, label)]
+    assert verdict == "LEAKED", (
+        f"cell {cell} with {label} returned {verdict}, not the LEAKED verdict "
+        f"recorded here. If #{issue} closed it the verdict is REDACTED and this "
+        f"entry plus the KNOWN_DEVIATIONS entry both come out. If it is now "
+        f"FAIL-CLOSED the position became refusable without becoming scrubbable, "
+        f"which is a real improvement that still needs both entries updated."
     )
 
 
@@ -745,15 +830,20 @@ def test_module_docstring_cell_count_is_current() -> None:
 
 
 def test_deviation_mappings_reference_real_cells() -> None:
-    """A cell rename must not silently detach an entry in EITHER mapping.
+    """A cell rename must not silently detach an entry in ANY of the three mappings.
 
     KNOWN_DEVIATIONS is consulted with .get(), so a renamed cell id makes an
     entry stop matching, silently turning a tracked known-leak into an
     untracked one with no signal. FAIL_CLOSED_BY_DESIGN fails louder but
-    worse -- see the comment below.
+    worse -- see the comment below. KNOWN_LEAK_VERDICTS fails loudest of the
+    three (a KeyError in its own parametrized test rather than a silent
+    detach), and is included anyway: this test is the module's single statement
+    of the discipline, and a mapping exempted from it because its failure
+    happens to be noisy is one the next mapping gets compared against.
     """
     for name, mapping in (
         ("KNOWN_DEVIATIONS", KNOWN_DEVIATIONS),
+        ("KNOWN_LEAK_VERDICTS", KNOWN_LEAK_VERDICTS),
         # FAIL_CLOSED_BY_DESIGN is consulted with `in` by `_params`, so a
         # renamed cell there does not merely stop matching -- the cell silently
         # rejoins test_placement_is_redacted and starts asserting REDACTED at a

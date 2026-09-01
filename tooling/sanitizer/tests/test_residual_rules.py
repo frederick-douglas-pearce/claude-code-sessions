@@ -34,6 +34,7 @@ from pathlib import Path
 import pytest
 
 from ccs_sanitize.orchestrator import sanitize_session
+from ccs_sanitize.pipeline import JsonPath
 from ccs_sanitize.residual import ResidualRuleError, scan_residual_rules
 
 from ._helpers import serialize_test_line as _line, write_config as _config
@@ -71,9 +72,12 @@ identifiers:
 # the scrubbing once it is visited is irrelevant to it. The identifiers layer's
 # own regex behavior is covered by the identifiers unit tests.
 #
-# The oracle deliberately does not re-verify a `re:` rule, so this config is the
-# one that leaked SILENTLY at every position #194 names: exit 0, value present,
-# sidecar reporting clean.
+# Through #195 the oracle did not re-verify a `re:` rule at all, so this config
+# was the one that leaked SILENTLY at every position #194 names: exit 0, value
+# present, sidecar reporting clean. As of #198 it is re-verified at reachable
+# VALUE positions -- so those are covered, while the dict-key position stays
+# regex-uncovered (#208). The cells below carry both directions, and the key
+# cell asserts the remaining leak on purpose.
 _REGEX_CONFIG = """
 version: 1
 paths:
@@ -132,15 +136,19 @@ def test_replacement_in_output_does_not_trip_the_scan(tmp_path: Path) -> None:
     assert scan_residual_rules(['{"k": "/home/user/x"}'], *_rules(config)) is None
 
 
-def test_regex_rules_are_not_scanned(tmp_path: Path) -> None:
-    """Regex rules are deliberately out of this gate's scope.
+def test_regex_rule_is_scanned_at_a_reachable_position(tmp_path: Path) -> None:
+    """#198: regex rules ARE verified, at positions the scrub could have acted on.
 
-    "Present in the output means leaked" is true of a literal value and false
-    of a *shape*: shapes legitimately survive scrub. Scanning them
-    unconditionally aborted clean runs (see the two regressions below), so
-    regex rules are covered by the in-walk scrub only. PRD section 10 states
-    what the sidecar may therefore claim; the gap is tracked in the follow-up
-    issue, not silently accepted.
+    This assertion is the inverse of the one that stood here through #195,
+    which asserted regex rules were skipped entirely. That was the documented
+    gap, not a desired property: "present in the output means leaked" is true
+    of a literal and false of a *shape*, and #195 answered that by scanning no
+    shapes at all -- which left a value at an unreachable position leaking
+    silently under any ``re:`` config.
+
+    The answer is a position gate rather than no gate. ``("ticket",)`` is not
+    skip-listed, so the walk reached it; a rule-matching value still present
+    there means the scrub failed, which is a genuine leak and aborts.
     """
     config = _config(
         tmp_path,
@@ -151,10 +159,109 @@ identifiers:
     replace: "<ticket>"
 """,
     )
-    assert (
+    with pytest.raises(ResidualRuleError) as exc:
         scan_residual_rules(['{"ticket": "CORP-4821"}'], *_rules(config))
-        is None
+    assert exc.value.section == "identifiers"
+    assert exc.value.index == 0
+
+
+def test_regex_rule_is_not_scanned_at_a_skip_listed_position(tmp_path: Path) -> None:
+    """The other half of #198's gate, and what keeps it from being a brick.
+
+    ``("sessionId",)`` is in ``_UUID_PATHS``, so under the default
+    ``remap_uuids: false`` the walk deliberately preserves it to keep the
+    parent/subagent graph linkable. A UUID-shaped rule matching there is
+    matching a value the sanitizer kept ON PURPOSE -- not a scrub failure -- so
+    it must not abort. Without this, a UUID-shaped identifier rule would fail
+    every session while nothing had been mis-scrubbed, which is the exact
+    regression that scoped regex out of #195.
+
+    #194's residual for regex is this cell's direct consequence and is
+    documented rather than closed: a skip-listed position stays exempt.
+    """
+    config = _config(
+        tmp_path,
+        """
+version: 1
+identifiers:
+  - match: "re:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+    replace: "<id>"
+""",
     )
+    line = '{"sessionId": "0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9"}'
+    assert scan_residual_rules([line], *_rules(config)) is None
+
+
+def test_regex_zero_width_match_does_not_abort(tmp_path: Path) -> None:
+    """A guard the literal path does not need (#198, AC-2).
+
+    ``_reject_zero_width_pattern`` only tests ``compiled.match("")``, so an
+    *input-dependent* zero-width pattern passes load and reaches the scan. A
+    match spanning no characters carries no PII, so aborting on one would fail
+    every input containing a word boundary -- availability loss with no safety
+    gain.
+
+    **This pins the oracle's skip; it does NOT assert that the overall behavior
+    is correct.** A rule that matches ONLY zero-width scrubs nothing
+    (``rules/_engine.apply_rule`` also no-ops on an empty match) and is reported
+    by nothing, so the value is written with ``residual_scan: clean``. That is a
+    real leak. It is **pre-existing** rather than introduced here -- before #198
+    regex rules were not scanned at all, so the same rule leaked identically --
+    and it is tracked as **#222**, which proposes rejecting a
+    only-ever-zero-width pattern at load time. The skip below is the right
+    behavior for a zero-width match inside an otherwise substantive pattern,
+    which is what it is here to cover.
+    """
+    config = _config(
+        tmp_path,
+        """
+version: 1
+identifiers:
+  - match: "re:(?=alpha)"
+    replace: "<x>"
+""",
+    )
+    assert scan_residual_rules(['{"k": "alpha beta"}'], *_rules(config)) is None
+
+
+def test_regex_scan_uses_finditer_so_a_later_survivor_is_not_excused(
+    tmp_path: Path,
+) -> None:
+    """The second guard the literal path does not need (#198, AC-2).
+
+    A literal's matches all share one span, so ``search`` decides the rule for
+    a string. A regex's spans vary, so the FIRST match is not the rule's
+    verdict. Here the first match is zero-width (skipped, per the cell above)
+    and a genuine survivor follows it later in the same string -- so a
+    ``search``-based check would skip the only match it looked at and report
+    clean, missing a real leak.
+
+    **On why the pattern is an alternation.** Not because ``finditer`` stops
+    after an empty match -- it does not, it advances one character and carries
+    on (``re.finditer(r"(?=alpha)", "alpha then /home/realuser xalpha")`` yields
+    spans at both ``(0, 0)`` and ``(27, 27)``). The reason is simpler: a
+    lookahead-only pattern has **no non-zero-width match anywhere**, so it could
+    never produce the survivor this cell needs. The alternation supplies one.
+
+    An earlier revision of this docstring asserted the post-empty-match claim
+    above, which was false -- a comment misdescribing the code it sits on, and
+    caught in review rather than by any test, since the cell passes either way.
+    """
+    config = _config(
+        tmp_path,
+        """
+version: 1
+paths:
+  - match: "re:(?=alpha)|/home/real[a-z]+"
+    replace: "/home/user"
+""",
+    )
+    with pytest.raises(ResidualRuleError) as exc:
+        scan_residual_rules(
+            [f'{{"k": "alpha then {_REAL_USER_HOME}"}}'], *_rules(config)
+        )
+    assert exc.value.section == "paths"
+    assert exc.value.index == 0
 
 
 def test_literal_rule_matches_by_value_not_by_pattern_source(tmp_path: Path) -> None:
@@ -319,18 +426,31 @@ def test_value_in_a_NESTED_dict_key_aborts_rather_than_writing(tmp_path: Path) -
 
 
 def test_nested_dict_key_under_a_regex_rule_still_leaks(tmp_path: Path) -> None:
-    """#190 AC-1, the other direction -- and it documents a LIVE defect, #198.
+    """#190 AC-1, the other direction -- a LIVE defect, now tracked on #208.
 
-    The oracle skips ``re:`` rules (``residual.py``, ``if not rule.is_regex``),
-    and the walk never visits a key, so for a regex config the two layers miss
-    the same position: **exit 0, the value present in the written output, and a
-    sidecar reporting a clean run**. That is the population #190 could not close
-    without a traversal change, and #208 was split out to carry that work.
+    The walk never visits a key, and the regex oracle does not scan keys, so for
+    a regex config the two layers miss the same position: **exit 0, the value in
+    the written output, and a sidecar reporting a clean run**.
 
-    This asserts the leak on purpose. When #198 lands, this assertion INVERTS
-    -- the same way ``test_value_under_a_formerly_skip_listed_name_in_tool_
-    input_is_redacted`` inverted when #194 was fixed -- and a red test here is
-    the intended signal that the gap closed, not a regression.
+    **This cell asserts the leak on purpose, and it has now survived two
+    attempts to close it — read the history before trying a third.** #190 was
+    scoped to detect-only. #198 then gave regex rules an output-side check and
+    *did* refuse this position for a while, by attributing a key its value's
+    path and gating on the skip predicate. That was reverted before merge,
+    because the gate is a category error: ``_FORMAT_PATHS`` enumerates the
+    string **leaves** the walk must not rewrite, so a format-owned key whose
+    value is an int, a dict or null has no entry there and never needed one. The
+    result was an ordinary ``re:[a-z]{3,}_[a-z]{3,}`` rule aborting **8 of 8**
+    fixture files on ``input_tokens``, ``stop_reason`` and ``cache_creation`` --
+    exit 2, nothing written, no override, and unfixable by the scrub.
+
+    So closing this needs the key position to become *visitable*, not merely
+    scannable, which is #208's work and why it lands there. When it does, this
+    assertion inverts and a red test here is the intended signal.
+
+    Literal rules are unaffected: they still refuse this exact position, which
+    ``test_value_in_a_dict_key_aborts_rather_than_writing`` and
+    ``test_value_in_a_NESTED_dict_key_aborts_rather_than_writing`` cover.
     """
     config = _config(tmp_path, _REGEX_CONFIG)
     lines = [
@@ -347,11 +467,296 @@ def test_nested_dict_key_under_a_regex_rule_still_leaks(tmp_path: Path) -> None:
     assert _REAL_USER_HOME in out[0]
     # Scoped to the `paths` layer rather than `list(subtable) == []`: the
     # property under test is that the paths regex never fired at the key
-    # position, not that nothing anywhere on the line was substituted. The
-    # broad form would go red for any future layer that records an unrelated
-    # entry on this line, with a failure message pointing at #198 -- which
-    # would not be the cause.
+    # position, not that nothing anywhere on the line was substituted.
     assert [e for e in subtable if e.label == "paths"] == []
+
+
+def test_regex_rule_still_redacts_the_same_value_in_a_string_leaf(
+    tmp_path: Path,
+) -> None:
+    """The positive control for the cell above (issue #198's own acceptance vector).
+
+    Without this, a brick implementation that aborted on everything would pass
+    the refusal cell. The same regex rule against the same value one position
+    over -- a string *value* rather than a dict *key* -- must still scrub
+    normally and exit 0, which is what shows the rule is well-formed and the
+    key position is the defect.
+    """
+    config = _config(tmp_path, _REGEX_CONFIG)
+    lines = [
+        _line(
+            {
+                "type": "user",
+                "toolUseResult": {"file": f"{_REAL_USER_HOME}/notes.md"},
+            }
+        )
+    ]
+    out, _, subtable, _ = sanitize_session(lines, config)
+    assert _REAL_USER_HOME not in out[0]
+    assert "/home/user/notes.md" in out[0]
+    assert [e for e in subtable if e.label == "paths"] != []
+
+
+def test_uuid_shaped_regex_does_not_abort_on_the_sanitizers_own_remap(
+    tmp_path: Path,
+) -> None:
+    """#198's blocking regression guard: the oracle must not fire on synthesized output.
+
+    Under ``remap_uuids: true`` ``make_skip_predicate`` DROPS ``_UUID_PATHS``
+    from the skip set, so ``uuid`` and friends become *visited* positions -- and
+    at exactly those positions the identifier layer MINTS a canonical UUID via
+    ``_remap_uuid``. Load-time I-3 never sees that value, because it is produced
+    at runtime rather than declared in ``replace``.
+
+    So a regex gate keyed on the *run's* predicate would abort on the
+    sanitizer's own correct output: exit 2, no file, on every run,
+    deterministically, with nothing mis-scrubbed and no override. That is the
+    category error that scoped regex out of #195, relocated from the skipped
+    case to the visited one. The gate is keyed on the ``remap_uuids=False``
+    predicate precisely so this cell passes.
+
+    Paired with the cell below, which is what stops the exemption being read as
+    a blanket "UUID-shaped rules never abort".
+    """
+    config = _config(
+        tmp_path,
+        """
+version: 1
+options:
+  remap_uuids: true
+  uuid_seed: "test-seed"
+identifiers:
+  - match: "re:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+    replace: "<id>"
+""",
+    )
+    original = "0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9"
+    lines = [_line({"type": "user", "uuid": original, "sessionId": original})]
+    out, _, _, _ = sanitize_session(lines, config)
+    # The run completes, and the remap actually happened -- asserting only
+    # "no raise" would also pass if the UUID had been left verbatim.
+    assert original not in out[0]
+
+
+def test_uuid_exemption_is_positional_not_a_blanket_pass(tmp_path: Path) -> None:
+    """The UUID carve-out exempts POSITIONS, not UUID-shaped matches generally.
+
+    Paired with ``test_uuid_shaped_regex_does_not_abort_on_the_sanitizers_own_remap``,
+    which is the integration half. That cell alone would also pass an
+    implementation that exempted every UUID-shaped match wherever it appeared --
+    a far wider hole than the one being closed -- so this cell fixes the other
+    edge: the same shape at a non-UUID position must still be refused.
+
+    **Deliberately a unit test on ``scan_residual_rules``, not a pipeline run.**
+    Driving it through ``sanitize_session`` cannot express the case: at a
+    reachable value position the scrub *acts*, so the rule redacts the value and
+    there is no survivor left for the oracle to find. An earlier revision of
+    this cell did exactly that and failed with DID NOT RAISE. Feeding the scan a
+    line directly is what isolates the question this cell is actually asking --
+    given a survivor at this position, does the scan refuse it? -- from the
+    separate question of whether the scrub would have left one.
+    """
+    config = _config(
+        tmp_path,
+        """
+version: 1
+identifiers:
+  - match: "re:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+    replace: "<id>"
+""",
+    )
+    planted = "0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9"
+
+    # exempt: a UUID-graph synthesis position
+    assert (
+        scan_residual_rules([f'{{"uuid": "{planted}"}}'], *_rules(config)) is None
+    )
+    # NOT exempt: the same shape, one position over
+    with pytest.raises(ResidualRuleError) as exc:
+        scan_residual_rules(
+            [f'{{"toolUseResult": {{"note": "{planted}"}}}}'], *_rules(config)
+        )
+    assert exc.value.section == "identifiers"
+    assert exc.value.index == 0
+
+
+def test_regex_rule_does_not_scan_dict_keys(tmp_path: Path) -> None:
+    """The key exclusion is a POSITIVE contract, pinned here rather than implied.
+
+    ``test_nested_dict_key_under_a_regex_rule_still_leaks`` covers the same
+    exclusion through the whole pipeline; this is the unit-level statement, and
+    it exists because the exclusion is a deliberate scope decision that a future
+    reader could mistake for an oversight.
+
+    The reason it cannot simply be reinstated: the only available gate is the
+    skip allow-list, which enumerates string **leaves** and therefore exempts no
+    format-owned key. A rule matching an ordinary schema key name would abort
+    every run. So the key position waits for #208 to make keys visitable.
+    """
+    config = _config(
+        tmp_path,
+        """
+version: 1
+identifiers:
+  - match: "re:CORP-[0-9]{4}"
+    replace: "<ticket>"
+""",
+    )
+    # Same value, two positions: key -> not scanned, value -> scanned.
+    assert (
+        scan_residual_rules(['{"CORP-4821": {"size": 1}}'], *_rules(config)) is None
+    )
+    with pytest.raises(ResidualRuleError):
+        scan_residual_rules(['{"k": "CORP-4821"}'], *_rules(config))
+
+
+def test_format_owned_keys_do_not_abort_an_ordinary_regex_rule(
+    tmp_path: Path,
+) -> None:
+    """The regression guard for the defect that forced the key exclusion.
+
+    A plain snake_case identifier rule is an ordinary thing to write. Before the
+    key exclusion it aborted **8 of 8** files in this repo's ``fixtures/``
+    corpus, tripping on ``input_tokens`` (617 occurrences at
+    ``message.usage.input_tokens``; 1211 across all four paths carrying that
+    key), ``output_tokens``,
+    ``cache_read_input_tokens``, ``stop_reason`` and ``cache_creation`` -- all
+    format schema key names whose values are integers, null or dicts and can
+    never carry PII.
+
+    The record shape below is the real one those keys appear in. This cell fails
+    the moment anyone reinstates key scanning for regex rules without first
+    solving how to exempt the format's own key names.
+    """
+    config = _config(
+        tmp_path,
+        """
+version: 1
+identifiers:
+  - match: "re:[a-z]{3,}_[a-z]{3,}"
+    replace: "<id>"
+""",
+    )
+    lines = [
+        _line(
+            {
+                "type": "assistant",
+                "message": {
+                    "stop_reason": None,
+                    "usage": {
+                        "input_tokens": 12,
+                        "output_tokens": 34,
+                        "cache_read_input_tokens": 56,
+                    },
+                },
+            }
+        )
+    ]
+    out, _, _, _ = sanitize_session(lines, config)
+    assert "input_tokens" in out[0]
+
+
+def test_no_value_based_allow_set_crept_into_the_REGEX_path(tmp_path: Path) -> None:
+    """No value-based allow-set crept into ``_regex_rule_survives`` (#198).
+
+    PRD section 5's worked leak: the identifiers layer MINTS ``/home/realuser``
+    at runtime via ``match.expand()``, which I-3 never vets, and an allow-set
+    excusing spans equal to a recorded replacement then excused the ``paths``
+    rule that would have caught it -- exit 0, the real home directory in the
+    output, sidecar clean.
+
+    **The `paths` rule here is a REGEX on purpose, and that is the whole point
+    of this cell.** An earlier revision used a literal one and was reported as
+    passing without ever calling ``_regex_rule_survives``: the literal is
+    evaluated first and raises, so the regex path was never reached and a
+    value-based exemption added *inside* it would have left this green. With a
+    regex ``paths`` rule the abort comes through the code under test.
+
+    ``test_regex_expanded_replacement_does_not_excuse_a_literal_leak`` above is
+    the sibling that covers the same leak on the LITERAL path; the two are kept
+    separate because they guard different functions, and that distinction is
+    exactly what the earlier revision lost.
+    """
+    config = _config(
+        tmp_path,
+        r"""
+version: 1
+paths:
+  - match: "re:/home/real[a-z]+"
+    replace: "/home/user"
+identifiers:
+  - match: "re:HOME_(\\w+)"
+    replace: "/home/\\1"
+""",
+    )
+    with pytest.raises(ResidualRuleError) as exc:
+        sanitize_session([_line({"type": "user", "k": "HOME_realuser"})], config)
+    assert exc.value.section == "paths"
+    assert exc.value.index == 0
+
+
+def test_a_regex_rule_whose_expansion_rematches_itself_aborts(
+    tmp_path: Path,
+) -> None:
+    """A KNOWN false-abort class introduced by #198, pinned rather than left latent.
+
+    A regex rule whose runtime-expanded replacement re-matches its own pattern
+    aborts at a reachable value position. Here ``user_1234`` scrubs to
+    ``user_0000``, which the rule matches again, so the oracle refuses the
+    output: exit 2, nothing written.
+
+    **Whether this is a false abort or a correct one is a genuine judgment call,
+    and this cell is written to survive either answer.** By the operator's own
+    declaration anything matching ``(user)_[0-9]+`` is sensitive, and the output
+    contains ``user_0000``, which matches -- so refusing is *consistent* with
+    what the config asked for, and it is the same class load-time I-3 rejects
+    outright for static replacements. I-3 cannot reach this one: it vets the
+    literal template (``\\1_0000``), and the expansion exists only at runtime.
+
+    What is NOT a judgment call is that it must be written down. On ``main``
+    this config ran clean, because the oracle skipped regex rules entirely, so
+    it is a behavior change on upgrade. Recorded in the CHANGELOG and PRD
+    section 10 rather than asserted away.
+    """
+    line = _line({"type": "user", "message": {"content": "hello user_1234 bye"}})
+
+    # CONTROL FIRST, and it is what makes this cell assert the mechanism rather
+    # than the outcome. `scan_residual_rules` raises identically on the scrubbed
+    # and the unscrubbed string, so the abort below is NOT by itself evidence
+    # that the scrub ran and its own output re-matched: it would look the same
+    # if the identifiers layer had simply stopped reaching `message.content`,
+    # and this cell would stay green while its whole story went false.
+    #
+    # The control differs in one character class -- a replacement that CANNOT
+    # re-match the pattern -- so it isolates exactly that. It must scrub and
+    # exit clean. If the scrub ever stops reaching this position, the control
+    # fails here instead of the leak quietly passing there.
+    control = _config(
+        tmp_path,
+        r"""
+version: 1
+identifiers:
+  - match: "re:(user)_[0-9]+"
+    replace: "\\1_XXXX"
+""",
+    )
+    out, _, _, _ = sanitize_session([line], control)
+    assert "user_XXXX" in out[0], "the scrub did not reach this position at all"
+    assert "user_1234" not in out[0]
+
+    config = _config(
+        tmp_path,
+        r"""
+version: 1
+identifiers:
+  - match: "re:(user)_[0-9]+"
+    replace: "\\1_0000"
+""",
+    )
+    with pytest.raises(ResidualRuleError) as exc:
+        sanitize_session([line], config)
+    assert exc.value.section == "identifiers"
+    assert exc.value.index == 0
 
 
 @pytest.mark.parametrize(
@@ -390,12 +795,15 @@ def test_value_under_a_formerly_skip_listed_name_in_tool_input_is_redacted(
     backstop firing. And the backstop only ever covered half the surface:
 
       - **literal** rules aborted (the oracle re-verifies them), but
-      - **regex** rules did not. ``scan_residual_rules`` deliberately does
-        not re-verify a ``re:`` rule, so for a regex config this position was
-        a SILENT leak -- exit 0, value present, sidecar ``residual_scan:
-        clean``. That is why this test is parametrized over both config
-        kinds: the literal half proves the refusal became a redaction, and
-        the regex half proves a live leak was closed.
+      - **regex** rules did not. Through #195 ``scan_residual_rules`` did not
+        re-verify a ``re:`` rule at all, so for a regex config this position
+        was a SILENT leak -- exit 0, value present, sidecar ``residual_scan:
+        clean``. #198 gave regex rules an output-side check at reachable
+        **value** positions, which is what these cells exercise; the dict-key
+        position stays regex-uncovered and is tracked on #208. That is why
+        this test is parametrized over both config kinds: the literal half
+        proves the refusal became a redaction, and the regex half proves a
+        live leak was closed.
 
     The names span every mechanism the old predicate used: the bare-name
     list, the UUID-name list (bare while ``remap_uuids`` is off), and the
@@ -516,8 +924,12 @@ def test_format_markers_are_still_skipped_at_their_real_positions(tmp_path: Path
     pre-existing behaviour on ``main`` -- verified by running this same
     config against the unmodified tree -- and it means a literal rule whose
     match value equals a format-marker value can never produce output. A
-    ``re:`` rule is not re-verified by the oracle, so it isolates the
-    property under test. The interaction itself is recorded on the PR; it is
+    ``re:`` rule sidesteps that: through #195 because regex was not re-verified
+    at all, and since #198 because the oracle exempts regex matches at exactly
+    the skip-listed positions these cells plant at. The isolation still holds,
+    but it now rests on the positional gate agreeing with the allow-list under
+    test rather than on regex being unscanned -- narrow that gate and these
+    cells start aborting. The interaction itself is recorded on the PR; it is
     a real constraint, it predates this change, and it is not this issue's to
     fix."""
     config = _config(
@@ -786,3 +1198,58 @@ def test_cli_diagnostic_carries_no_pii(
     assert "paths[0]" in err
     assert _REAL_USER_HOME not in err
     assert "realuser" not in err
+
+
+def test_iter_decoded_strings_paths_mirror_walk_strings(tmp_path: Path) -> None:
+    """The oracle's paths must equal the walk's paths, pinned rather than asserted.
+
+    ``_regex_rule_survives`` exempts positions by comparing
+    ``_iter_decoded_strings``' path against the skip predicate the *walk*
+    consults. If the two ever construct paths differently -- most plausibly if
+    ``walk_strings`` stopped eliding list indices -- every regex exemption would
+    silently mis-scope, and the failure would be a **false clear** rather than a
+    red test. Nothing else in the suite would notice.
+
+    This pins the invariant directly, in the shape the codebase already uses for
+    the analogous cross-module contract
+    (``test_identifiers.py::test_uuid_transform_positions_match_pipeline_allow_list``,
+    which pins ``identifiers.UUID_PATHS`` against ``pipeline._UUID_PATHS``).
+
+    Scoped to **value** positions, because those are the only ones the regex
+    gate consults: ``walk_strings`` cannot address a key, so a key has no
+    walk-side path to compare against. The record below carries the two
+    constructions that actually differ if the mirror breaks -- nesting through
+    dicts, and string leaves inside a list at two depths.
+    """
+    from ccs_sanitize.pipeline import walk_strings
+    from ccs_sanitize.residual import _iter_decoded_strings
+
+    record = {
+        "type": "assistant",
+        "message": {
+            "content": [
+                {"type": "text", "text": "one"},
+                {"type": "tool_use", "input": {"cmd": "two", "args": ["three", "four"]}},
+            ],
+            "usage": {"input_tokens": 5},
+        },
+        "toolUseResult": {"nested": {"deep": "five"}},
+    }
+
+    walk_paths: list[JsonPath] = []
+
+    def _record(leaf: str, path) -> str:
+        walk_paths.append(path)
+        return leaf
+
+    # never skip, so the walk yields every string-leaf position it can address
+    walk_strings(record, _record, skip_predicate=lambda _p: False)
+
+    oracle_paths = [
+        path for _text, path, is_key in _iter_decoded_strings(record) if not is_key
+    ]
+
+    assert sorted(walk_paths) == sorted(oracle_paths)
+    # Guard the guard: a record that exercised no list nesting would make the
+    # elision half of the invariant vacuous.
+    assert ("message", "content", "input", "args") in walk_paths

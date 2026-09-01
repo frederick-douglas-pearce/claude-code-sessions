@@ -72,13 +72,15 @@ def sanitize_session(
 
     The two scans are complementary, not redundant (#195): ``scan_residual``
     re-runs the *secret* patterns over the serialized lines, and
-    ``scan_residual_rules`` re-runs the **literal** ``paths``/``identifiers``
-    rules over the decoded tree. Before the second existed, a value the
-    structural walk could not reach was caught for secrets and leaked silently
-    for the other two layers. **Regex** path/identifier rules are covered by
-    the in-walk scrub only -- see ``scan_residual_rules`` for why an
+    ``scan_residual_rules`` re-runs the ``paths``/``identifiers`` rules over the
+    decoded tree. Before the second existed, a value the structural walk could
+    not reach was caught for secrets and leaked silently for the other two
+    layers. The rule scan applies **two different properties by rule kind**
+    (#198): a literal is refused wherever it appears, keys included, while a
+    ``re:`` rule is refused only at reachable **value** positions -- see
+    ``scan_residual_rules`` and ``_regex_rule_survives`` for why an
     unconditional output-side abort is sound for a literal value and not for a
-    shape.
+    shape, and why the key position is literal-only.
 
     Args:
         lines: input JSONL records. Iterated exactly once.
@@ -104,10 +106,12 @@ def sanitize_session(
             Maps to CLI exit 2. The exception's ``kind`` field names the
             matching pattern label; the matched bytes are never recorded
             (D-2 invariant).
-        ResidualRuleError: a **literal** ``paths``/``identifiers`` rule matched
-            the decoded output (#195). Maps to CLI exit 2. Carries only
-            ``section`` and ``index`` -- never the rule's ``match`` value,
-            which is itself the literal PII, and never the matched span.
+        ResidualRuleError: a ``paths``/``identifiers`` rule matched the decoded
+            output -- a **literal** one anywhere including a dict key (#195), or
+            a **regex** one at a reachable value position (#198). Maps to CLI
+            exit 2. Carries only ``section`` and ``index`` -- never the rule's
+            ``match`` value, which is itself the literal PII, and never the
+            matched span.
     """
     subtable = SubstitutionTable()
     secret_counts = SecretCounts()
@@ -148,18 +152,31 @@ def sanitize_session(
     # avoids any cross-line spillover from join-separator interaction with
     # patterns that match across whitespace.
     scan_residual(out, config.extra_secret_patterns)
-    # #195: the same treatment for the config rule family, for LITERAL rules.
-    # The secret scan above is position-agnostic, so a traversal gap fails
-    # CLOSED for secrets; paths and identifiers had no output-side pass at
-    # all, so the same gap leaked SILENTLY with a sidecar reporting a clean
-    # run. Runs second so a surviving secret still reports as a secret (D-1 is
-    # the higher-severity floor); both map to CLI exit 2, so the only
-    # observable difference is which diagnostic prints.
+    # #195: the same treatment for the config rule family. The secret scan
+    # above is position-agnostic, so a traversal gap fails CLOSED for secrets;
+    # paths and identifiers had no output-side pass at all, so the same gap
+    # leaked SILENTLY with a sidecar reporting a clean run. Runs second so a
+    # surviving secret still reports as a secret (D-1 is the higher-severity
+    # floor); both map to CLI exit 2, so the only observable difference is
+    # which diagnostic prints. Keep this ordering.
     #
-    # Regex rules are deliberately NOT re-verified here: "present in the
-    # output" means "leaked" for a literal value and does not for a shape.
+    # #198: regex rules are now verified too, but under a DIFFERENT property --
+    # "present in the output" means "leaked" for a literal value and does not
+    # for a shape, so regex matches count only at reachable VALUE positions.
+    # Dict keys are literal-only: gating keys on the leaf allow-list aborted 8
+    # of 8 fixture files on format key names, so that position is #208's.
     # ``scan_residual_rules`` carries the argument and PRD section 10 carries
     # what the sidecar may therefore claim.
+    #
+    # NOTE the deliberate asymmetry: no skip predicate is passed from here, and
+    # this call site must NOT grow one. The regex check gates on the
+    # ``remap_uuids=False`` predicate, which is NOT the predicate this run
+    # scrubbed with (built above from ``config.options.remap_uuids``). Under
+    # ``remap_uuids: true`` the UUID paths become VISITED and the identifier
+    # layer mints canonical UUIDs into them, so gating on the run's own
+    # predicate would abort on the sanitizer's own output -- every run,
+    # deterministically. Keeping the predicate internal to ``residual.py`` is
+    # what makes that impossible to get wrong from a call site.
     #
     # No allow-set is passed, deliberately. Excusing spans that matched a
     # recorded replacement leaked: a regex rule's replacement is produced at
