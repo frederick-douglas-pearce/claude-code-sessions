@@ -9,6 +9,7 @@ og_image: https://frederick-douglas-pearce.github.io/assets/img/how-often-does-c
 og_card_source: social/images/2026-06-08-linkedin-how-often-does-claude-retry-a-tool-call/og-card.png
 featured: false
 claude_code_version_verified: v2.1.150
+humanizer_pass: predates
 ---
 
 [Part 2 of this series](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-04-reading-a-claude-code-session-line-by-line.md) introduced `tool_use_id` as the pairing key that ties every tool call to its result. Every `tool_use` block on an `assistant` line carries an `id`; the corresponding `tool_result` block on the next `user` line carries a `tool_use_id` that matches it. Walk those pairs and you've reconstructed the tool history of an entire session.

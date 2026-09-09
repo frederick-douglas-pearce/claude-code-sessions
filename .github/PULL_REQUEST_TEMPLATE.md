@@ -16,6 +16,7 @@ Replicate every section below; squash-merge to main.
 - [ ] Fixtures validated (for `fixtures/` changes — once the validator exists)
 - [ ] Tooling exercised locally (for `tooling/` changes)
 - [ ] Rendered / fact-checked the change (for `reference/` or substantial content)
+- [ ] Humanizer pass run and recorded in `humanizer_pass` (for `posts/` changes — `none` if deliberately skipped)
 
 ## Security review
 

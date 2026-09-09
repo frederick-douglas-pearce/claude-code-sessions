@@ -20,7 +20,7 @@ Example:
 What it does, per post:
 
 1. **Transform frontmatter.** Strip the upstream-only fields
-   (`claude_code_version_verified`, `og_card_source`); copy the body and every
+   (`claude_code_version_verified`, `og_card_source`, `humanizer_pass`); copy the body and every
    other field byte-for-byte. The strip is line-level, not a YAML round-trip, so
    the Prettier-clean formatting from issues #14/#76 survives unchanged.
 2. **Resolve + copy the OG card** via the issue-#77 contract: the post's
@@ -61,7 +61,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 #   claude_code_version_verified — drives the re-verification cadence here (#14)
 #   og_card_source               — the OG-card pointer (#77); consumed by THIS
 #                                  script to find the image, never deployed
-DROP_FIELDS = {"claude_code_version_verified", "og_card_source"}
+#   humanizer_pass               — which humanizer skill version was run over the
+#                                  draft (#223); an editorial record, not content
+DROP_FIELDS = {"claude_code_version_verified", "og_card_source", "humanizer_pass"}
 
 # One intended write. The Phase-1 plan is keyed by resolved destination Path so
 # collisions are detectable and a future "delete targets with no source" diff is
