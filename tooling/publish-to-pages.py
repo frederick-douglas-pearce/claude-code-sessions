@@ -20,7 +20,7 @@ Example:
 What it does, per post:
 
 1. **Transform frontmatter.** Strip the upstream-only fields
-   (`claude_code_version_verified`, `og_card_source`); copy the body and every
+   (`claude_code_version_verified`, `og_card_source`, `humanizer_pass`); copy the body and every
    other field byte-for-byte. The strip is line-level, not a YAML round-trip, so
    the Prettier-clean formatting from issues #14/#76 survives unchanged.
 2. **Resolve + copy the OG card** via the issue-#77 contract: the post's

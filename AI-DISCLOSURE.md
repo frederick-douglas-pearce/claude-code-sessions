@@ -17,10 +17,12 @@ the creation process.
 **[`posts/`](posts/)** — drafted with Claude Code, edited by me, fact-checked against a pinned Claude
 Code version recorded in each post's `claude_code_version_verified` frontmatter. Every post ends with a
 one-line disclosure footer naming that version. Posts that fall more than a few minor versions behind
-their verified version get re-verified or corrected. Drafts also get an editing pass with the
+their verified version get re-verified or corrected. New drafts also get an editing pass with the
 [humanizer skill](https://github.com/blader/humanizer), which strips the structural tells of machine
-prose, recorded per post in `humanizer_pass` and enforced in CI; posts published before that convention
-landed carry `humanizer_pass: none`. Short-form derivatives on other platforms carry the
+prose. Each post records in `humanizer_pass` which version of that skill was run over it, and CI
+requires the field to be present. CI checks the record, not the prose: `humanizer_pass: none` is a
+valid value recording that no pass was run. **Every post published before this convention landed
+carries `none`**, so the pass describes new work, not the archive. Short-form derivatives on other platforms carry the
 same disclosure without the version clause; a few of the earliest ones, published before that
 convention landed, do not.
 

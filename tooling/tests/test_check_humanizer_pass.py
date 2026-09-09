@@ -130,11 +130,36 @@ class GuardTestCase(unittest.TestCase):
         self.assertEqual(code, 1, text)
         self.assertIn("frontmatter", text)
 
+    def test_declined_with_stray_space_is_still_counted(self):
+        """`check_value` and the declined count must normalize identically; they
+        used to differ by one strip(), so `"none "` passed but was not counted."""
+        self.add_post("anatomy", '"none "')
+        code, text = self.run_guard()
+        self.assertEqual(code, 0, text)
+        self.assertIn("1 carry", text)
+
+    def test_inline_yaml_comment_is_accepted(self):
+        """Recording the date beside the version is natural; a comment is not
+        part of the value."""
+        self.add_post("anatomy", "v3.0.0  # ran 2026-09-08")
+        code, text = self.run_guard()
+        self.assertEqual(code, 0, text)
+
+    def test_non_utf8_locale_does_not_traceback(self):
+        """Posts are full of em dashes; the read must not depend on the runner's
+        locale. UnicodeDecodeError is a ValueError, so an OSError handler misses it."""
+        src = self.add_post("anatomy", "v3.0.0")
+        src.write_bytes(src.read_bytes().replace(b"Body line.", "Body \u2014 line.".encode()))
+        code, text = self.run_guard()
+        self.assertEqual(code, 0, text)
+
     def test_unreadable_path_is_reported_not_raised(self):
         """A bad explicit path belongs in the report, not in a traceback."""
         code, text = self.run_guard([str(self.posts / "2026-01-01-nope.md")])
         self.assertEqual(code, 1, text)
-        self.assertIn("cannot read", text)
+        self.assertIn("cannot read 2026-01-01-nope.md", text)
+        self.assertTrue(text.isascii(), "report must survive an ASCII-locale runner")
+        self.assertNotIn(str(self.repo), text)
 
     def test_reports_every_failing_post(self):
         """One CI run should surface the whole backlog, not stop at the first."""
@@ -165,9 +190,12 @@ class GuardTestCase(unittest.TestCase):
         self.assertEqual(code, 0, text)
         self.assertNotIn("README", text)
 
-    def test_no_posts_is_not_a_failure(self):
+    def test_empty_glob_fails_rather_than_reporting_green(self):
+        """An empty posts/ means the layout moved or REPO_ROOT mis-resolved. A
+        guard that passes while checking zero posts is worse than one that fails."""
         code, text = self.run_guard()
-        self.assertEqual(code, 0, text)
+        self.assertEqual(code, 1, text)
+        self.assertIn("no dated posts found", text)
 
     # --- value checking, directly -----------------------------------------
 

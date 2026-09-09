@@ -4,16 +4,19 @@ Markdown sources for the `claude-code-sessions` blog series. Synced from this re
 
 ## Frontmatter convention
 
-Every post requires this frontmatter block:
+Every post requires this frontmatter block. All twelve fields are required: `og_image` and `og_card_source` both fail closed in `tooling/check-og-cards.py`, and `date` carries a time and UTC offset, not a bare date.
 
 ```yaml
 ---
 layout: post
 title: "Post title"
-date: YYYY-MM-DD
+date: YYYY-MM-DD HH:MM:SS-0800
 description: "One-sentence summary used for previews and SEO"
 categories: ["claude-code-sessions"]
-tags: [claude-code, jsonl, sessions, ..., foundation | format-update | security | tooling]
+tags: ["claude-code", "jsonl", "sessions", "foundation | format-update | security | tooling"]
+og_image: https://frederick-douglas-pearce.github.io/assets/img/<slug>-og.png
+og_card_source: social/images/YYYY-MM-DD-linkedin-<slug>/og-card.png
+featured: false
 claude_code_version_verified: vX.Y.Z
 humanizer_pass: vX.Y.Z | none
 ---

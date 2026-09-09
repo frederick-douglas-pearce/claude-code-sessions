@@ -62,14 +62,28 @@ DECLINED = "none"
 # "v3.0.0"; both are accepted, neither is rewritten.
 _VERSION_RE = re.compile(r"^v?\d+\.\d+(\.\d+)?$")
 
+# ` # ...` after a value is a YAML comment, not part of it. Recording the date
+# beside the version is a natural thing to write, so accept it rather than
+# rejecting the line with a message that shows a version and calls it invalid.
+_INLINE_COMMENT_RE = re.compile(r"\s+#.*$")
+
+
+def _normalize(raw: str | None) -> str:
+    """The comparable value: inline comment dropped, quotes and space stripped.
+
+    One implementation on purpose. This ran three times with two spellings, and
+    the two that skipped the final strip() mis-sorted `"none "` as a recorded
+    version, which under-reported the very count D-5 exists to keep legible."""
+    if raw is None:
+        return ""
+    return _INLINE_COMMENT_RE.sub("", raw.strip()).strip().strip("\"'").strip()
+
 
 def check_value(raw: str | None) -> str | None:
     """None if the recorded value is acceptable, else the reason it isn't."""
     if raw is None:
         return f"no `{FIELD}` in frontmatter"
-    # Frontmatter values may be quoted; the publisher passes them through
-    # verbatim, so unquote here rather than requiring one spelling.
-    value = raw.strip().strip("\"'").strip()
+    value = _normalize(raw)
     if not value:
         return f"`{FIELD}` is empty"
     if value == DECLINED:
@@ -83,12 +97,16 @@ def read_pass(src: Path) -> str | None:
     """The post's recorded `humanizer_pass`, or None if absent.
 
     Raises PublishError for an unreadable file, so a bad explicit path lands in
-    the per-post report like every other failure instead of as a traceback —
+    the per-post report like every other failure instead of as a traceback,
     matching check-og-cards.py, whose validator already fails closed this way."""
     try:
-        text = src.read_text()
-    except OSError as e:
-        raise ptp.PublishError(f"cannot read {src}: {e.strerror}") from e
+        # Posts are UTF-8 and full of em dashes; without an explicit encoding a
+        # runner with a non-UTF-8 locale decodes as ASCII and dies. And a
+        # UnicodeDecodeError is a ValueError, so an OSError-only handler misses it.
+        text = src.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        reason = getattr(e, "strerror", None) or e
+        raise ptp.PublishError(f"cannot read {src.name}: {reason}") from e
     fm_block, _ = ptp.split_frontmatter(text)
     return ptp.read_field(fm_block, FIELD)
 
@@ -108,8 +126,13 @@ def main(argv=None) -> int:
 
     posts = list(args.posts) or sorted((ptp.REPO_ROOT / "posts").glob("[0-9][0-9][0-9][0-9]-*.md"))
     if not posts:
-        print("no posts found to check", file=sys.stderr)
-        return 0
+        print(
+            f"no dated posts found under {ptp.REPO_ROOT / 'posts'}. Expected "
+            "posts/[0-9][0-9][0-9][0-9]-*.md; has the directory moved, or is this "
+            "script no longer two levels below the repo root?",
+            file=sys.stderr,
+        )
+        return 1
 
     # Per-post, collecting EVERY failure rather than stopping at the first, so one
     # CI run reports the whole backlog (the check-og-cards.py behavior).
@@ -124,13 +147,13 @@ def main(argv=None) -> int:
 
     for name, err, raw in results:
         if err:
-            print(f"  [FAIL] {name} — {err}")
-        elif (raw or "").strip().strip("\"'") == DECLINED:
-            print(f"  [ok]   {name} — {DECLINED} (no pass recorded)")
+            print(f"  [FAIL] {name}: {err}")
+        elif _normalize(raw) == DECLINED:
+            print(f"  [ok]   {name}: {DECLINED} (no pass recorded)")
         else:
-            print(f"  [ok]   {name} — {raw}")
+            print(f"  [ok]   {name}: {raw}")
 
-    n_declined = sum(1 for _, err, raw in results if not err and (raw or "").strip().strip("\"'") == DECLINED)
+    n_declined = sum(1 for _, err, raw in results if not err and _normalize(raw) == DECLINED)
     n_fail = sum(1 for _, err, _ in results if err)
 
     if n_fail:

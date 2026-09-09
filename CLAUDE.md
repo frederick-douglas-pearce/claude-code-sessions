@@ -37,7 +37,7 @@ Mechanical enforcement is in place via `.claude/hooks/block_secret_reads.py` (Pr
   - `categories` and `tags` are quoted-string arrays: `["claude-code-sessions"]`, `["claude-code", "jsonl"]`
   - **`categories` names the series, not the kind of post** — always `["claude-code-sessions"]` here. The Pages site builds its blog filter chips from categories, and a second repo publishes into the same `_posts/` namespace, so the category is what separates the two series. Kind (`foundation`, `analysis`, `format-update`, `security`, `tooling`) is a tag; see [`posts/README.md`](posts/README.md#categories-and-tags)
   - `featured: false` unless a post is explicitly featured
-  - `claude_code_version_verified` is **upstream-only**: it drives the re-verification cadence here but Pages ignores it, so `tooling/publish-to-pages.py` strips this one field on publish and copies everything else verbatim
+  - Three fields are **upstream-only** and stripped on publish by `tooling/publish-to-pages.py`, which copies everything else verbatim: `claude_code_version_verified` (drives the re-verification cadence here; Pages ignores it), `og_card_source` (the OG-card pointer, consumed by the publisher itself), and `humanizer_pass` (an editorial record, issue #223)
 - **Code fences and the Prettier gate.** The `posts/` Prettier gate (issue #76) formats fenced code in recognized languages. Author to it, don't fight it:
   - JSON shown as a **pretty-printed structure** → fully expand objects (one key per line) in a ` ```json ` fence. Prettier's `objectWrap: preserve` leaves expanded objects alone, so they stay gate-clean *and* render as clean, syntax-highlighted, no-overflow multiline blocks. (A partially hand-wrapped object gets collapsed onto a single line, which can overflow on narrow screens — expand it instead.)
   - A **raw session dump** where one record is one (long) line → use a ` ```jsonl ` fence. Prettier doesn't reformat `jsonl`, and Jekyll/Rouge renders it as plaintext, which is appropriate for a verbatim dump.
@@ -100,7 +100,7 @@ Workflow for PR-required changes:
 - **Branches:** `feature/<issue#>-short-description` or `fix/<issue#>-short-description` (e.g. `feature/12-secret-detection-hooks`).
 - Commit freely on the branch; **squash-merge** to `main` via PR. Every PR references its issue.
 - Open PRs with the sections in [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md): Summary, Test plan, **Security review**, Breaking changes.
-- **CI is being wired incrementally.** Live workflows (`.github/workflows/`): Prettier (posts), OG card guard, Pages sync, and Sanitizer CI (pytest on a 3.11/3.12/3.13 matrix, `python -m build`, `twine check --strict`, and a clean-environment wheel smoke test; the aggregate `sanitizer-ci` job is the required check). Still pending: the fixture validator and a hook-test runner — until those land, the data-safety and hook gates are review-enforced, not automated. Run the relevant local checks first — e.g. `python3 .claude/hooks/tests/test_hooks.py` for hook changes, and the `pytest` suites under `tooling/sanitizer/` and `tooling/format-scan/` for tooling changes.
+- **CI is being wired incrementally.** Live workflows (`.github/workflows/`): Prettier (posts), OG card guard, Humanizer guard (which also runs the two `tooling/tests/` suites that touch the publish path), Pages sync, and Sanitizer CI (pytest on a 3.11/3.12/3.13 matrix, `python -m build`, `twine check --strict`, and a clean-environment wheel smoke test; the aggregate `sanitizer-ci` job is the required check). Still pending: the fixture validator and a hook-test runner — until those land, the data-safety and hook gates are review-enforced, not automated. Run the relevant local checks first — e.g. `python3 .claude/hooks/tests/test_hooks.py` for hook changes, and the `pytest` suites under `tooling/sanitizer/` and `tooling/format-scan/` for tooling changes.
 
 ### Release tags
 
@@ -132,7 +132,7 @@ If you're working on AgentFluent or CodeFluent and find new format details, they
 - **Posts:** Markdown (Jekyll-compatible frontmatter), Prettier-gated
 - **Reference:** Markdown
 - **Tooling:** Python — the sanitizer (`tooling/sanitizer/`, shipped with a `pytest` suite), the format-scan drift scanner (`tooling/format-scan/`), and the publish/OG helpers (`tooling/*.py`). The fixture-validator is still planned.
-- **CI:** GitHub Actions — Prettier, OG card guard, Pages sync, and Sanitizer CI (test matrix + packaging checks) are live; fixture validation is planned.
+- **CI:** GitHub Actions — Prettier, OG card guard, Humanizer guard, Pages sync, and Sanitizer CI (test matrix + packaging checks) are live; fixture validation is planned.
 
 ## Status
 
