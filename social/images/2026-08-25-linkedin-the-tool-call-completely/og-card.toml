@@ -39,10 +39,12 @@ idea without needing to explain it.
 Subhead does double duty for both readings. "The pair is the unit" is the
 two-line cycle. "The line is not" is the block-splitting correction.
 
-Data is synthetic: hand-fabricated ids in the toolu_NNN / req_NNNNN shape used
-by fixtures/synthetic/, no real session content.
+Data is synthetic: hand-fabricated ids, no real session content. Note the card's
+"toolu_01" is a card-only shortening for the line budget below, NOT the repo's
+fixture convention -- fixtures/synthetic/ uses toolu_synthetic_NNN precisely so
+ids are visibly distinguishable from real ones (reference/tool-invocation.md).
 
-Line budget: 15 lines. The first render warned that two lines (the inlined
+Line budget: 16 lines. The first render warned that two lines (the inlined
 assistant content array and the tool_result object) overran the window right
 edge by 32px at 59 chars. Fixed by dropping the inner brace padding on those two
 inline objects and shortening the ids to "toolu_01", which brings both to 56
