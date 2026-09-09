@@ -9,7 +9,7 @@ og_image: https://frederick-douglas-pearce.github.io/assets/img/what-should-a-be
 og_card_source: social/images/2026-07-25-linkedin-what-should-a-better-leaderboard-have-measured/og-card.png
 featured: false
 claude_code_version_verified: v2.1.152
-humanizer_pass: none
+humanizer_pass: predates
 ---
 
 In the spring of 2026, three companies ran the same experiment within weeks of each other. Meta stood up an internal dashboard nicknamed "Claudeonomics" that ranked its heaviest AI users, the top 250 of roughly 85,000 employees, by token consumption. Engineers competed for the top spots, some by leaving idle agents running to pad their numbers. Total usage on the dashboard ran past 60 trillion tokens in a single 30-day window, and Meta pulled it in April, two days after the story broke. Amazon built KiroRank on its internal Kiro platform, watched employees game it the same way, and shut it down at the end of May, with a senior VP telling staff not to "use AI just for the sake of using AI." Uber ranked internal usage competitively too, exhausted its entire annual AI budget in four months, and responded with a hard ceiling: $1,500 per employee, per tool, per month.

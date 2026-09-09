@@ -98,8 +98,20 @@ class GuardTestCase(unittest.TestCase):
         self.add_post("retry", "v3.0.0")
         code, text = self.run_guard()
         self.assertEqual(code, 0, text)
-        self.assertIn("1 carry", text)
-        self.assertIn("no pass recorded", text)
+        self.assertIn("1 declined a pass", text)
+        self.assertIn("deliberately declined", text)
+
+    def test_predates_passes_and_counts_separately(self):
+        """`predates` is a frozen archive fact, not actionable debt; collapsing it
+        into `none` would bury the one number worth acting on."""
+        self.add_post("anatomy", chp.PREDATES)
+        self.add_post("retry", chp.DECLINED)
+        self.add_post("subagent", "v3.0.0")
+        code, text = self.run_guard()
+        self.assertEqual(code, 0, text)
+        self.assertIn("1 predate the convention", text)
+        self.assertIn("1 declined a pass", text)
+        self.assertIn("published before the convention", text)
 
     # --- failures ---------------------------------------------------------
 
@@ -136,7 +148,7 @@ class GuardTestCase(unittest.TestCase):
         self.add_post("anatomy", '"none "')
         code, text = self.run_guard()
         self.assertEqual(code, 0, text)
-        self.assertIn("1 carry", text)
+        self.assertIn("1 declined a pass", text)
 
     def test_inline_yaml_comment_is_accepted(self):
         """Recording the date beside the version is natural; a comment is not
@@ -207,6 +219,8 @@ class GuardTestCase(unittest.TestCase):
             ("  v3.0.0  ", True),
             ("'v3.0.0'", True),
             (chp.DECLINED, True),
+            (chp.PREDATES, True),
+            ("  predates  ", True),
             (None, False),
             ("", False),
             ("   ", False),

@@ -9,7 +9,7 @@ og_image: https://frederick-douglas-pearce.github.io/assets/img/anatomy-of-a-cla
 og_card_source: social/images/2026-05-28-linkedin-anatomy-of-a-claude-code-session/og-card.png
 featured: false
 claude_code_version_verified: v2.1.150
-humanizer_pass: none
+humanizer_pass: predates
 ---
 
 Every time you run Claude Code or invoke the Agent SDK, it writes a detailed record of your session to a file on your local machine. Every prompt you've typed. Every file the model has read or edited. Every tool it has called — and the result that came back. All of it lands in JSONL form at `~/.claude/projects/`, one file per session, sitting there quietly.

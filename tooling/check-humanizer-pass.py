@@ -18,10 +18,13 @@ scope correction the reader needs), and four of six surviving uses of "actually"
 is worse than no lint. So the frontmatter field is an attestation, and the guard
 only enforces that one was made.
 
-`humanizer_pass: none` is a valid, deliberate value meaning "no pass recorded"
-(#223, D-5). It keeps a post green without claiming work that never happened, and
-it stays visible in the file instead of hidden in a script allowlist. The guard
-prints how many posts carry it so the debt stays legible.
+Two non-version values are valid (#223, D-5). `predates` marks a post published
+before this convention landed: a closed set, frozen, never actionable. `none`
+marks a pass deliberately declined for that post: open-ended, and the only one
+that is real debt. Both keep a post green without claiming work that never
+happened, and both stay visible in the file instead of hidden in a script
+allowlist. The guard counts them separately so the actionable number is not
+buried under a permanent archive.
 
 Frontmatter parsing is reused verbatim from publish-to-pages.py, so the guard
 sees exactly the fields the publisher sees and cannot drift from it.
@@ -52,8 +55,20 @@ _spec.loader.exec_module(ptp)
 
 FIELD = "humanizer_pass"
 
-# The declined value. Explicit, not an absence: see the module docstring.
+# Two non-version values, kept distinct on purpose (#223, D-5 as amended). Both
+# mean "no pass was run", but they are different facts and only one is a choice:
+#
+#   predates — published before the convention existed. A CLOSED set, frozen at
+#              the eight posts live when #223 landed. Nothing new can join it,
+#              so it never poses a question to a future author.
+#   none     — a pass was deliberately declined for this post. Open-ended, and
+#              the only one that is actionable debt.
+#
+# Collapsing them would make every future `none` ambiguous and hide the one
+# signal worth acting on behind an archive that can never change.
+PREDATES = "predates"
 DECLINED = "none"
+NON_VERSION_VALUES = (PREDATES, DECLINED)
 
 # A recorded pass names the skill version that ran (#223, D-2), so that when the
 # skill changes its pattern list, the field identifies which posts predate the
@@ -86,10 +101,13 @@ def check_value(raw: str | None) -> str | None:
     value = _normalize(raw)
     if not value:
         return f"`{FIELD}` is empty"
-    if value == DECLINED:
+    if value in NON_VERSION_VALUES:
         return None
     if not _VERSION_RE.match(value):
-        return f"`{FIELD}: {value}` is not a skill version (expected e.g. `v3.0.0`, or `{DECLINED}`)"
+        return (
+            f"`{FIELD}: {value}` is not a skill version "
+            f"(expected e.g. `v3.0.0`, or `{DECLINED}`, or `{PREDATES}`)"
+        )
     return None
 
 
@@ -148,11 +166,14 @@ def main(argv=None) -> int:
     for name, err, raw in results:
         if err:
             print(f"  [FAIL] {name}: {err}")
+        elif _normalize(raw) == PREDATES:
+            print(f"  [ok]   {name}: {PREDATES} (published before the convention)")
         elif _normalize(raw) == DECLINED:
-            print(f"  [ok]   {name}: {DECLINED} (no pass recorded)")
+            print(f"  [ok]   {name}: {DECLINED} (pass deliberately declined)")
         else:
             print(f"  [ok]   {name}: {raw}")
 
+    n_predates = sum(1 for _, err, raw in results if not err and _normalize(raw) == PREDATES)
     n_declined = sum(1 for _, err, raw in results if not err and _normalize(raw) == DECLINED)
     n_fail = sum(1 for _, err, _ in results if err)
 
@@ -161,14 +182,18 @@ def main(argv=None) -> int:
         print(
             f"\n{n_fail} post(s) with no recorded humanizer pass. Run the humanizer skill over the\n"
             f"draft, then set `{FIELD}: v<version>` in its frontmatter. If the pass was\n"
-            f"deliberately skipped, set `{FIELD}: {DECLINED}` to record that instead.",
+            f"deliberately skipped, set `{FIELD}: {DECLINED}` to record that instead.\n"
+            f"(`{PREDATES}` is reserved for posts published before this convention landed.)",
             file=sys.stderr,
         )
         return 1
 
     summary = f"\nAll {len(posts)} post(s) record a humanizer pass."
+    if n_predates:
+        summary += f" {n_predates} predate the convention."
     if n_declined:
-        summary += f" {n_declined} carry `{DECLINED}`."
+        # The actionable number: posts that could have had a pass and did not.
+        summary += f" {n_declined} declined a pass."
     print(summary)
     return 0
 

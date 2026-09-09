@@ -9,7 +9,7 @@ og_image: https://frederick-douglas-pearce.github.io/assets/img/every-lever-that
 og_card_source: social/images/2026-06-27-linkedin-every-lever-that-moves-the-bill/og-card.png
 featured: false
 claude_code_version_verified: v2.1.150
-humanizer_pass: none
+humanizer_pass: predates
 ---
 
 [Part 4](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-24-token-accounting-is-harder-than-it-looks.md) named three confounders that corrupt session cost estimates: the four token kinds price differently, `service_tier` shifts the rate, and per-model pricing means the same token count can cost several times more or less depending on which model generated it. That was deliberately scoped. It described the levers that corrupt the _count_. It barely touched the ones that shift the _rate_.
