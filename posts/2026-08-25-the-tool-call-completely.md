@@ -9,6 +9,7 @@ og_image: https://frederick-douglas-pearce.github.io/assets/img/the-tool-call-co
 og_card_source: social/images/2026-08-25-linkedin-the-tool-call-completely/og-card.png
 featured: false
 claude_code_version_verified: v2.1.243
+humanizer_pass: v3.0.0
 ---
 
 The model behind Claude Code cannot touch your machine. It reads text and it writes text. Think of it as a brain with no hands. Tools are the hands, and the eyes too: reading a file is as much a tool call as writing one. Every file it opens, every command it runs, every edit that lands in your repo happens because Claude Code, the harness wrapped around the model, interpreted a block of that written text as a tool request and carried it out. Tool calls are the seam where a language model stops being a conversation and starts being an agent, and in a session file they are the only place where something happened to your machine.
