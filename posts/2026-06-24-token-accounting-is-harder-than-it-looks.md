@@ -9,6 +9,7 @@ og_image: https://frederick-douglas-pearce.github.io/assets/img/token-accounting
 og_card_source: social/images/2026-06-24-linkedin-token-accounting-is-harder-than-it-looks/og-card.png
 featured: false
 claude_code_version_verified: v2.1.150
+humanizer_pass: none
 ---
 
 Your last Claude Code session used some number of tokens. You've probably seen it, in `/cost`, in the status line, in a context meter ticking toward full, or maybe even in a session file. That single number hides a wide spread: the cheapest token in a session (cache reads) and the most expensive (output) differ in price by roughly 50x. Add the four kinds of tokens into one total and you learn almost nothing about what the session actually cost.

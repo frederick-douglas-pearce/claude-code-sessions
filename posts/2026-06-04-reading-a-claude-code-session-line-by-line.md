@@ -9,6 +9,7 @@ og_image: https://frederick-douglas-pearce.github.io/assets/img/reading-a-claude
 og_card_source: social/images/2026-06-04-linkedin-reading-a-claude-code-session-line-by-line/og-card.png
 featured: false
 claude_code_version_verified: v2.1.150
+humanizer_pass: none
 ---
 
 Open any Claude Code session JSONL file and one structural quirk jumps out within a few lines: some field names use `snake_case` and others use `camelCase`. `tool_use_id` and `stop_reason` next to `parentUuid` and `toolUseResult`. It looks inconsistent.

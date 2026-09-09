@@ -9,6 +9,7 @@ og_image: https://frederick-douglas-pearce.github.io/assets/img/what-launched-th
 og_card_source: social/images/2026-06-18-linkedin-what-launched-this-turn/og-card.png
 featured: false
 claude_code_version_verified: v2.1.150
+humanizer_pass: none
 ---
 
 [Part 3 of this series](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-11-inside-the-subagent-trace-file.md) opened the subagent trace file and, in passing, named a family of fields it didn't stop to unpack: `attributionAgent`, `attributionMcpServer`, `attributionMcpTool`, `attributionSkill`. It called them markers that tell you that you've crossed into a sidechain and moved on. The post's job was the file split, not provenance.

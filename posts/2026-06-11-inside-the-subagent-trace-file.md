@@ -9,6 +9,7 @@ og_image: https://frederick-douglas-pearce.github.io/assets/img/inside-the-subag
 og_card_source: social/images/2026-06-11-linkedin-inside-the-subagent-trace-file/og-card.png
 featured: false
 claude_code_version_verified: v2.1.233
+humanizer_pass: none
 ---
 
 [Part 2 of this series](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-04-reading-a-claude-code-session-line-by-line.md) ended by teasing the value of `agent_id` in the parent session jsonl data as "the literal handle that takes you to the subagent's full trace file".

@@ -15,10 +15,13 @@ description: "One-sentence summary used for previews and SEO"
 categories: ["claude-code-sessions"]
 tags: [claude-code, jsonl, sessions, ..., foundation | format-update | security | tooling]
 claude_code_version_verified: vX.Y.Z
+humanizer_pass: vX.Y.Z | none
 ---
 ```
 
 The `claude_code_version_verified` field records the Claude Code version the post was last fact-checked against. Posts more than ~3 minor versions behind current should be re-verified before being treated as authoritative.
+
+The `humanizer_pass` field records which version of the [humanizer skill](https://github.com/blader/humanizer) was run over the draft, and is enforced by `tooling/check-humanizer-pass.py` (issue #223). The skill strips structural AI-writing tells: not-X-but-Y staging, one-line closers, staged run-ups, forced triads, dashes used as a universal connector, inflated significance. Record the version rather than a boolean, so that when the skill changes its pattern list you can tell which posts predate the change. If a pass was deliberately skipped, set `none` — the guard accepts it and counts it, which keeps the skip visible instead of silent. Both fields are upstream-only and stripped by `tooling/publish-to-pages.py` on publish.
 
 ## Categories and tags
 

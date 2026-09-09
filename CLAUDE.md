@@ -31,7 +31,7 @@ Mechanical enforcement is in place via `.claude/hooks/block_secret_reads.py` (Pr
 ### Posts
 
 - Format: Jekyll-flavored markdown (matching the target Pages site)
-- Required frontmatter: `layout`, `title`, `date`, `description`, `categories`, `tags`, `og_image`, `featured`, `claude_code_version_verified` (the Claude Code version the post was last fact-checked against)
+- Required frontmatter: `layout`, `title`, `date`, `description`, `categories`, `tags`, `og_image`, `featured`, `claude_code_version_verified` (the Claude Code version the post was last fact-checked against), `humanizer_pass` (the humanizer skill version run over the draft)
 - **`posts/` frontmatter tracks the Pages site's conventions directly** (issue #14), so the publish transform stays thin:
   - `date` carries a time + UTC offset: `YYYY-MM-DD HH:MM:SS-TZTZ` (e.g. `2026-05-26 00:00:00-0800`)
   - `categories` and `tags` are quoted-string arrays: `["claude-code-sessions"]`, `["claude-code", "jsonl"]`
@@ -44,6 +44,7 @@ Mechanical enforcement is in place via `.claude/hooks/block_secret_reads.py` (Pr
   - The repo's `.prettierrc` (`printWidth: 150`, `trailingComma: es5`, `@shopify/prettier-plugin-liquid`) **hand-mirrors the Pages site's Prettier config** so source == deployed. There's no automated link between the two — if the Pages config changes, update `.prettierrc` here to match, or posts will format differently than they deploy.
 - Each post links to relevant `reference/` sections for evergreen detail; reference docs are the source of truth, posts are the narrative layer
 - Posts more than ~3 minor Claude Code versions behind their `claude_code_version_verified` should be re-verified
+- **A humanizer pass is required before a post merges.** Run the [humanizer skill](https://github.com/blader/humanizer) over the finished draft and record the version in `humanizer_pass` (issue #223). It removes structural AI-writing tells the drafter cannot see in its own prose: not-X-but-Y staging, one-line closers, staged run-ups, forced triads, dashes as a universal connector, inflated significance. Land it as its own commit so the diff is reviewable. `tooling/check-humanizer-pass.py` gates on the field being recorded, never on the prose itself — the skill's "When not to act" rules need judgment a pattern lint cannot supply. A deliberate skip is recorded as `humanizer_pass: none`, not by omitting the field. Like `claude_code_version_verified`, the field is upstream-only and stripped on publish.
 - **AI-assistance disclosure footer is required.** Every post under `posts/` ends with a horizontal rule and the line:
   `_Drafted with Claude Code (verified against <version>). The ideas, claims, and any errors are mine._`
   where `<version>` matches the post's `claude_code_version_verified`. Short-form derivatives (LinkedIn, Medium, X, dev.to) carry the shorter form: `_Drafted with Claude Code. Ideas and any errors are mine._` (no version clause). The marketer agent (`~/.claude/agents/marketer.md`) is also instructed to include this. Use underscores (`_…_`) for the emphasis, not asterisks — the `posts/` Prettier gate (issue #76) normalizes emphasis to underscores, so authoring with `*…*` would fail the check.

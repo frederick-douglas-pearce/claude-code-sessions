@@ -37,6 +37,7 @@ og_image: https://example.github.io/assets/img/{slug}-og.png
 og_card_source: {card_rel}
 featured: false
 claude_code_version_verified: v9.9.9
+humanizer_pass: v3.0.0
 ---
 
 Body line one.
@@ -87,6 +88,7 @@ class PublishTestCase(unittest.TestCase):
         published = (self.pages_posts / src.name).read_text()
         self.assertNotIn("og_card_source", published, "og_card_source must be stripped on publish")
         self.assertNotIn("claude_code_version_verified", published, "version field must be stripped")
+        self.assertNotIn("humanizer_pass", published, "humanizer_pass is an editorial record and must be stripped")
         self.assertIn("og_image:", published, "og_image must be preserved")
         self.assertIn("Body line one.", published)
         self.assertTrue(published.endswith("\n"))

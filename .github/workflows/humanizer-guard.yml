@@ -1,0 +1,49 @@
+name: Humanizer guard
+
+# Pre-merge check that every post under posts/ records a humanizer pass in its
+# `humanizer_pass` frontmatter (issue #223). The humanizer skill
+# (https://github.com/blader/humanizer) strips structural AI-writing tells from a
+# draft; it is a manual step, and nothing about a finished draft reveals whether
+# it ran. This makes the omission visible before merge.
+#
+# It guards the RECORD, not the prose (#223, D-1): the skill's own "When not to
+# act" rules need judgment a pattern lint cannot supply, and a wrong lint would
+# train the writer to write around it. `humanizer_pass: none` is a valid value
+# that records a deliberate skip.
+#
+# Scope note: posts/ is direct-commit-allowed to main, so like the OG card guard
+# this is not a hard gate — it's loud at PR time when a PR is used, plus a fast
+# backstop on main pushes. Stdlib only; no npm, no Pages repo, no secrets.
+
+on:
+  pull_request:
+    paths:
+      - "posts/**"
+      - "tooling/check-humanizer-pass.py"
+      - "tooling/publish-to-pages.py"
+      - ".github/workflows/humanizer-guard.yml"
+  push:
+    branches: [main]
+    paths:
+      - "posts/**"
+
+permissions:
+  contents: read
+
+jobs:
+  humanizer-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Reads frontmatter (reusing publish-to-pages.py's own parser) and checks
+      # each post records a humanizer skill version, or an explicit `none`.
+      - run: python3 tooling/check-humanizer-pass.py
+
+      # The guard's own suite. tooling/tests/ has no CI runner of its own yet, so
+      # the checks that touch it run their tests here rather than not at all.
+      - run: python3 tooling/tests/test_check_humanizer_pass.py
