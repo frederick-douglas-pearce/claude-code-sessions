@@ -80,8 +80,16 @@ def check_value(raw: str | None) -> str | None:
 
 
 def read_pass(src: Path) -> str | None:
-    """The post's recorded `humanizer_pass`, or None if absent."""
-    fm_block, _ = ptp.split_frontmatter(src.read_text())
+    """The post's recorded `humanizer_pass`, or None if absent.
+
+    Raises PublishError for an unreadable file, so a bad explicit path lands in
+    the per-post report like every other failure instead of as a traceback —
+    matching check-og-cards.py, whose validator already fails closed this way."""
+    try:
+        text = src.read_text()
+    except OSError as e:
+        raise ptp.PublishError(f"cannot read {src}: {e.strerror}") from e
+    fm_block, _ = ptp.split_frontmatter(text)
     return ptp.read_field(fm_block, FIELD)
 
 

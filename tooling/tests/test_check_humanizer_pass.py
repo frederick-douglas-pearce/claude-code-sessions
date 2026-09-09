@@ -130,6 +130,12 @@ class GuardTestCase(unittest.TestCase):
         self.assertEqual(code, 1, text)
         self.assertIn("frontmatter", text)
 
+    def test_unreadable_path_is_reported_not_raised(self):
+        """A bad explicit path belongs in the report, not in a traceback."""
+        code, text = self.run_guard([str(self.posts / "2026-01-01-nope.md")])
+        self.assertEqual(code, 1, text)
+        self.assertIn("cannot read", text)
+
     def test_reports_every_failing_post(self):
         """One CI run should surface the whole backlog, not stop at the first."""
         self.add_post("one", omit=True)
