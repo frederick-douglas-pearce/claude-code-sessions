@@ -108,11 +108,11 @@ A session can also end mid-cycle: an `assistant` line's `tool_use` with no `tool
 
 ## When one turn fires several tools
 
-The scan rewrote this section. `reference/tool-invocation.md` used to say a parallel turn looks like one `assistant` line carrying multiple `tool_use` blocks in its `message.content` array, and gave a `jq` one-liner that counts blocks per line to find them. I ran that exact snippet against the scan corpus while writing this post. It found 4 parallel turns, out of 68,395 lines carrying a `tool_use` block. That's not a rate anyone should believe for a coding agent, so I went looking for why.
+Parallel tool calls are common in real sessions, and until this post's scan `reference/tool-invocation.md` had the detection wrong. The doc said a parallel turn looks like one `assistant` line carrying multiple `tool_use` blocks in its `message.content` array, and gave a `jq` one-liner that counts blocks per line. I ran that exact snippet against the scan corpus while writing this post. It found 4 parallel turns, out of 68,395 lines carrying a `tool_use` block. That's not a believable rate for a coding agent, so I went looking for why.
 
-The cause is the block-splitting behavior from the two-line-cycle section. Claude Code, in current versions, writes one JSONL line per content block far more often than one line per turn. The blocks that belong to a single model turn, multiple `tool_use` calls included, share a `requestId` (and a `message.id`), not a line. Group by `requestId` instead of counting within a line, and the real picture shows up: 55,008 requests in the corpus carried at least one `tool_use` block. 45,751 of them, 83.2%, were serial: exactly one tool. 9,257, 16.8%, were parallel: two or more, with the largest single request firing 22 tools at once.
+The cause is the block-splitting behavior from the two-line-cycle section. Claude Code, in current versions, writes one JSONL line per content block far more often than one line per turn. The blocks that belong to a single model turn, multiple `tool_use` calls included, share a `requestId` (and a `message.id`), not a line. Group by `requestId` instead of counting within a line, and the real picture shows up: 55,008 requests in the corpus carried at least one `tool_use` block. 45,751 of them, 83.2%, were serial, meaning exactly one tool call. 9,257, 16.8%, were parallel: two or more tool calls, with the largest single request firing 22 tools at once.
 
-The corrected detection groups by request:
+The corrected detection groups by request, and this is what the doc carries now:
 
 ```bash
 jq -s '
@@ -128,7 +128,7 @@ jq -s '
 ' "$F"
 ```
 
-The second `select` is doing real work, not tidying. Drop it and every line carrying neither `requestId` nor `message.id` lands in one bucket together, which `group_by` then reports as a single enormous parallel request. Unrelated serial turns get counted as one wide one, and the number that reads as "the largest request in the corpus" is the artifact.
+The second `select` is doing real work. Drop it and every line carrying neither `requestId` nor `message.id` collapses into one `null` bucket, which `group_by` then reports as a single enormous parallel request built out of unrelated serial turns.
 
 The wall-clock consequence stands either way, and the reference doc had that part right. A serial sequence of three `Read` calls takes roughly three times as long as one; a parallel batch of three takes roughly as long as one. Both show up as `readCount: 3` in a subagent's `toolStats`, which cannot tell them apart. Grouping by `requestId` is what tells you which kind of turn you're looking at.
 
