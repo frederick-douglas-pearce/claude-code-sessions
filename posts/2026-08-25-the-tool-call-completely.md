@@ -155,11 +155,11 @@ One caveat carried over from Part 2: `tool_use.name` and `toolStats` don't join.
 
 ## What this post leaves out
 
-Three things, on purpose. What a subagent's `toolUseResult` looks like from inside its own trace file, as opposed to the parent-side rollup covered above, is [Part 3](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-11-inside-the-subagent-trace-file.md)'s territory, not this post's. What any of this actually costs, in tokens or dollars, is [Part 4](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-24-token-accounting-is-harder-than-it-looks.md)'s. And tool-call retry rate, which uses this same `tool_use_id` pairing and `is_error` flag to ask a different question, already shipped as its own aside: [How often does Claude retry a tool call?](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-08-how-often-does-claude-retry-a-tool-call.md)
+I left three things out on purpose. What a subagent's `toolUseResult` looks like from inside its own trace file, as opposed to the parent-side rollup covered above, is [Part 3](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-11-inside-the-subagent-trace-file.md)'s territory, not this post's. What any of this actually costs, in tokens or dollars, is [Part 4](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-24-token-accounting-is-harder-than-it-looks.md)'s. And tool-call retry rate, which uses this same `tool_use_id` pairing and the `is_error` flag to ask a different question, already shipped as its own aside: [How often does Claude retry a tool call?](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-08-how-often-does-claude-retry-a-tool-call.md)
 
 ## What's next
 
-Session data records what Claude Code did. Hooks (`PreToolUse`, `PostToolUse`, `UserPromptSubmit`) fire while it's working, outside the model loop entirely. The next post goes looking for whatever a hook leaves behind in the JSONL once it's fired: what's there, what's conditional, and what turns out not to be in the file at all.
+Session data records what Claude Code did. Hooks (`PreToolUse`, `PostToolUse`, `UserPromptSubmit`) fire while it's working, outside the model loop entirely. The next post goes looking for whatever a hook leaves behind in the JSONL once it's fired: what's there, what's conditional, and what's not in the file at all.
 
 The sources behind this post:
 
