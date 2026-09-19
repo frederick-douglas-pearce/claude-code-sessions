@@ -64,9 +64,29 @@ sourced by citation, so they are re-derived here and the derivation is retained.
   `tool_use_id` space, so a cross-file join would resolve ids a real parser
   cannot. `tool_result_blocks == resolved + orphaned` holds by construction.
 
-  The `toolUseResult` shape is three-way because it is a **bare string** on a
-  minority of results — 240 on `Edit` alone (`tool-invocation.md:195`) — and a
-  dict-only denominator would drop every one of them silently.
+  The `toolUseResult` shape is split five ways — `dict`, `non_dict`, `null`,
+  `absent`, `ambiguous_multi_block` — because each names a different fact. It is
+  a **bare string** on a minority of results (240 on `Edit` alone,
+  `tool-invocation.md:195`), so a dict-only denominator would drop those
+  silently; a `null` is not the same observation as a missing key; and
+  `toolUseResult` is one key on the **line**, so when a line carries several
+  `tool_result` blocks (`tool-invocation.md:526`) the envelope belongs to no
+  single result. Those contribute **no** conditional-key counts rather than
+  crediting the same envelope to each block, which would both inflate the
+  numerator and hand one tool's keys to another.
+
+  `tool_cycle` also reports `files_dropped_mid_read`. A file that dies partway
+  has its whole join buffer discarded — resolving a partial id set would
+  manufacture orphans out of `tool_use` lines that were never reached — but its
+  already-ingested lines still counted toward `content_block_types`. The counter
+  is what lets a reader of a retained artifact explain that gap rather than find
+  two figures that disagree for no stated reason.
+
+  `message_shape` reports `assistant_lines_sidechain` and `user_lines_sidechain`
+  and states in its own `denominators` that **subagent and parent traffic are
+  pooled** in every figure it carries. The scan walks both, and
+  `tool-invocation.md:524` warns that mixing them puts a subagent's parallelism
+  into the parent's numbers.
 
 - **`stop_reason` added to `EMITTABLE_VALUE_FIELDS`, with a fold.** This is the
   first whitelist member whose value space is **not closed**: the whitelist's bar

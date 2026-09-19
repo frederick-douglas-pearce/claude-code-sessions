@@ -304,7 +304,15 @@ def stop_sequence_state(message: dict) -> str:
         return "absent"
     if value is None:
         return "null"
-    if isinstance(value, str) and value == "":
+    if not isinstance(value, str):
+        # Malformed, or a future format change. It must NOT land in
+        # `non_empty_string`: that is the one label whose presence contradicts
+        # data-dictionary.md:100's claim about this field, so absorbing a
+        # non-string there would read as a substantive format finding when it is
+        # nothing of the kind. stop_reason_label folds non-strings for the same
+        # reason.
+        return "non_string"
+    if value == "":
         return "empty_string"
     return "non_empty_string"
 
@@ -392,6 +400,15 @@ class Observation:
         # the distribution reference/ cites.
         self.assistant_lines = 0
         self.assistant_api_error_lines = 0
+        # scan() walks root.rglob("*.jsonl"), which includes
+        # <session>/subagents/agent-*.jsonl, so every message_shape figure POOLS
+        # subagent-trace lines with parent-transcript ones. That is stated in
+        # the denominators and quantified by these two counts: without them a
+        # reader of the artifact cannot tell how much of a figure is subagent
+        # traffic, and tool-invocation.md:524 warns that mixing the two is what
+        # puts "a subagent's parallelism into the parent's numbers".
+        self.assistant_lines_sidechain = 0
+        self.user_lines_sidechain = 0
         self.stop_reason_presence: Counter[str] = Counter()
         self.stop_reason_by_model: defaultdict[str, Counter[str]] = defaultdict(Counter)
         self.stop_sequence_by_model: defaultdict[str, Counter[str]] = defaultdict(Counter)
@@ -400,6 +417,7 @@ class Observation:
         self.user_content_shape: Counter[str] = Counter()
         # --- tool_cycle: families 3, 4 and 5, resolved per file --------------
         self.tool_result_blocks = 0
+        self.files_dropped_mid_read = 0
         self.tool_results_resolved = 0
         self.tool_results_orphaned: Counter[str] = Counter()
         self.tool_cycle_by_tool: defaultdict[str, Counter[str]] = defaultdict(Counter)
@@ -439,6 +457,8 @@ class Observation:
 
             if type_label == "assistant":
                 self.assistant_lines += 1
+                if obj.get("isSidechain") is True:
+                    self.assistant_lines_sidechain += 1
                 # data-dictionary.md:108 — an API-error record is not a real
                 # model turn and "should be excluded from token and turn
                 # metrics". It is the leading hypothesis for a share of the
@@ -458,9 +478,17 @@ class Observation:
 
             elif type_label == "user":
                 self.user_lines += 1
+                if obj.get("isSidechain") is True:
+                    self.user_lines_sidechain += 1
                 raw_content = message.get("content", _MISSING)
                 if raw_content is _MISSING:
                     self.user_content_shape["absent"] += 1
+                elif raw_content is None:
+                    # Explicit null kept distinct from both `absent` and the
+                    # `other` catch-all, per _MISSING. Collapsing it would
+                    # repeat, on this family, the exact mistake the three-way
+                    # `stop_reason` split exists to avoid.
+                    self.user_content_shape["null"] += 1
                 elif isinstance(raw_content, list):
                     self.user_content_shape["list"] += 1
                 elif isinstance(raw_content, str):
@@ -470,6 +498,22 @@ class Observation:
 
             content = message.get("content")
             if isinstance(content, list):
+                # `toolUseResult` is ONE key on the line, but a line may carry
+                # several `tool_result` blocks — tool-invocation.md:526 records
+                # that the results of a parallel turn "may arrive in one `user`
+                # line or across several". So the envelope is attributable to a
+                # specific result only when there is exactly one block to
+                # attribute it to; with more, crediting each block would both
+                # inflate the count and hand one tool's keys to another.
+                tool_result_blocks_on_line = (
+                    sum(
+                        1
+                        for b in content
+                        if isinstance(b, dict) and b.get("type") == "tool_result"
+                    )
+                    if join is not None
+                    else 0
+                )
                 for block in content:
                     if isinstance(block, dict):
                         bt = block.get("type")
@@ -480,9 +524,13 @@ class Observation:
                             for key in obj.keys():
                                 self.tool_result_line_keys[key] += 1
                         if join is not None:
-                            self._capture_join(obj, block, bt, join)
+                            self._capture_join(
+                                obj, block, bt, join, tool_result_blocks_on_line
+                            )
 
-    def _capture_join(self, obj: dict, block: dict, bt, join: FileJoin) -> None:
+    def _capture_join(
+        self, obj: dict, block: dict, bt, join: FileJoin, blocks_on_line: int = 1
+    ) -> None:
         """Buffer one content block for the per-file tool-cycle join.
 
         Nothing is decided here — a tool_result cannot be judged resolved or
@@ -511,8 +559,17 @@ class Observation:
         # as a bare string on a minority of results (240 on `Edit` alone), and a
         # dict-only denominator would silently drop every one of them.
         tur = obj.get("toolUseResult", _MISSING)
-        if tur is _MISSING:
+        if blocks_on_line > 1:
+            # Unattributable, and recorded as such rather than guessed at. This
+            # is its own shape so it can never be mistaken for a result that
+            # genuinely carried no envelope.
+            shape = "ambiguous_multi_block"
+        elif tur is _MISSING:
             shape = "absent"
+        elif tur is None:
+            # An explicit null is not the same fact as a missing key, and not
+            # the same as a string body either — see _MISSING.
+            shape = "null"
         elif isinstance(tur, dict):
             shape = "dict"
         else:
@@ -525,9 +582,14 @@ class Observation:
                 shape,
                 is_dict and "structuredPatch" in tur,
                 is_dict and "prompt" in tur,
-                # Presence only. `toolStats` keys are TOOL NAMES
-                # (tool-invocation.md:539), so a key histogram over it would
-                # leak by the same route TOOL_NAME_ALLOWLIST exists to close.
+                # Presence only, never a key histogram. `toolStats` is keyed by
+                # tool CATEGORY, not tool name — data-dictionary.md:224 records
+                # exactly seven observed keys, and :243 records that the
+                # tool-name form was "a documentation error rather than a
+                # variant". So the reason for presence-only is not that its keys
+                # are unbounded; it is that this scanner has no need to
+                # enumerate the contents of a nested result object at all, and
+                # the narrow rule is the one that survives a format change.
                 is_dict and "toolStats" in tur,
             )
         )
@@ -687,6 +749,13 @@ def scan(root: Path, obs: Observation, max_files: int | None = None) -> None:
             # The file was opened but died mid-read, so the join buffer holds a
             # partial id set. Resolving it would manufacture orphans out of
             # tool_use lines that were simply never reached — drop it instead.
+            #
+            # Dropping keeps the tool_cycle identity true, but it does NOT undo
+            # the lines already ingested: content_block_types["tool_result"] has
+            # counted blocks that tool_cycle now never will. Counting the drop
+            # is what lets a reader of the artifact explain that gap instead of
+            # finding two figures that disagree for no stated reason.
+            obs.files_dropped_mid_read += 1
             continue
         obs.resolve_file_join(join)
         if is_trace and file_versions:
@@ -1033,6 +1102,13 @@ def build_report(obs: Observation, diff: dict | None, max_files: int | None = No
             # reading scan.py. The 2026-08-25 pass stated none of these, which
             # is why its numbers could not be re-derived (issue #237).
             "denominators": {
+                "scope": (
+                    "every figure in this section POOLS subagent-trace lines "
+                    "with parent-transcript ones — the scan walks both. "
+                    "`assistant_lines_sidechain` / `user_lines_sidechain` "
+                    "quantify how much is subagent traffic; there is no "
+                    "per-bucket split"
+                ),
                 "stop_reason": (
                     "assistant lines carrying a dict `message`; the three-way "
                     "presence split below is over that same denominator, and a "
@@ -1052,6 +1128,7 @@ def build_report(obs: Observation, diff: dict | None, max_files: int | None = No
                 ),
             },
             "assistant_lines": obs.assistant_lines,
+            "assistant_lines_sidechain": obs.assistant_lines_sidechain,
             "assistant_api_error_lines": obs.assistant_api_error_lines,
             "stop_reason_presence": dict(sorted(obs.stop_reason_presence.items())),
             "stop_reason_by_model_bucket": {
@@ -1068,13 +1145,27 @@ def build_report(obs: Observation, diff: dict | None, max_files: int | None = No
                 if obs.stop_sequence_by_model.get(b)
             },
             "user_lines": obs.user_lines,
+            "user_lines_sidechain": obs.user_lines_sidechain,
             "user_content_shape": dict(sorted(obs.user_content_shape.items())),
         },
         "tool_cycle": {
             "denominators": {
                 "tool_result_blocks": (
-                    "every `tool_result` content block observed; equals "
-                    "`resolved` + the `orphaned` totals by construction"
+                    "every `tool_result` content block observed IN A FILE READ "
+                    "TO COMPLETION; equals `resolved` + the `orphaned` totals "
+                    "by construction. A file that died mid-read has its whole "
+                    "buffer dropped and is counted in `files_dropped_mid_read` "
+                    "— when that is non-zero this figure is lower than "
+                    "`content_block_types.tool_result`, and the difference is "
+                    "the dropped files' blocks"
+                ),
+                "by_tool_envelope": (
+                    "`toolUseResult` is one key on the LINE, so it is "
+                    "attributable only when the line carries exactly one "
+                    "`tool_result` block. Lines carrying several are recorded "
+                    "as `ambiguous_multi_block` and contribute NO "
+                    "conditional-key counts, rather than crediting the same "
+                    "envelope to each block"
                 ),
                 "resolution": (
                     "a `tool_result` resolves when its `tool_use_id` matches a "
@@ -1095,6 +1186,7 @@ def build_report(obs: Observation, diff: dict | None, max_files: int | None = No
                 ),
             },
             "tool_result_blocks": obs.tool_result_blocks,
+            "files_dropped_mid_read": obs.files_dropped_mid_read,
             "resolved": obs.tool_results_resolved,
             "orphaned": dict(sorted(obs.tool_results_orphaned.items())),
             "by_tool": {
@@ -1183,16 +1275,25 @@ def print_human(report: dict) -> None:
     print("## Message shape: `stop_reason` and `user` content\n")
     print(
         f"_{ms['assistant_lines']} assistant line(s) with a dict `message`, of which "
-        f"{ms['assistant_api_error_lines']} are API-error records (not real turns). "
-        f"{ms['user_lines']} user line(s)._\n"
+        f"{ms['assistant_api_error_lines']} are API-error records (not real turns) and "
+        f"{ms['assistant_lines_sidechain']} are sidechain. "
+        f"{ms['user_lines']} user line(s), {ms['user_lines_sidechain']} sidechain. "
+        f"**Subagent and parent traffic are POOLED in every figure below.**_\n"
     )
-    print("| model bucket | " + " | ".join(sorted(STOP_REASON_VALUES | {OTHER_BUCKET, "<null>", "<absent>"})) + " |")
-    print("| --- " * (len(STOP_REASON_VALUES) + 4) + "|")
+    # Derive the header, the separator and every row from ONE column list.
+    # Hand-deriving the separator width kept them in step only by coincidence,
+    # so adding a label to the fold (or a bucket to stop_reason_label) would
+    # have silently produced a malformed table. Labels are backticked because
+    # `<other>`, `<null>` and `<absent>` are otherwise parsed as HTML tags and
+    # render as blank headers — `<other>` being the drift column a reader most
+    # needs to find.
+    columns = sorted(
+        set(STOP_REASON_VALUES) | {OTHER_BUCKET, "<null>", "<absent>"}
+    )
+    print("| model bucket | " + " | ".join(f"`{c}`" for c in columns) + " |")
+    print("| --- " * (len(columns) + 1) + "|")
     for b, row in ms["stop_reason_by_model_bucket"].items():
-        cells = " | ".join(
-            str(row.get(v, 0))
-            for v in sorted(STOP_REASON_VALUES | {OTHER_BUCKET, "<null>", "<absent>"})
-        )
+        cells = " | ".join(str(row.get(v, 0)) for v in columns)
         print(f"| `{b}` | {cells} |")
     print()
     table("`stop_reason` presence", ms["stop_reason_presence"], "assistant lines")
@@ -1209,7 +1310,7 @@ def print_human(report: dict) -> None:
         f"_{tc['tool_result_blocks']} `tool_result` block(s): {tc['resolved']} resolved, "
         f"{orphan_total} orphaned ("
         + (", ".join(f"{k}={v}" for k, v in tc["orphaned"].items()) or "none")
-        + ")._\n"
+        + f"). {tc['files_dropped_mid_read']} file(s) dropped mid-read._\n"
     )
     if tc["by_tool"]:
         for t, row in tc["by_tool"].items():

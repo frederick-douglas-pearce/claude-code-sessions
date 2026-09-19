@@ -406,3 +406,146 @@ def test_report_carries_its_own_denominator_definitions(tmp_path):
         "orphaned",
         "by_tool",
     }
+
+
+# --- review-round fixes (PR #239) --------------------------------------------
+
+
+def test_api_error_lines_are_counted(tmp_path):
+    """`isApiErrorMessage` is surfaced in the report and named in the CHANGELOG
+    as the candidate explanation for the absent-`stop_reason` bucket, so an
+    inverted condition or a misspelled field would ship silently."""
+    make_session(
+        tmp_path,
+        slug="proj",
+        session_id="s",
+        lines=[
+            {**_assistant("a1", stop_reason=None), "isApiErrorMessage": True},
+            {**_assistant("a2", stop_reason=None), "isApiErrorMessage": False},
+            _assistant("a3", stop_reason="end_turn"),
+        ],
+    )
+    ms = _report(tmp_path)["message_shape"]
+    assert ms["assistant_lines"] == 3
+    assert ms["assistant_api_error_lines"] == 1
+
+
+def test_multiple_tool_results_on_one_line_do_not_share_one_envelope(tmp_path):
+    """`toolUseResult` is one key on the LINE, not per block.
+
+    tool-invocation.md:526 records that the results of a parallel turn "may
+    arrive in one `user` line or across several". Crediting the line's single
+    envelope to each block would both inflate the conditional-key counts and
+    hand one tool's keys to another — so a multi-block line is recorded as
+    unattributable instead. Not currently observed in the local corpus (every
+    line there carries exactly one block), which is what makes it worth pinning:
+    nothing else would catch the regression.
+    """
+    lines = [
+        {
+            "type": "assistant",
+            "uuid": "a1",
+            "message": {
+                "content": [
+                    {"type": "tool_use", "id": "t1", "name": "Edit"},
+                    {"type": "tool_use", "id": "t2", "name": "Agent"},
+                ]
+            },
+        },
+        {
+            "type": "user",
+            "uuid": "u1",
+            # ONE envelope, TWO results, and it cannot belong to both.
+            "toolUseResult": {"structuredPatch": [], "prompt": "x"},
+            "message": {
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "t1"},
+                    {"type": "tool_result", "tool_use_id": "t2"},
+                ]
+            },
+        },
+    ]
+    make_session(tmp_path, slug="proj", session_id="s", lines=lines)
+
+    by_tool = _report(tmp_path)["tool_cycle"]["by_tool"]
+    assert by_tool["Edit"]["results"] == 1
+    assert by_tool["Agent"]["results"] == 1
+    # Neither gets a conditional-key credit, and neither is recorded as having
+    # had no envelope at all.
+    assert by_tool["Edit"]["toolUseResult_ambiguous_multi_block"] == 1
+    assert by_tool["Agent"]["toolUseResult_ambiguous_multi_block"] == 1
+    assert "structuredPatch" not in by_tool["Edit"]
+    assert "prompt" not in by_tool["Agent"]
+    assert "toolUseResult_dict" not in by_tool["Edit"]
+
+
+def test_null_is_distinct_from_absent_in_every_classifier(tmp_path):
+    """The `_MISSING` rationale applied consistently.
+
+    A null is a real observation, not an absence — the distinction reference/
+    cites separately for `stop_reason`. It must not be collapsed into a
+    catch-all on the other families either.
+    """
+    lines = [
+        {"type": "user", "uuid": "u1", "message": {"content": None}},
+        {"type": "user", "uuid": "u2", "message": {}},
+        {"type": "user", "uuid": "u3", "message": {"content": 42}},
+    ]
+    lines += [
+        {
+            "type": "assistant",
+            "uuid": "a1",
+            "message": {"content": [{"type": "tool_use", "id": "t1", "name": "Edit"}]},
+        },
+        {
+            "type": "user",
+            "uuid": "u4",
+            "toolUseResult": None,
+            "message": {"content": [{"type": "tool_result", "tool_use_id": "t1"}]},
+        },
+    ]
+    make_session(tmp_path, slug="proj", session_id="s", lines=lines)
+
+    report = _report(tmp_path)
+    assert report["message_shape"]["user_content_shape"] == {
+        "null": 1,
+        "absent": 1,
+        "other": 1,
+        "list": 1,  # u4 carries the tool_result list
+    }
+    assert report["tool_cycle"]["by_tool"]["Edit"]["toolUseResult_null"] == 1
+
+
+def test_non_string_stop_sequence_is_not_reported_as_non_empty_string(tmp_path):
+    """`non_empty_string` is the one label that would contradict
+    data-dictionary.md:100's claim about this field, so a malformed value
+    landing there would read as a substantive format finding."""
+    make_session(
+        tmp_path,
+        slug="proj",
+        session_id="s",
+        lines=[_assistant("a1", stop_reason="end_turn", stop_sequence=["x"])],
+    )
+    states = _report(tmp_path)["message_shape"]["stop_sequence_state_by_model_bucket"]
+    assert states["absent"] == {"non_string": 1}
+
+
+def test_sidechain_line_counts_are_reported(tmp_path):
+    """message_shape POOLS subagent and parent traffic, so the artifact has to
+    say how much of it is which — tool-invocation.md:524 warns that mixing the
+    two puts a subagent's parallelism into the parent's numbers."""
+    make_session(
+        tmp_path,
+        slug="proj",
+        session_id="s",
+        lines=[
+            _assistant("a1", stop_reason="end_turn"),
+            {**_assistant("a2", stop_reason="end_turn"), "isSidechain": True},
+            {"type": "user", "uuid": "u1", "message": {"content": "hi"}},
+            {"type": "user", "uuid": "u2", "isSidechain": True, "message": {"content": "hi"}},
+        ],
+    )
+    ms = _report(tmp_path)["message_shape"]
+    assert (ms["assistant_lines"], ms["assistant_lines_sidechain"]) == (2, 1)
+    assert (ms["user_lines"], ms["user_lines_sidechain"]) == (2, 1)
+    assert "scope" in ms["denominators"], "the pooling must be stated, not implied"

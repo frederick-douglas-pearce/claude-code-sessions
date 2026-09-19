@@ -137,8 +137,10 @@ def planted_root(tmp_path):
                   "content": S_CRED},
              ]}},
             # --- An Agent spawn and its conditional-key envelope. `toolStats`
-            # keys are tool names (tool-invocation.md:539), so a key histogram
-            # over it would leak by the same route as a free tool-name table.
+            # is keyed by tool CATEGORY (data-dictionary.md:224 — the tool-name
+            # form was "a documentation error rather than a variant", :243), so
+            # the categories below are the real shape. The sentinel rides the
+            # sibling `prompt`, which genuinely is free text.
             {"type": "assistant", "uuid": "a3", "version": "2.1.150",
              "message": {"model": S_MODEL, "stop_reason": "tool_use", "content": [
                  {"type": "tool_use", "id": S_UUID + "-agent", "name": "Agent",
@@ -147,7 +149,7 @@ def planted_root(tmp_path):
             {"type": "user", "uuid": "u4", "version": "2.1.150",
              "toolUseResult": {
                  "prompt": S_PROMPT,
-                 "toolStats": {"readCount": 3, S_PROMPT: 1},
+                 "toolStats": {"readCount": 3, "bashCount": 1},
              },
              "message": {"content": [
                  {"type": "tool_result", "tool_use_id": S_UUID + "-agent",
