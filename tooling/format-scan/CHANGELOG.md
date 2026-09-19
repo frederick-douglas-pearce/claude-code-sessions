@@ -73,7 +73,13 @@ sourced by citation, so they are re-derived here and the derivation is retained.
   `tool_result` blocks (`tool-invocation.md:526`) the envelope belongs to no
   single result. Those contribute **no** conditional-key counts rather than
   crediting the same envelope to each block, which would both inflate the
-  numerator and hand one tool's keys to another.
+  numerator and hand one tool's keys to another. A multi-block line whose
+  envelope is *missing or null* keeps `absent`/`null` instead — ambiguity
+  requires a body to misattribute, and there is none.
+
+  Every one of these labels is defined in the report's own `denominators`, not
+  only in this file, so a reader of a retained artifact who meets `non_string`
+  or `ambiguous_multi_block` has something to read.
 
   `tool_cycle` also reports `files_dropped_mid_read`. A file that dies partway
   has its whole join buffer discarded — resolving a partial id set would

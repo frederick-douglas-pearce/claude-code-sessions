@@ -549,3 +549,140 @@ def test_sidechain_line_counts_are_reported(tmp_path):
     assert (ms["assistant_lines"], ms["assistant_lines_sidechain"]) == (2, 1)
     assert (ms["user_lines"], ms["user_lines_sidechain"]) == (2, 1)
     assert "scope" in ms["denominators"], "the pooling must be stated, not implied"
+
+
+# --- round-3 fixes: the human-report path, previously untested ----------------
+
+
+def _human_report(root: Path, capsys) -> str:
+    obs = scan_mod.Observation()
+    scan_mod.scan(root, obs)
+    scan_mod.print_human(scan_mod.build_report(obs, None))
+    return capsys.readouterr().out
+
+
+def _populated(tmp_path) -> None:
+    make_session(
+        tmp_path,
+        slug="proj",
+        session_id="s",
+        lines=[
+            _assistant("a1", model="claude-real-1", stop_reason="tool_use"),
+            _assistant("a2", model=scan_mod.SYNTHETIC_MODEL_MARKER, stop_reason="stop_sequence",
+                       stop_sequence=""),
+            _assistant("a3", stop_reason="not_a_documented_value"),
+        ]
+        + _cycle("Edit", "t1", {"structuredPatch": []}),
+    )
+
+
+def test_human_table_column_count_is_consistent(tmp_path, capsys):
+    """The invariant the one-column-list refactor exists to protect.
+
+    The header, the separator and every row must carry the same number of
+    cells. Before the refactor the separator width was hand-derived and agreed
+    with the header only by coincidence, so adding a label to the fold would
+    have produced a malformed table with nothing to catch it.
+    """
+    _populated(tmp_path)
+    out = _human_report(tmp_path, capsys)
+
+    table = [ln for ln in out.splitlines() if ln.startswith("| ")]
+    assert table, "the stop_reason table did not render at all"
+    widths = {ln.count("|") for ln in table}
+    assert len(widths) == 1, f"ragged table: differing pipe counts {widths}"
+    # Header cells must match the fold's vocabulary exactly, so a value the
+    # JSON can emit can never be missing a column.
+    header = [c.strip(" `") for c in table[0].split("|")[2:-1]]
+    assert set(header) == set(scan_mod.STOP_REASON_VALUES) | {
+        scan_mod.OTHER_BUCKET,
+        "<null>",
+        "<absent>",
+    }
+
+
+def test_human_table_labels_are_backticked(tmp_path, capsys):
+    """`<other>`, `<null>` and `<absent>` are parsed as HTML tags by markdown.
+
+    Unbackticked they render as blank column headers — and `<other>` is the
+    drift column a reader most needs to find.
+    """
+    _populated(tmp_path)
+    out = _human_report(tmp_path, capsys)
+    header = next(ln for ln in out.splitlines() if ln.startswith("| model bucket"))
+    for label in (scan_mod.OTHER_BUCKET, "<null>", "<absent>"):
+        assert f"`{label}`" in header
+        assert f"| {label} " not in header, f"{label} is unbackticked and will render blank"
+
+
+def test_unreadable_file_is_counted_and_does_not_break_the_identity(tmp_path):
+    """A path that cannot be opened must be counted, not silently swallowed.
+
+    A directory named `*.jsonl` raises IsADirectoryError, an OSError, on the
+    same handler a mid-read failure takes. The join buffer is dropped either
+    way, so the identity has to survive it.
+    """
+    make_session(
+        tmp_path,
+        slug="proj",
+        session_id="s",
+        lines=_cycle("Edit", "t1", {"structuredPatch": []}),
+    )
+    (tmp_path / "proj" / "broken.jsonl").mkdir()
+
+    tc = _report(tmp_path)["tool_cycle"]
+    assert tc["files_dropped_mid_read"] == 1
+    assert tc["tool_result_blocks"] == tc["resolved"] + sum(tc["orphaned"].values())
+
+
+def test_multi_block_line_without_an_envelope_is_absent_not_ambiguous(tmp_path):
+    """Ambiguity requires something to be ambiguous about.
+
+    A multi-block line carrying no `toolUseResult` has no body to misattribute,
+    so labelling it `ambiguous_multi_block` would under-count `absent` and
+    over-count a shape that is supposed to mean "an envelope exists but belongs
+    to no single result".
+    """
+    lines = [
+        {
+            "type": "assistant",
+            "uuid": "a1",
+            "message": {
+                "content": [
+                    {"type": "tool_use", "id": "t1", "name": "Edit"},
+                    {"type": "tool_use", "id": "t2", "name": "Edit"},
+                ]
+            },
+        },
+        {
+            "type": "user",
+            "uuid": "u1",  # two blocks, NO toolUseResult key
+            "message": {
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "t1"},
+                    {"type": "tool_result", "tool_use_id": "t2"},
+                ]
+            },
+        },
+    ]
+    make_session(tmp_path, slug="proj", session_id="s", lines=lines)
+
+    row = _report(tmp_path)["tool_cycle"]["by_tool"]["Edit"]
+    assert row["toolUseResult_absent"] == 2
+    assert "toolUseResult_ambiguous_multi_block" not in row
+
+
+def test_new_classifier_labels_are_defined_in_the_artifact(tmp_path):
+    """"Denominators carried in the artifact, not just in code" has to cover
+    the labels too, or a reader meets `non_string` with nothing to read."""
+    _populated(tmp_path)
+    report = _report(tmp_path)
+    ms = report["message_shape"]["denominators"]
+    tc = report["tool_cycle"]["denominators"]
+    assert "stop_sequence_state" in ms
+    assert "non_string" in ms["stop_sequence_state"]
+    assert "null" in ms["user_content_shape"] and "absent" in ms["user_content_shape"]
+    assert "ambiguous_multi_block" in tc["by_tool_envelope"]
+    assert "non_dict" in tc["by_tool_envelope"] and "null" in tc["by_tool_envelope"]
+    # D1: the dropped-file clause must not over-claim.
+    assert "MAY be lower" in tc["tool_result_blocks"]

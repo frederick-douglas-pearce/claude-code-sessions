@@ -559,10 +559,14 @@ class Observation:
         # as a bare string on a minority of results (240 on `Edit` alone), and a
         # dict-only denominator would silently drop every one of them.
         tur = obj.get("toolUseResult", _MISSING)
-        if blocks_on_line > 1:
-            # Unattributable, and recorded as such rather than guessed at. This
-            # is its own shape so it can never be mistaken for a result that
-            # genuinely carried no envelope.
+        # Ambiguity requires something to BE ambiguous about. A multi-block line
+        # whose envelope is missing or null has nothing to misattribute — no
+        # block carries a body — so those keep their own precise labels rather
+        # than being absorbed here. Testing block-count first would label them
+        # ambiguous, under-counting `absent`/`null` and over-counting a shape
+        # that is supposed to mean "an envelope exists but belongs to no one
+        # result".
+        if blocks_on_line > 1 and tur is not _MISSING and tur is not None:
             shape = "ambiguous_multi_block"
         elif tur is _MISSING:
             shape = "absent"
@@ -1115,7 +1119,21 @@ def build_report(obs: Observation, diff: dict | None, max_files: int | None = No
                     "null `stop_reason` is a real observation (an incomplete "
                     "turn), not an absence"
                 ),
-                "user_content_shape": "user lines carrying a dict `message`",
+                "user_content_shape": (
+                    "user lines carrying a dict `message`, by the shape of "
+                    "`message.content`: `list` / `str` / `null` (key present, "
+                    "explicitly null) / `absent` (key missing) / `other` (any "
+                    "other JSON type). `null` and `absent` are separate facts "
+                    "and are never merged"
+                ),
+                "stop_sequence_state": (
+                    "the SHAPE of `message.stop_sequence`, never its value, "
+                    "over the same assistant-line denominator: `absent` (key "
+                    "missing) / `null` / `empty_string` / `non_empty_string` / "
+                    "`non_string` (malformed or a format change). The value is "
+                    "the caller-supplied matched sequence and is never emitted, "
+                    "which is why only the shape is reported"
+                ),
                 "model_bucket": (
                     "`synthetic` = message.model is the fixed marker; `absent` "
                     "= key missing or null; `real` = anything else. The "
@@ -1153,19 +1171,26 @@ def build_report(obs: Observation, diff: dict | None, max_files: int | None = No
                 "tool_result_blocks": (
                     "every `tool_result` content block observed IN A FILE READ "
                     "TO COMPLETION; equals `resolved` + the `orphaned` totals "
-                    "by construction. A file that died mid-read has its whole "
-                    "buffer dropped and is counted in `files_dropped_mid_read` "
-                    "— when that is non-zero this figure is lower than "
-                    "`content_block_types.tool_result`, and the difference is "
-                    "the dropped files' blocks"
+                    "by construction. A file this scan could not open, or that "
+                    "failed partway through, has its whole join buffer dropped "
+                    "and is counted in `files_dropped_mid_read`. When that is "
+                    "non-zero this figure MAY be lower than "
+                    "`content_block_types.tool_result` — by however many blocks "
+                    "those files had already contributed before failing, which "
+                    "is zero for a file that never opened"
                 ),
                 "by_tool_envelope": (
-                    "`toolUseResult` is one key on the LINE, so it is "
-                    "attributable only when the line carries exactly one "
-                    "`tool_result` block. Lines carrying several are recorded "
-                    "as `ambiguous_multi_block` and contribute NO "
-                    "conditional-key counts, rather than crediting the same "
-                    "envelope to each block"
+                    "`toolUseResult` shape per resolved result: `dict` / "
+                    "`non_dict` (a bare string body) / `null` (key present, "
+                    "explicitly null) / `absent` (key missing) / "
+                    "`ambiguous_multi_block`. The last one exists because "
+                    "`toolUseResult` is one key on the LINE: when a line "
+                    "carries several `tool_result` blocks the envelope belongs "
+                    "to no single result, so those contribute NO "
+                    "conditional-key counts rather than crediting the same "
+                    "envelope to each block. A multi-block line whose envelope "
+                    "is missing or null is recorded as `absent`/`null` instead "
+                    "— there is nothing to misattribute"
                 ),
                 "resolution": (
                     "a `tool_result` resolves when its `tool_use_id` matches a "
