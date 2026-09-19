@@ -7,10 +7,28 @@ deliberately does not block the scanner's read path). This test converts that
 responsibility from a reviewer's eyeball into an automated gate:
 
   plant known sentinels (prompt text, a filesystem path, a UUID, a
-  credential-shaped token) into every value-bearing surface the scanner reads —
-  jsonl line values, subagent trace lines, meta.json manifest values, and
-  tool-results file bytes — then run EVERY scanner mode and assert not one
-  sentinel byte reaches stdout.
+  credential-shaped token, a model identifier) into every value-bearing surface
+  the scanner reads — jsonl line values, subagent trace lines, meta.json
+  manifest values, and tool-results file bytes — then run EVERY scanner mode and
+  assert not one sentinel byte reaches stdout.
+
+Issue #237 extended the planted surfaces to everything its five statistic
+families read: `message.stop_reason` (see below), `message.stop_sequence`,
+`message.stop_details.explanation`, `message.model`, `tool_use.id` and the
+matching `tool_result.tool_use_id` (the join keys, which nothing planted
+before), an unmatched `tool_use_id` for the orphan path, an unallowlisted
+MCP-shaped `tool_use.name`, dict and bare-string `toolUseResult` bodies, and a
+string-shaped `user` `message.content`.
+
+`stop_reason` is the load-bearing one. It is the single field that issue
+promotes to EMITTABLE_VALUE_FIELDS, and the two sources disagree about it:
+scan.py's whitelist bar is "a closed, content-free vocabulary", while
+reference/data-dictionary.md:99 says to "treat this as an open enum, not a
+closed switch". The resolution is that the scanner emits the documented values
+from a fixed constant and folds anything unrecognized into a fixed bucket — so
+planting a sentinel there is not a contradiction of the whitelist, it is the
+assertion that the fold happens. A scanner that echoed the value would fail
+here, which was confirmed by deliberately making it echo one.
 
 The sentinels are synthetic (never real session data); the suite is hermetic and
 offline.
@@ -34,7 +52,8 @@ S_PROMPT = "PLANTEDpromptSENTINELzqx42"            # free-text prompt / descript
 S_PATH = "/Users/planteduser/PLANTEDpathSENTINEL"   # filesystem path PII
 S_UUID = "deadbeef-1111-4222-8333-PLANTEDuuid01"    # an id value
 S_CRED = "kElPLANTEDcredSHAPED1234567890abQZ"        # credential-shaped token
-ALL_SENTINELS = (S_PROMPT, S_PATH, S_UUID, S_CRED)
+S_MODEL = "claude-PLANTEDmodelSENTINEL-9"            # a model identifier
+ALL_SENTINELS = (S_PROMPT, S_PATH, S_UUID, S_CRED, S_MODEL)
 
 
 @pytest.fixture
@@ -56,6 +75,79 @@ def planted_root(tmp_path):
                  {"type": "tool_result",
                   "content": f"Preview (first 50) {S_PROMPT} truncated"},
              ]}},
+            # --- The stop_* surfaces (issue #237). `stop_reason` itself carries
+            # a sentinel: it is the one field being newly promoted to
+            # EMITTABLE_VALUE_FIELDS, and reference/data-dictionary.md:99 calls
+            # it an OPEN enum while scan.py's whitelist bar is a CLOSED
+            # vocabulary. So the scanner must fold an unrecognized value into a
+            # fixed bucket rather than echo it, and this is what proves it does.
+            # `stop_sequence` and `stop_details` stay off the whitelist entirely.
+            {"type": "assistant", "uuid": "a2", "version": "2.1.150",
+             "message": {
+                 "model": S_MODEL,
+                 "stop_reason": S_PROMPT,
+                 "stop_sequence": S_CRED,
+                 "stop_details": {"type": "refusal", "explanation": S_PROMPT},
+                 "content": [
+                     # An allowlisted tool name with a REAL id, so the join key
+                     # itself is sentinel-covered — the previous fixture planted
+                     # no `id` and no `tool_use_id` at all.
+                     {"type": "tool_use", "id": S_UUID + "-tu", "name": "Edit",
+                      "input": {"file_path": S_PATH}},
+                     # An MCP-shaped tool name. Tool names are NOT a closed
+                     # vocabulary (server- and author-derived), which is the same
+                     # disqualifier scan.py already applies to `agentType`, so an
+                     # unallowlisted name must fold rather than surface.
+                     {"type": "tool_use", "id": S_UUID + "-mcp",
+                      "name": "mcp__" + S_PROMPT + "__do",
+                      "input": {"q": S_CRED}},
+                 ],
+             }},
+            # --- The Edit result: a dict `toolUseResult` carrying the diff body.
+            {"type": "user", "uuid": "u2", "version": "2.1.150",
+             "isSidechain": False,
+             "toolUseResult": {
+                 "filePath": S_PATH,
+                 "oldString": S_PROMPT,
+                 "newString": S_CRED,
+                 "structuredPatch": [{"lines": [S_PROMPT, S_PATH]}],
+             },
+             "message": {"content": [
+                 {"type": "tool_result", "tool_use_id": S_UUID + "-tu",
+                  "content": S_PROMPT},
+             ]}},
+            # --- An ORPHAN tool_result: its tool_use_id matches no tool_use
+            # anywhere in this file. Family 4 is DEFINED by this case, and the
+            # natural debug output for an unresolvable set is the set itself.
+            {"type": "user", "uuid": "u3", "version": "2.1.150",
+             "isSidechain": True,
+             "message": {"content": [
+                 {"type": "tool_result", "tool_use_id": S_UUID + "-orphan",
+                  "content": S_CRED},
+             ]}},
+            # --- An Agent spawn and its conditional-key envelope. `toolStats`
+            # keys are tool names (tool-invocation.md:539), so a key histogram
+            # over it would leak by the same route as a free tool-name table.
+            {"type": "assistant", "uuid": "a3", "version": "2.1.150",
+             "message": {"model": S_MODEL, "stop_reason": "tool_use", "content": [
+                 {"type": "tool_use", "id": S_UUID + "-agent", "name": "Agent",
+                  "input": {"prompt": S_PROMPT}},
+             ]}},
+            {"type": "user", "uuid": "u4", "version": "2.1.150",
+             "toolUseResult": {
+                 "prompt": S_PROMPT,
+                 "toolStats": {"readCount": 3, S_PROMPT: 1},
+             },
+             "message": {"content": [
+                 {"type": "tool_result", "tool_use_id": S_UUID + "-agent",
+                  "content": S_CRED},
+             ]}},
+            # --- A BARE-STRING `toolUseResult` (tool-invocation.md:195 counts
+            # 240 Edit results in this shape) alongside a STRING-shaped
+            # `message.content` on a user line — family 2's minority bucket.
+            {"type": "user", "uuid": "u5", "version": "2.1.150",
+             "toolUseResult": S_PROMPT + " " + S_PATH,
+             "message": {"content": S_CRED}},
         ],
         subagent_traces={
             "agent-abc.jsonl": [
@@ -152,5 +244,5 @@ def test_sentinels_are_actually_present_in_fixtures(planted_root):
         for p in planted_root.rglob("*")
         if p.is_file()
     )
-    for sentinel in (S_PROMPT, S_PATH, S_UUID, S_CRED):
+    for sentinel in ALL_SENTINELS:
         assert sentinel in blob
