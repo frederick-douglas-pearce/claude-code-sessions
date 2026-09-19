@@ -59,6 +59,32 @@ Only keys on the `EMITTABLE_META_VALUE_FIELDS` whitelist contribute their
 counter). Every other key contributes a name and a count and nothing else —
 `description` and `worktreePath` carry PII and must never be printed.
 
+### Message shape and the tool cycle
+
+Two sections answer the "how often" questions that `reference/` cites, and both
+carry their **denominator definitions inline** rather than only in code — a
+figure whose denominator was never written down cannot be re-derived later,
+which is the defect that made these numbers necessary in the first place.
+
+`message_shape` holds the `stop_reason` distribution, cross-tabbed against a
+synthetic-vs-real bucket derived from `message.model` (the model string itself is
+never emitted), the `stop_sequence` field-state table, and the `user`
+`message.content` shape split. Its `stop_reason` presence count is three-way —
+`present_non_null`, `present_null`, `absent` — because a null is a real
+observation, a line recording an incomplete turn, not a missing key.
+
+`tool_cycle` joins each `tool_result` to its `tool_use` **within the same file**
+and reports, per tool, the `toolUseResult` shape split and the conditional-key
+presence counts, plus orphaned `tool_result` blocks split on `isSidechain`. The
+join is per-file because subagent traces carry their own `tool_use_id` space, so
+a cross-file join would resolve ids a real parser never could.
+
+Two values are **folded**: `stop_reason` against `STOP_REASON_VALUES` and the
+joined tool name against `TOOL_NAME_ALLOWLIST`. Anything outside those fixed sets
+is counted as the literal `<other>`. Folding is what lets an open-ended field be
+counted without its bytes reaching output, and it is not a discard — an
+unrecognized value still shows up as a count, which is the drift signal.
+
 Every `--json` report is stamped with a top-level `scan_version` (semver) and a
 stable `tool` id (`ccs-format-scan`), so a structural profile self-describes
 which scanner build produced it:

@@ -39,6 +39,63 @@ Use semver: `MAJOR.MINOR.PATCH`.
   consumer reading the prior shape. Reserve `1.0.0` for the point at which the
   `--json` shape is declared stable.
 
+## [0.3.0] — five statistic families, and a fold rule for open enums
+
+Added for issue #237. `reference/tool-invocation.md` needs ten figures that
+exist only in a post, because the 2026-08-25 pass that produced them was ad hoc,
+retained no output, and wrote down none of its denominators. They cannot be
+sourced by citation, so they are re-derived here and the derivation is retained.
+
+- **New top-level report key `message_shape`.** Carries the `stop_reason`
+  distribution cross-tabbed against a synthetic-vs-real model bucket, the
+  `stop_sequence` field-state table, and the `user` `message.content` shape
+  split. The `stop_reason` presence split is **three-way** — `present_non_null`,
+  `present_null`, `absent` — because `data-dictionary.md:99` treats a null as a
+  real observation (an incomplete turn, "not safe to discard") rather than as an
+  absence; a corpus sample turned out to be entirely `present_null` with zero
+  truly-absent, so a two-way split would have mislabelled the whole bucket.
+
+- **New top-level report key `tool_cycle`.** Joins each `tool_result` to its
+  `tool_use` **within the same file** and reports, per tool, the
+  `toolUseResult` shape split and the conditional-key presence counts
+  (`structuredPatch`, `prompt`, `toolStats`), plus orphaned `tool_result` blocks
+  split on `isSidechain`. Per-file is the correct scope, not merely the cheap
+  one: `tool-invocation.md:83` documents that subagent traces carry their own
+  `tool_use_id` space, so a cross-file join would resolve ids a real parser
+  cannot. `tool_result_blocks == resolved + orphaned` holds by construction.
+
+  The `toolUseResult` shape is three-way because it is a **bare string** on a
+  minority of results — 240 on `Edit` alone (`tool-invocation.md:195`) — and a
+  dict-only denominator would drop every one of them silently.
+
+- **`stop_reason` added to `EMITTABLE_VALUE_FIELDS`, with a fold.** This is the
+  first whitelist member whose value space is **not closed**: the whitelist's bar
+  is "a closed, content-free vocabulary", while `data-dictionary.md:99` says of
+  this exact field "treat this as an open enum, not a closed switch". The two are
+  reconciled by `STOP_REASON_VALUES`: documented values are emitted verbatim and
+  anything else folds to the literal `<other>`. A fold is **not a drop** — an
+  unrecognized value still surfaces as a count, which is the drift signal this
+  scanner exists to raise. `stop_sequence` and `stop_details` stay off the
+  whitelist entirely; the former carries the caller-supplied matched sequence
+  and the latter free text.
+
+- **New `TOOL_NAME_ALLOWLIST`**, currently `{"Edit", "Agent"}`, same fold rule.
+  Tool names are not a closed vocabulary — MCP tools carry server-derived names
+  and plugin/user tools author-chosen ones — which is the identical disqualifier
+  already applied to `agentType`. An observed tool name is never emitted.
+  Extending the set is output-affecting and requires a bump.
+
+- **New `summary.max_files`** (int or `null`), recording the cap in force for the
+  run. `files_scanned` alone cannot distinguish a full scan of N files from a
+  `--max-files N` sample of a much larger corpus, so a retained artifact without
+  it is not comparable against a later re-run. It is an invocation parameter, so
+  it is content-free and deterministic — it does not reintroduce the wall-clock
+  non-determinism that `sha256(scan.json)` addressing rules out.
+
+No existing key changed shape, so this is a `MINOR` bump. CCDC's `SCHEMA.md`
+reads this shape by name, so the heads-up names the two new keys explicitly:
+`message_shape` and `tool_cycle`.
+
 ## [0.2.0] — manifest shape by Claude Code version, and a nesting probe
 
 Added for issue #169, which needed to settle "what subagent spawn depth did the

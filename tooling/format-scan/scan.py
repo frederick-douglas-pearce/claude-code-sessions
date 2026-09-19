@@ -31,6 +31,16 @@ SECURITY CONTRACT (read before editing — see CLAUDE.md "Security posture"):
       - a STRUCTURAL COUNTER value from a `meta.json` key on the
         EMITTABLE_META_VALUE_FIELDS whitelist below — a small integer describing
         the runtime's own nesting bookkeeping (`spawnDepth`), never user content
+      - a FOLDED ENUM value: one drawn from a fixed set this file declares
+        (STOP_REASON_VALUES, TOOL_NAME_ALLOWLIST), with everything outside that
+        set replaced by the literal OTHER_BUCKET. Folding is what lets an
+        OPEN-ended field be counted without its bytes being emitted — see
+        STOP_REASON_VALUES for why `stop_reason` needs it and TOOL_NAME_ALLOWLIST
+        for why tool names do. A fold is NOT a drop: an unrecognized value still
+        shows up as a count against OTHER_BUCKET, which is the drift signal.
+      - a FIXED BUCKET LABEL produced by classifying a value the scanner reads
+        but must never print (MODEL_BUCKETS, and the `stop_sequence` state
+        labels). The classification reads the value; only the label is emitted.
 
     It MUST NEVER emit a message value: no prompt text, no file contents, no
     command output, no tool inputs/results, no paths from inside the data, no
@@ -77,7 +87,7 @@ from pathlib import Path
 #
 # Bump __version__ (semver) on ANY change that alters --json output shape or
 # semantics; CCDC gates on it, so it must move when the output does.
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 TOOL_ID = "ccs-format-scan"
 
 # The ONLY message fields whose *values* may be emitted. Each is a public
@@ -87,7 +97,69 @@ TOOL_ID = "ccs-format-scan"
 # meta.json manifest keys (agentType, description, toolUseId, worktreePath) are
 # deliberately ABSENT: the probe reports their key names + value JSON-types, not
 # their values — description/worktreePath carry PII and must never be printed.
-EMITTABLE_VALUE_FIELDS = frozenset({"type", "version"})
+EMITTABLE_VALUE_FIELDS = frozenset({"type", "version", "stop_reason"})
+
+# `stop_reason` is on the whitelist above, but it is the one member whose value
+# space is NOT closed, and that is why it gets a constant of its own.
+# reference/data-dictionary.md:99 documents these seven values and then says, of
+# this exact field: "Treat this as an open enum, not a closed switch: an
+# unrecognized value is one you have not seen yet rather than malformed data."
+# The whitelist's own bar (see the comment above it) is a CLOSED, content-free
+# vocabulary, so emitting whatever string the corpus happens to hold would fail
+# the bar the whitelist sets.
+#
+# The resolution is to FOLD, not to drop: a value in this set is emitted
+# verbatim, and anything else is bucketed as OTHER_BUCKET. An unrecognized value
+# therefore still surfaces as drift (OTHER_BUCKET > 0 is precisely the signal
+# this scanner exists to raise) without its bytes ever reaching output. This is
+# also what makes the field testable — a sentinel planted in `stop_reason` must
+# come back as OTHER_BUCKET, which test_content_free_contract.py asserts.
+STOP_REASON_VALUES = frozenset(
+    {
+        "end_turn",
+        "max_tokens",
+        "stop_sequence",
+        "tool_use",
+        "pause_turn",
+        "refusal",
+        "model_context_window_exceeded",
+    }
+)
+
+# Tool names we will emit, for the tool_use -> tool_result join below. Same
+# reasoning as EMITTABLE_META_VALUE_FIELDS' rejection of `agentType`: tool names
+# are NOT a closed vocabulary. MCP tools carry server-derived names
+# (`mcp__<server>__<tool>`) and plugin/user tools carry author-chosen ones, so a
+# free histogram over observed names would leak exactly what `agentType` is
+# excluded for. NEVER emit an observed tool name — fold to OTHER_BUCKET.
+# Extending this set is an output-affecting change: bump __version__.
+TOOL_NAME_ALLOWLIST = frozenset({"Edit", "Agent"})
+
+# The fold target for any value outside a whitelist above. A string WE supply,
+# so it is content-free by construction.
+OTHER_BUCKET = "<other>"
+
+# Distinguishes "key missing" from "key present with a JSON null". Every field
+# below needs that distinction and `.get()` alone cannot make it:
+# reference/data-dictionary.md:99 treats a null `stop_reason` as a real
+# observation ("lines recording an incomplete turn... not safe to discard"),
+# not as an absence, and :100 says the same of `stop_sequence`. Collapsing the
+# two would merge counts reference/ is going to cite separately.
+_MISSING = object()
+
+# Fixed hypothesis marker for the synthetic-vs-real split. As with
+# PERSISTED_MARKERS and SUBAGENT_TOKENS_MARKER, this is a string WE supply, so
+# testing for it leaks nothing — the report carries only the fixed bucket label,
+# never the observed `message.model` string. scan.py's EMITTABLE_META_VALUE_FIELDS
+# comment already names `model` as non-qualifying, and that stands: this reads
+# the field to CLASSIFY it and never to emit it.
+SYNTHETIC_MODEL_MARKER = "<synthetic>"
+
+# The three fixed labels the model field is classified into. `absent` is
+# explicit rather than folded into "real": a missing or null model is an
+# ambiguous case, and defaulting an ambiguous case to "real" would overstate the
+# real-traffic denominator.
+MODEL_BUCKETS = ("real", "synthetic", "absent")
 
 # The ONLY `meta.json` manifest keys whose *values* may be emitted, as a value
 # histogram in the per-version buckets. The bar for adding one is higher than for
@@ -182,6 +254,98 @@ def default_root() -> Path:
     return base / "projects"
 
 
+def stop_reason_label(value) -> str:
+    """Fold a `stop_reason` into the emittable vocabulary.
+
+    Returns a documented value verbatim, `<null>` for an explicit JSON null,
+    `<absent>` for a missing key, and OTHER_BUCKET for anything else — including
+    a non-string, which is malformed rather than a new enum member but is not
+    worth a bucket of its own. See STOP_REASON_VALUES for why the fold exists.
+    """
+    if value is _MISSING:
+        return "<absent>"
+    if value is None:
+        return "<null>"
+    if isinstance(value, str) and value in STOP_REASON_VALUES:
+        return value
+    return OTHER_BUCKET
+
+
+def model_bucket(message: dict) -> str:
+    """Classify `message.model` into one of MODEL_BUCKETS. Never emits it.
+
+    `absent` covers both a missing key and an explicit null. Both are ambiguous
+    about whether the line is real traffic, and folding an ambiguous case into
+    `real` would overstate the real-traffic denominator — which is the number
+    reference/ will end up citing.
+    """
+    model = message.get("model", _MISSING)
+    if model is _MISSING or model is None:
+        return "absent"
+    if model == SYNTHETIC_MODEL_MARKER:
+        return "synthetic"
+    return "real"
+
+
+def stop_sequence_state(message: dict) -> str:
+    """Classify `message.stop_sequence` by SHAPE, never by value.
+
+    Four fixed labels. This exists because reference/data-dictionary.md:100
+    stakes a claim about the FIELD rather than about `stop_reason`: "the key is
+    normally present with a literal `null`, and the only non-`null` instance in
+    this repo's fixtures is an empty string on a `message.model == "<synthetic>"`
+    line." A `stop_reason` histogram cannot check that claim; this can, and it
+    does so without emitting the value — which is exactly why `stop_sequence`
+    stays OFF EMITTABLE_VALUE_FIELDS. The value carries the caller-supplied
+    matched sequence (data-dictionary.md:100) and must never be printed.
+    """
+    value = message.get("stop_sequence", _MISSING)
+    if value is _MISSING:
+        return "absent"
+    if value is None:
+        return "null"
+    if isinstance(value, str) and value == "":
+        return "empty_string"
+    return "non_empty_string"
+
+
+def tool_name_label(name) -> str:
+    """Fold a tool name to the allowlist. See TOOL_NAME_ALLOWLIST."""
+    if isinstance(name, str) and name in TOOL_NAME_ALLOWLIST:
+        return name
+    return OTHER_BUCKET
+
+
+class FileJoin:
+    """Per-file buffer for the `tool_use` -> `tool_result` join.
+
+    Deliberately NOT state on Observation, whose docstring is "across all
+    scanned files": per-file mutable state hung off that object is a state-bleed
+    bug between files that no assertion about totals would catch.
+
+    Per-file is also the CORRECT scope, not merely the convenient one.
+    reference/tool-invocation.md:83 documents that subagent traces carry their
+    own `tool_use_id` space, so a cross-file join would resolve ids that a real
+    parser — which only ever has one file open — cannot. That is why this is not
+    built like probe_nesting, whose join is genuinely global (a manifest in one
+    place, its spawn site in another) and therefore two-phase.
+
+    Ids are used ONLY as join keys here and are never emitted, matching
+    probe_nesting's discipline. Memory is bounded by one file's `tool_use` count.
+    """
+
+    def __init__(self) -> None:
+        # tool_use id -> folded tool-name label. The label, not the raw name, so
+        # an unallowlisted name is discarded at the point of capture rather than
+        # carried around waiting to be leaked by a later edit.
+        self.tool_use_labels: dict[str, str] = {}
+        # One entry per tool_result block: (tool_use_id, is_sidechain,
+        # toolUseResult shape, key-presence flags). Resolved at EOF, once every
+        # tool_use in the file has been seen — a tool_result can only be judged
+        # an orphan against the COMPLETE id set, never against a partial one.
+        self.results: list[tuple] = []
+
+
 class Observation:
     """Accumulates content-free structural facts across all scanned files."""
 
@@ -220,10 +384,36 @@ class Observation:
         )
         self.meta_manifests_unattributed = 0
         self.traces_spanning_multiple_versions = 0
+        # --- message_shape: families 1, 1b and 2 (issue #237) -----------------
+        # Family 1's denominator is assistant lines with a dict `message`, NOT
+        # "assistant lines" — and the presence split is three-way because a
+        # 60-file sample of a real corpus found 27% of assistant lines carrying
+        # no `stop_reason` at all, which would otherwise silently renormalize
+        # the distribution reference/ cites.
+        self.assistant_lines = 0
+        self.assistant_api_error_lines = 0
+        self.stop_reason_presence: Counter[str] = Counter()
+        self.stop_reason_by_model: defaultdict[str, Counter[str]] = defaultdict(Counter)
+        self.stop_sequence_by_model: defaultdict[str, Counter[str]] = defaultdict(Counter)
+        # Family 2: `user` lines with a dict `message`, split by content shape.
+        self.user_lines = 0
+        self.user_content_shape: Counter[str] = Counter()
+        # --- tool_cycle: families 3, 4 and 5, resolved per file --------------
+        self.tool_result_blocks = 0
+        self.tool_results_resolved = 0
+        self.tool_results_orphaned: Counter[str] = Counter()
+        self.tool_cycle_by_tool: defaultdict[str, Counter[str]] = defaultdict(Counter)
 
     # --- line-level ingestion -------------------------------------------------
 
-    def ingest_line(self, obj: dict) -> None:
+    def ingest_line(self, obj: dict, join: FileJoin | None = None) -> None:
+        """Record one JSONL line.
+
+        ``join`` is the caller's per-file buffer (see FileJoin). It is optional
+        so that callers which only want line-shape facts — and the existing
+        tests, which predate the join — keep working unchanged; when it is None
+        the tool_cycle families simply do not accumulate.
+        """
         if not isinstance(obj, dict):
             return
         self.lines_scanned += 1
@@ -245,6 +435,39 @@ class Observation:
 
         message = obj.get("message")
         if isinstance(message, dict):
+            bucket = model_bucket(message)
+
+            if type_label == "assistant":
+                self.assistant_lines += 1
+                # data-dictionary.md:108 — an API-error record is not a real
+                # model turn and "should be excluded from token and turn
+                # metrics". It is the leading hypothesis for a share of the
+                # absent-stop_reason lines, so counting it is what turns "N
+                # absent" into an explainable number rather than a puzzle.
+                if obj.get("isApiErrorMessage") is True:
+                    self.assistant_api_error_lines += 1
+                raw_stop = message.get("stop_reason", _MISSING)
+                if raw_stop is _MISSING:
+                    self.stop_reason_presence["absent"] += 1
+                elif raw_stop is None:
+                    self.stop_reason_presence["present_null"] += 1
+                else:
+                    self.stop_reason_presence["present_non_null"] += 1
+                self.stop_reason_by_model[bucket][stop_reason_label(raw_stop)] += 1
+                self.stop_sequence_by_model[bucket][stop_sequence_state(message)] += 1
+
+            elif type_label == "user":
+                self.user_lines += 1
+                raw_content = message.get("content", _MISSING)
+                if raw_content is _MISSING:
+                    self.user_content_shape["absent"] += 1
+                elif isinstance(raw_content, list):
+                    self.user_content_shape["list"] += 1
+                elif isinstance(raw_content, str):
+                    self.user_content_shape["str"] += 1
+                else:
+                    self.user_content_shape["other"] += 1
+
             content = message.get("content")
             if isinstance(content, list):
                 for block in content:
@@ -256,6 +479,85 @@ class Observation:
                         if bt == "tool_result":
                             for key in obj.keys():
                                 self.tool_result_line_keys[key] += 1
+                        if join is not None:
+                            self._capture_join(obj, block, bt, join)
+
+    def _capture_join(self, obj: dict, block: dict, bt, join: FileJoin) -> None:
+        """Buffer one content block for the per-file tool-cycle join.
+
+        Nothing is decided here — a tool_result cannot be judged resolved or
+        orphaned until every tool_use in the file has been seen. See
+        resolve_file_join().
+        """
+        if bt == "tool_use":
+            tuid = block.get("id")
+            if isinstance(tuid, str):
+                # Fold at the point of capture, so an unallowlisted name is
+                # discarded here rather than carried around waiting for a later
+                # edit to emit it.
+                join.tool_use_labels[tuid] = tool_name_label(block.get("name"))
+            return
+
+        if bt != "tool_result":
+            return
+
+        # NOT counted here: the running total is taken off the buffer in
+        # resolve_file_join(), so that `tool_result_blocks == resolved +
+        # orphaned` holds by construction. Counting at capture time would break
+        # that identity for any file that dies mid-read, whose buffer is dropped.
+        #
+        # `toolUseResult` is a TOP-LEVEL key on the line, sibling to `message`.
+        # Its shape is three-way on purpose: tool-invocation.md:195 records it
+        # as a bare string on a minority of results (240 on `Edit` alone), and a
+        # dict-only denominator would silently drop every one of them.
+        tur = obj.get("toolUseResult", _MISSING)
+        if tur is _MISSING:
+            shape = "absent"
+        elif isinstance(tur, dict):
+            shape = "dict"
+        else:
+            shape = "non_dict"
+        is_dict = shape == "dict"
+        join.results.append(
+            (
+                block.get("tool_use_id"),
+                obj.get("isSidechain") is True,
+                shape,
+                is_dict and "structuredPatch" in tur,
+                is_dict and "prompt" in tur,
+                # Presence only. `toolStats` keys are TOOL NAMES
+                # (tool-invocation.md:539), so a key histogram over it would
+                # leak by the same route TOOL_NAME_ALLOWLIST exists to close.
+                is_dict and "toolStats" in tur,
+            )
+        )
+
+    def resolve_file_join(self, join: FileJoin) -> None:
+        """Fold one file's buffered tool-cycle facts into the running totals.
+
+        Called at EOF, which is the earliest point an orphan can be judged: a
+        `tool_result` is an orphan only against the COMPLETE set of `tool_use`
+        ids in its own file, never against a partial one.
+        """
+        self.tool_result_blocks += len(join.results)
+        for tuid, is_sidechain, shape, has_patch, has_prompt, has_stats in join.results:
+            label = join.tool_use_labels.get(tuid) if isinstance(tuid, str) else None
+            if label is None:
+                # Family 4. Split on the LINE's isSidechain, which is what says
+                # whether the unmatched half sits in a parent transcript or a
+                # subagent trace.
+                self.tool_results_orphaned["sidechain" if is_sidechain else "parent"] += 1
+                continue
+            self.tool_results_resolved += 1
+            row = self.tool_cycle_by_tool[label]
+            row["results"] += 1
+            row["toolUseResult_" + shape] += 1
+            if has_patch:
+                row["structuredPatch"] += 1
+            if has_prompt:
+                row["prompt"] += 1
+            if has_stats:
+                row["toolStats"] += 1
 
     # --- directory-level ingestion -------------------------------------------
 
@@ -360,6 +662,11 @@ def scan(root: Path, obs: Observation, max_files: int | None = None) -> None:
         # carries no version of its own. Collect per-file so pass 2 can attribute.
         is_trace = jsonl_path.parent.name == "subagents"
         file_versions: set[str] = set()
+        # Per-file join buffer, created and resolved inside this loop body for
+        # the same reason file_versions is: both are facts ABOUT one file that
+        # only become facts about the corpus once the file is fully read. See
+        # FileJoin for why this is not state on Observation.
+        join = FileJoin()
         try:
             with jsonl_path.open("r", encoding="utf-8", errors="replace") as fh:
                 for raw in fh:
@@ -371,13 +678,17 @@ def scan(root: Path, obs: Observation, max_files: int | None = None) -> None:
                     except json.JSONDecodeError:
                         obs.parse_errors += 1
                         continue
-                    obs.ingest_line(obj)
+                    obs.ingest_line(obj, join)
                     if is_trace and isinstance(obj, dict):
                         v = obj.get("version")
                         if isinstance(v, str):
                             file_versions.add(v)
         except OSError:
+            # The file was opened but died mid-read, so the join buffer holds a
+            # partial id set. Resolving it would manufacture orphans out of
+            # tool_use lines that were simply never reached — drop it instead.
             continue
+        obs.resolve_file_join(join)
         if is_trace and file_versions:
             obs.trace_versions[str(jsonl_path)] = file_versions
 
@@ -653,7 +964,7 @@ def size_summary(sizes: list[int]) -> dict:
     }
 
 
-def build_report(obs: Observation, diff: dict | None) -> dict:
+def build_report(obs: Observation, diff: dict | None, max_files: int | None = None) -> dict:
     return {
         # Tool-static build identity (see __version__/TOOL_ID above). Output uses
         # sort_keys=True, so these sort alphabetically in the emitted JSON — CCDC
@@ -665,6 +976,15 @@ def build_report(obs: Observation, diff: dict | None) -> dict:
             "lines_scanned": obs.lines_scanned,
             "parse_errors": obs.parse_errors,
             "session_dirs_with_subdirectories": obs.sessions_with_subdir_dir,
+            # The --max-files cap in force for this run (null = uncapped). Part
+            # of the corpus fingerprint: files_scanned alone cannot distinguish
+            # a full scan of 60 files from a --max-files 60 sample of thousands,
+            # and a retained artifact that cannot say which is not comparable
+            # against a later re-run. A tool-invocation parameter, so it is
+            # content-free, and deterministic for a given invocation — it does
+            # not reintroduce the wall-clock non-determinism CCDC's
+            # sha256(scan.json) addressing rules out.
+            "max_files": max_files,
         },
         "top_level_types": dict(obs.top_level_types.most_common()),
         "top_level_keys": dict(obs.top_level_keys.most_common()),
@@ -705,6 +1025,81 @@ def build_report(obs: Observation, diff: dict | None) -> dict:
                     },
                 }
                 for v, b in sorted(obs.meta_by_version.items(), key=lambda kv: version_sort_key(kv[0]))
+            },
+        },
+        "message_shape": {
+            # Denominators are carried IN the report, not just in the code, so
+            # that a reader of the retained artifact can check a figure without
+            # reading scan.py. The 2026-08-25 pass stated none of these, which
+            # is why its numbers could not be re-derived (issue #237).
+            "denominators": {
+                "stop_reason": (
+                    "assistant lines carrying a dict `message`; the three-way "
+                    "presence split below is over that same denominator, and a "
+                    "null `stop_reason` is a real observation (an incomplete "
+                    "turn), not an absence"
+                ),
+                "user_content_shape": "user lines carrying a dict `message`",
+                "model_bucket": (
+                    "`synthetic` = message.model is the fixed marker; `absent` "
+                    "= key missing or null; `real` = anything else. The "
+                    "observed model string is never emitted"
+                ),
+                "stop_reason_values": (
+                    "documented values emitted verbatim; any other value folds "
+                    "to the fixed `<other>` bucket, which is a drift signal "
+                    "rather than a discard"
+                ),
+            },
+            "assistant_lines": obs.assistant_lines,
+            "assistant_api_error_lines": obs.assistant_api_error_lines,
+            "stop_reason_presence": dict(sorted(obs.stop_reason_presence.items())),
+            "stop_reason_by_model_bucket": {
+                b: dict(sorted(obs.stop_reason_by_model[b].items()))
+                for b in MODEL_BUCKETS
+                if obs.stop_reason_by_model.get(b)
+            },
+            # Family 1b: the shape of the `stop_sequence` FIELD, which is a
+            # different question from the `stop_sequence` stop_reason VALUE.
+            # data-dictionary.md:100 stakes its claim on the field.
+            "stop_sequence_state_by_model_bucket": {
+                b: dict(sorted(obs.stop_sequence_by_model[b].items()))
+                for b in MODEL_BUCKETS
+                if obs.stop_sequence_by_model.get(b)
+            },
+            "user_lines": obs.user_lines,
+            "user_content_shape": dict(sorted(obs.user_content_shape.items())),
+        },
+        "tool_cycle": {
+            "denominators": {
+                "tool_result_blocks": (
+                    "every `tool_result` content block observed; equals "
+                    "`resolved` + the `orphaned` totals by construction"
+                ),
+                "resolution": (
+                    "a `tool_result` resolves when its `tool_use_id` matches a "
+                    "`tool_use` id IN THE SAME FILE. Per-file is the correct "
+                    "scope: subagent traces carry their own tool_use_id space"
+                ),
+                "orphaned": (
+                    "a `tool_result` whose `tool_use_id` matches no `tool_use` "
+                    "in its own file, split on the line's `isSidechain`"
+                ),
+                "by_tool": (
+                    "keyed by the resolved tool name, folded to the fixed "
+                    "allowlist; `<other>` covers every unallowlisted name. "
+                    "`structuredPatch`/`prompt`/`toolStats` are presence counts "
+                    "within `toolUseResult_dict`, NOT within `results` — "
+                    "`toolUseResult` is a bare string on a minority of results "
+                    "and those carry no keys to test"
+                ),
+            },
+            "tool_result_blocks": obs.tool_result_blocks,
+            "resolved": obs.tool_results_resolved,
+            "orphaned": dict(sorted(obs.tool_results_orphaned.items())),
+            "by_tool": {
+                t: dict(sorted(c.items()))
+                for t, c in sorted(obs.tool_cycle_by_tool.items())
             },
         },
         "versions": dict(obs.versions.most_common()),
@@ -783,6 +1178,45 @@ def print_human(report: dict) -> None:
         print()
     else:
         print("_no manifests could be attributed to a version_\n")
+
+    ms = report["message_shape"]
+    print("## Message shape: `stop_reason` and `user` content\n")
+    print(
+        f"_{ms['assistant_lines']} assistant line(s) with a dict `message`, of which "
+        f"{ms['assistant_api_error_lines']} are API-error records (not real turns). "
+        f"{ms['user_lines']} user line(s)._\n"
+    )
+    print("| model bucket | " + " | ".join(sorted(STOP_REASON_VALUES | {OTHER_BUCKET, "<null>", "<absent>"})) + " |")
+    print("| --- " * (len(STOP_REASON_VALUES) + 4) + "|")
+    for b, row in ms["stop_reason_by_model_bucket"].items():
+        cells = " | ".join(
+            str(row.get(v, 0))
+            for v in sorted(STOP_REASON_VALUES | {OTHER_BUCKET, "<null>", "<absent>"})
+        )
+        print(f"| `{b}` | {cells} |")
+    print()
+    table("`stop_reason` presence", ms["stop_reason_presence"], "assistant lines")
+    print("## `stop_sequence` field state by model bucket\n")
+    for b, row in ms["stop_sequence_state_by_model_bucket"].items():
+        print(f"- `{b}`: " + ", ".join(f"{k}={v}" for k, v in row.items()))
+    print()
+    table("`user` `message.content` shape", ms["user_content_shape"], "user lines")
+
+    tc = report["tool_cycle"]
+    print("## Tool cycle: `tool_use` -> `tool_result` join (per file)\n")
+    orphan_total = sum(tc["orphaned"].values())
+    print(
+        f"_{tc['tool_result_blocks']} `tool_result` block(s): {tc['resolved']} resolved, "
+        f"{orphan_total} orphaned ("
+        + (", ".join(f"{k}={v}" for k, v in tc["orphaned"].items()) or "none")
+        + ")._\n"
+    )
+    if tc["by_tool"]:
+        for t, row in tc["by_tool"].items():
+            print(f"- `{t}`: " + ", ".join(f"{k}={v}" for k, v in row.items()))
+    else:
+        print("_no tool_result resolved to a tool_use_")
+    print()
 
     table("Claude Code `version` values", report["versions"], "lines")
 
@@ -889,7 +1323,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.baseline:
         diff = diff_against_baseline(obs, load_baseline(args.baseline))
 
-    report = build_report(obs, diff)
+    report = build_report(obs, diff, max_files=args.max_files)
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:

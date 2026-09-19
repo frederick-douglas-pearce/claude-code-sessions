@@ -38,12 +38,15 @@ Run: ``python3 -m pytest tooling/format-scan/tests/``
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 
 import pytest
 
-from ._helpers import BASELINE, SCAN_PY, make_session
+from ._helpers import BASELINE, SCAN_PY, load_scan, make_session
+
+scan_mod = load_scan()
 
 # Distinct, high-entropy sentinels — one per kind of content the contract bans.
 # None of these is a real secret; the point is that the scanner must not echo any
@@ -115,6 +118,14 @@ def planted_root(tmp_path):
              "message": {"content": [
                  {"type": "tool_result", "tool_use_id": S_UUID + "-tu",
                   "content": S_PROMPT},
+             ]}},
+            # --- The MCP tool's result, completing that cycle so the tool-name
+            # fold is exercised through the join rather than only at capture.
+            {"type": "user", "uuid": "u2b", "version": "2.1.150",
+             "toolUseResult": {"stdout": S_CRED},
+             "message": {"content": [
+                 {"type": "tool_result", "tool_use_id": S_UUID + "-mcp",
+                  "content": S_PATH},
              ]}},
             # --- An ORPHAN tool_result: its tool_use_id matches no tool_use
             # anywhere in this file. Family 4 is DEFINED by this case, and the
@@ -197,6 +208,23 @@ def _run_scan(*args) -> str:
     return proc.stdout + proc.stderr
 
 
+def _run_scan_json(*args) -> dict:
+    """Run a --json mode and return the parsed report, from stdout alone.
+
+    Separate from _run_scan because that one deliberately concatenates stderr —
+    a leak on the error channel is still a leak — which is not parseable.
+    """
+    proc = subprocess.run(
+        [sys.executable, str(SCAN_PY), *args],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert not proc.stderr.strip(), f"unexpected stderr: {proc.stderr}"
+    return json.loads(proc.stdout)
+
+
 SCAN_MODES = [
     pytest.param([], id="default"),
     pytest.param(["--json"], id="json"),
@@ -234,6 +262,26 @@ def test_modes_still_emit_expected_structure(planted_root, mode_args):
         # The meta.json key NAMES are emittable; their values are not.
         assert "agentType" in out
         assert "worktreePath" in out
+        # Issue #237's sections must be present AND populated. A counter that
+        # silently returned {} would sail through the leak test above — nothing
+        # emitted cannot leak — so this has to assert a non-zero denominator,
+        # not merely the presence of a key.
+        if "--json" in mode_args:
+            report = _run_scan_json(str(planted_root), *mode_args)
+            ms, tc = report["message_shape"], report["tool_cycle"]
+            assert ms["assistant_lines"] > 0
+            assert ms["user_lines"] > 0
+            assert tc["tool_result_blocks"] > 0
+            assert tc["by_tool"], "the per-file join resolved nothing"
+            # The sentinel planted in `stop_reason` must have FOLDED, not
+            # vanished. A fold that dropped the observation would also pass the
+            # leak test, and would quietly destroy the drift signal.
+            assert ms["stop_reason_by_model_bucket"]["real"][scan_mod.OTHER_BUCKET] >= 1
+            # Likewise the MCP-shaped tool name.
+            assert tc["by_tool"][scan_mod.OTHER_BUCKET]["results"] >= 1
+        else:
+            assert "Message shape" in out
+            assert "Tool cycle" in out
 
 
 def test_sentinels_are_actually_present_in_fixtures(planted_root):
