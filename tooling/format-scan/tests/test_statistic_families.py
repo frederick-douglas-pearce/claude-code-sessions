@@ -686,3 +686,41 @@ def test_new_classifier_labels_are_defined_in_the_artifact(tmp_path):
     assert "non_dict" in tc["by_tool_envelope"] and "null" in tc["by_tool_envelope"]
     # D1: the dropped-file clause must not over-claim.
     assert "MAY be lower" in tc["tool_result_blocks"]
+
+
+# --- tool-results filename prefixes (found by the human PII gate) -------------
+
+
+def test_tool_result_prefix_folds_everything_outside_the_allowlist(tmp_path):
+    """The prefix probe was emitting corpus-derived filename stems.
+
+    Its comment claimed the prefix is "a tool-kind label ... not content". A
+    real-corpus run produced 466 distinct prefixes of which only four were
+    tool-kind labels; the rest were per-invocation ids, `webfetch-<epoch_ms>`
+    stems whose timestamps decode to wall-clock activity times, and a fetched
+    document's own filename. The extraction yields a label only when the name
+    happens to be `<kind>_<id>.<ext>`; with no underscore it returns whole.
+    """
+    make_session(
+        tmp_path,
+        slug="proj",
+        session_id="s",
+        lines=[_assistant("a1", stop_reason="end_turn")],
+        tool_results={
+            "toolu_abc123.txt": b"allowlisted kind",
+            "b8izep274.txt": b"per-invocation id, no underscore",
+            "webfetch-1788165432286-708a3z.txt": b"decodable timestamp",
+            "chiafalo.pdf": b"a fetched document's own name",
+            "mcp-github-list_toolu_9.txt": b"server name inside the stem",
+        },
+    )
+    prefixes = _report(tmp_path)["tool_results"]["name_prefixes"]
+    assert prefixes == {
+        "toolu": 1,
+        "mcp": 1,          # the family is countable; the server name is not
+        scan_mod.OTHER_BUCKET: 3,
+    }
+    # The specific strings must be gone, not merely reduced in count.
+    blob = str(_report(tmp_path))
+    for leaked in ("b8izep274", "1788165432286", "708a3z", "chiafalo", "github"):
+        assert leaked not in blob, f"{leaked!r} survived the fold"

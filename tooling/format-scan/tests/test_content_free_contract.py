@@ -193,6 +193,15 @@ def planted_root(tmp_path):
         },
         tool_results={
             f"toolu_{S_CRED}.txt": (S_PROMPT + " " + S_PATH).encode("utf-8"),
+            # The old fixture had ONLY the line above, and it sidestepped the
+            # filename-prefix probe by accident: `toolu_...` splits at the
+            # underscore and yields the literal `toolu`, so the sentinel never
+            # reached the prefix counter. Real tool-results filenames mostly
+            # have no underscore and come back WHOLE. These three are the
+            # shapes a real corpus actually holds.
+            f"{S_CRED}.txt": b"no underscore, so the stem is the whole name",
+            f"webfetch-1788165432286-{S_PROMPT}.txt": b"timestamped stem",
+            f"mcp-{S_PROMPT}-list_{S_UUID}.txt": b"server name inside the stem",
         },
     )
     return tmp_path

@@ -118,9 +118,39 @@ sourced by citation, so they are re-derived here and the derivation is retained.
   it is content-free and deterministic — it does not reintroduce the wall-clock
   non-determinism that `sha256(scan.json)` addressing rules out.
 
-No existing key changed shape, so this is a `MINOR` bump. CCDC's `SCHEMA.md`
-reads this shape by name, so the heads-up names the two new keys explicitly:
-`message_shape` and `tool_cycle`.
+- **`tool_results.name_prefixes` values are now FOLDED — the one change here to
+  an existing key.** Its comment claimed the prefix is "a tool-kind label
+  (`toolu`, `mcp-github-list`, ...), not content". Against a real corpus that is
+  false: a run produced **466 distinct prefixes**, of which four were tool-kind
+  labels. The rest were per-invocation ids (one file each),
+  `webfetch-<epoch_ms>-<token>` stems whose timestamps decode to precise
+  wall-clock activity times, and at least one fetched document's own filename.
+
+  The cause is that the extraction takes everything before the first `_` or `.`,
+  so it yields a tool-kind label only when the filename happens to be
+  `<kind>_<id>.<ext>`; a filename with no underscore comes back whole. Now only
+  `TOOL_RESULT_PREFIX_ALLOWLIST` members are emitted verbatim, the MCP family
+  folds to the fixed label `mcp` (countable as a family, without the
+  author-chosen server name), and everything else folds to `<other>`.
+
+  **This narrows an existing key's value space rather than adding one.** The
+  shape is unchanged — still `{str: int}` — so a consumer reading the prior
+  shape does not break, which is why this is still `MINOR` rather than `MAJOR`.
+  But a consumer that was *reading the prefix strings themselves* will see them
+  disappear, and any profile attested at `0.2.0` carries the unfolded values.
+  That is deliberate: those values should not have been emitted.
+
+  Found by the human PII review of the first retained artifact, which is exactly
+  the check that review exists to be. No sentinel test could have caught it —
+  the fixture's `toolu_<sentinel>.txt` split at the underscore and yielded
+  `toolu`, so the sentinel never reached the counter. The fixture now plants the
+  three shapes a real corpus actually holds.
+
+Except for that fold, no existing key changed, so this is a `MINOR` bump. CCDC's
+`SCHEMA.md` reads this shape by name, so the heads-up names the two new keys
+explicitly — `message_shape` and `tool_cycle` — and flags the
+`tool_results.name_prefixes` value-space narrowing as the one behavioral change
+to something it may already be reading.
 
 ## [0.2.0] — manifest shape by Claude Code version, and a nesting probe
 

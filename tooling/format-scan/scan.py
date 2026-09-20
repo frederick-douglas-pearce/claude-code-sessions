@@ -135,6 +135,31 @@ STOP_REASON_VALUES = frozenset(
 # Extending this set is an output-affecting change: bump __version__.
 TOOL_NAME_ALLOWLIST = frozenset({"Edit", "Agent"})
 
+# The ONLY tool-results FILENAME prefixes whose text may be emitted. Same fold
+# rule, and it is here because the previous comment on that probe made a claim
+# the corpus does not support: it called the prefix "a tool-kind label (toolu,
+# mcp-github-list, ...), not content". Against a real corpus that holds for a
+# handful of values and fails for hundreds — a run observed 466 distinct
+# prefixes, of which only `toolu` and three `mcp-*` forms were tool-kind labels.
+# The rest were per-invocation ids (one file each), `webfetch-<epoch_ms>-<token>`
+# stems whose timestamps decode to precise wall-clock activity times, and at
+# least one fetched document's own filename.
+#
+# The extraction takes everything before the first `_` or `.`, so it only yields
+# a tool-kind label when the filename HAPPENS to be `<kind>_<id>.<ext>`. A
+# filename with no underscore returns whole. That is why an allowlist is the
+# only safe treatment, and why `mcp-github-list` cannot simply be added to it:
+# the server name is inside the string, which is the same author-controlled
+# vocabulary TOOL_NAME_ALLOWLIST exists to keep out.
+TOOL_RESULT_PREFIX_ALLOWLIST = frozenset({"toolu"})
+
+# An MCP tool-results file is `mcp-<server>-<tool>_...`. That it came from MCP
+# at all is structural and worth counting; which server it came from is not, so
+# the whole family folds to this one fixed label rather than to OTHER_BUCKET —
+# keeping the signal without the vocabulary.
+MCP_PREFIX = "mcp-"
+MCP_BUCKET = "mcp"
+
 # The fold target for any value outside a whitelist above. A string WE supply,
 # so it is content-free by construction.
 OTHER_BUCKET = "<other>"
@@ -321,6 +346,22 @@ def tool_name_label(name) -> str:
     """Fold a tool name to the allowlist. See TOOL_NAME_ALLOWLIST."""
     if isinstance(name, str) and name in TOOL_NAME_ALLOWLIST:
         return name
+    return OTHER_BUCKET
+
+
+def tool_result_prefix_label(stem: str) -> str:
+    """Fold a tool-results filename prefix. See TOOL_RESULT_PREFIX_ALLOWLIST.
+
+    The prefix is NOT reliably a tool-kind label — it is whatever precedes the
+    first `_` or `.` in a filename the runtime chose, which for most real files
+    is a per-invocation id or the document's own name. So only a declared prefix
+    is emitted verbatim, the MCP family collapses to a single fixed label that
+    carries no server name, and everything else folds.
+    """
+    if stem in TOOL_RESULT_PREFIX_ALLOWLIST:
+        return stem
+    if stem.startswith(MCP_PREFIX):
+        return MCP_BUCKET
     return OTHER_BUCKET
 
 
@@ -648,14 +689,18 @@ class Observation:
                 self.tool_results_sizes.append(f.stat().st_size)
             except OSError:
                 pass
-            # Prefix = chars before the first underscore or dot. This is a
-            # tool-kind label (toolu, mcp-github-list, ...), not content.
+            # Prefix = chars before the first underscore or dot, then FOLDED.
+            # The extraction alone does not make this content-free: a filename
+            # with no underscore comes back whole, which against a real corpus
+            # means per-invocation ids, `webfetch-<epoch_ms>-<token>` stems with
+            # decodable activity timestamps, and fetched documents' own names.
+            # See TOOL_RESULT_PREFIX_ALLOWLIST.
             stem = f.name
             for sep in ("_", "."):
                 idx = stem.find(sep)
                 if idx != -1:
                     stem = stem[:idx]
-            self.tool_results_name_prefixes[stem] += 1
+            self.tool_results_name_prefixes[tool_result_prefix_label(stem)] += 1
 
     def _ingest_subagent_meta(self, subagents_dir: Path) -> None:
         """Probe each subagents/*.meta.json manifest for its top-level key shape.

@@ -79,11 +79,19 @@ presence counts, plus orphaned `tool_result` blocks split on `isSidechain`. The
 join is per-file because subagent traces carry their own `tool_use_id` space, so
 a cross-file join would resolve ids a real parser never could.
 
-Two values are **folded**: `stop_reason` against `STOP_REASON_VALUES` and the
-joined tool name against `TOOL_NAME_ALLOWLIST`. Anything outside those fixed sets
+Three values are **folded**: `stop_reason` against `STOP_REASON_VALUES`, the
+joined tool name against `TOOL_NAME_ALLOWLIST`, and the `tool-results/` filename
+prefix against `TOOL_RESULT_PREFIX_ALLOWLIST`. Anything outside those fixed sets
 is counted as the literal `<other>`. Folding is what lets an open-ended field be
 counted without its bytes reaching output, and it is not a discard — an
 unrecognized value still shows up as a count, which is the drift signal.
+
+The filename prefix earns its fold the hard way. The probe takes everything
+before the first `_` or `.`, which is a tool-kind label only when the filename
+happens to be `<kind>_<id>.<ext>`; most real ones have no underscore and come
+back whole, carrying per-invocation ids, decodable `webfetch-<epoch_ms>` stamps
+and fetched documents' names. MCP files fold to the single label `mcp` so the
+family stays countable without the server name.
 
 Every `--json` report is stamped with a top-level `scan_version` (semver) and a
 stable `tool` id (`ccs-format-scan`), so a structural profile self-describes
