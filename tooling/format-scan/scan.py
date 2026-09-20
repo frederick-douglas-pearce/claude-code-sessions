@@ -32,15 +32,26 @@ SECURITY CONTRACT (read before editing — see CLAUDE.md "Security posture"):
         EMITTABLE_META_VALUE_FIELDS whitelist below — a small integer describing
         the runtime's own nesting bookkeeping (`spawnDepth`), never user content
       - a FOLDED ENUM value: one drawn from a fixed set this file declares
-        (STOP_REASON_VALUES, TOOL_NAME_ALLOWLIST), with everything outside that
-        set replaced by the literal OTHER_BUCKET. Folding is what lets an
-        OPEN-ended field be counted without its bytes being emitted — see
-        STOP_REASON_VALUES for why `stop_reason` needs it and TOOL_NAME_ALLOWLIST
-        for why tool names do. A fold is NOT a drop: an unrecognized value still
-        shows up as a count against OTHER_BUCKET, which is the drift signal.
+        (STOP_REASON_VALUES, TOOL_NAME_ALLOWLIST, TOOL_RESULT_PREFIX_ALLOWLIST),
+        with everything outside that set replaced by the literal OTHER_BUCKET —
+        except that the MCP tool-results family folds to the fixed MCP_BUCKET
+        label instead, so the family stays countable without naming a server.
+        Folding is what lets an OPEN-ended field be counted without its bytes
+        being emitted — see STOP_REASON_VALUES for why `stop_reason` needs it,
+        TOOL_NAME_ALLOWLIST for why tool names do, and
+        TOOL_RESULT_PREFIX_ALLOWLIST for why a tool-results FILENAME PREFIX does
+        (that one was emitting corpus text until #237; the comment that said
+        otherwise is the cautionary case for this whole docstring). A fold is NOT
+        a drop: an unrecognized value still shows up as a count against
+        OTHER_BUCKET, which is the drift signal.
       - a FIXED BUCKET LABEL produced by classifying a value the scanner reads
         but must never print (MODEL_BUCKETS, and the `stop_sequence` state
         labels). The classification reads the value; only the label is emitted.
+
+    Note the "file EXTENSION" and "DIRECTORY name" entries above are NOT folded.
+    They are emitted as read, on the same kind of assumption that the filename
+    prefix turned out to violate. Nothing has shown them to leak, but treat them
+    as unverified rather than as cleared — see the open issues on this tool.
 
     It MUST NEVER emit a message value: no prompt text, no file contents, no
     command output, no tool inputs/results, no paths from inside the data, no
