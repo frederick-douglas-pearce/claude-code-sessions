@@ -16,8 +16,11 @@ delta is "undocumented drift" — the input the
 
 This tool reads **raw, unsanitized** session transcripts and **must never emit
 their contents**. It emits only structural key names, public taxonomy enums
-(`type`/`version`), value JSON-types (`str`/`int`/…), counts, sizes, file
-extensions, and directory names. The full contract — and why the no-values
+(`type`/`version`/`stop_reason`), value JSON-types (`str`/`int`/…), counts,
+sizes, file extensions, directory names, the whitelisted `spawnDepth` counter,
+**folded enum values** drawn from a fixed set with everything else bucketed, and
+**fixed classification labels** for values read but never printed. The full
+contract — and why the no-values
 discipline is *this script's* responsibility, not the `block_secret_reads.py`
 hook's — lives in the `SECURITY CONTRACT` docstring at the top of `scan.py`. See
 also the [CLAUDE.md security posture](../../CLAUDE.md#security-posture--read-this-first).
@@ -58,6 +61,72 @@ Only keys on the `EMITTABLE_META_VALUE_FIELDS` whitelist contribute their
 **values** to a bucket (currently just `spawnDepth`, the runtime's own nesting
 counter). Every other key contributes a name and a count and nothing else —
 `description` and `worktreePath` carry PII and must never be printed.
+
+### Message shape and the tool cycle
+
+Two sections answer the "how often" questions that `reference/` cites, and both
+carry their **denominator definitions inline** rather than only in code — a
+figure whose denominator was never written down cannot be re-derived later,
+which is the defect that made these numbers necessary in the first place.
+
+`message_shape` holds the `stop_reason` distribution, cross-tabbed against a
+synthetic-vs-real bucket derived from `message.model` (the model string itself is
+never emitted), the `stop_sequence` field-state table, and the `user`
+`message.content` shape split. Its `stop_reason` presence count is three-way —
+`present_non_null`, `present_null`, `absent` — because a null is a real
+observation, a line recording an incomplete turn, not a missing key.
+
+`tool_cycle` joins each `tool_result` to its `tool_use` **within the same file**
+and reports, per tool, the `toolUseResult` shape split and the conditional-key
+presence counts, plus orphaned `tool_result` blocks split on `isSidechain`. The
+join is per-file because subagent traces carry their own `tool_use_id` space, so
+a cross-file join would resolve ids a real parser never could.
+
+Three values are **folded**: `stop_reason` against `STOP_REASON_VALUES`, the
+joined tool name against `TOOL_NAME_ALLOWLIST`, and the `tool-results/` filename
+prefix against `TOOL_RESULT_PREFIX_ALLOWLIST`. Anything outside those fixed sets
+is counted as the literal `<other>`, with one declared exception: an MCP
+tool-results prefix folds to the fixed label `mcp` instead (below). Folding is
+what lets an open-ended field be
+counted without its bytes reaching output, and it is not a discard — an
+unrecognized value still shows up as a count, which is the drift signal.
+
+The filename prefix earns its fold the hard way. The probe takes everything
+before the first `_` or `.`, which is a tool-kind label only when the filename
+happens to be `<kind>_<id>.<ext>`; most real ones have no underscore and come
+back whole, carrying per-invocation ids, decodable `webfetch-<epoch_ms>` stamps
+and fetched documents' names. A prefix matching `mcp-` folds to the single label
+`mcp`, so the family stays countable without the server name. Note that only the
+hyphen form is recognised: a file named with the double-underscore convention
+(`mcp__<server>__<tool>_...`) cuts at the first `_` and yields a bare `mcp`,
+which lands in `<other>`. That is safe — nothing leaks either way — but it means
+the `mcp` count is a floor, not a total.
+
+### Retained scan artifacts
+
+`scan-<YYYY-MM-DD>.json` is a committed `--json` report over the maintainer's
+local corpus, retained so a figure cited in `reference/` can be checked against
+the run that produced it. This exists because the 2026-08-25 pass behind Part 5
+was ad hoc, kept no output and wrote down no denominators, which made ten
+published figures uncheckable (#237).
+
+Three rules. The third has already caught a real leak; the other two are
+preventive:
+
+- **The date lives in the filename, never in the body.** CCDC content-addresses
+  a contribution by `sha256(scan.json)`, so a wall-clock field inside the JSON
+  would make identical-corpus re-runs hash differently.
+- **The corpus fingerprint is `summary` plus the top-level `versions`
+  histogram** — `files_scanned`, `lines_scanned` and `max_files` from `summary`,
+  and `versions` alongside it, not inside it. `max_files` is what distinguishes
+  a full scan from a sample; without it two artifacts are not comparable.
+- **A human reviews the artifact for PII before it is committed.** The
+  content-free contract test proves the scanner does not emit *planted* values;
+  it cannot prove a real corpus held nothing unanticipated. That review has
+  already caught one real leak, in the filename-prefix probe.
+
+Note the corpus is live, so two runs minutes apart differ slightly. An artifact
+is a snapshot, not a reproducible constant.
 
 Every `--json` report is stamped with a top-level `scan_version` (semver) and a
 stable `tool` id (`ccs-format-scan`), so a structural profile self-describes
