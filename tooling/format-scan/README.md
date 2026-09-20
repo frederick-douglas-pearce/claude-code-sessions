@@ -93,6 +93,31 @@ back whole, carrying per-invocation ids, decodable `webfetch-<epoch_ms>` stamps
 and fetched documents' names. MCP files fold to the single label `mcp` so the
 family stays countable without the server name.
 
+### Retained scan artifacts
+
+`scan-<YYYY-MM-DD>.json` is a committed `--json` report over the maintainer's
+local corpus, retained so a figure cited in `reference/` can be checked against
+the run that produced it. This exists because the 2026-08-25 pass behind Part 5
+was ad hoc, kept no output and wrote down no denominators, which made ten
+published figures uncheckable (#237).
+
+Three rules, each of which has already been load-bearing:
+
+- **The date lives in the filename, never in the body.** CCDC content-addresses
+  a contribution by `sha256(scan.json)`, so a wall-clock field inside the JSON
+  would make identical-corpus re-runs hash differently.
+- **The corpus fingerprint is `summary`** — `files_scanned`, `lines_scanned` and
+  `max_files` together, plus the `versions` histogram. `max_files` is what
+  distinguishes a full scan from a sample; without it two artifacts are not
+  comparable.
+- **A human reviews the artifact for PII before it is committed.** The
+  content-free contract test proves the scanner does not emit *planted* values;
+  it cannot prove a real corpus held nothing unanticipated. That review has
+  already caught one real leak, in the filename-prefix probe.
+
+Note the corpus is live, so two runs minutes apart differ slightly. An artifact
+is a snapshot, not a reproducible constant.
+
 Every `--json` report is stamped with a top-level `scan_version` (semver) and a
 stable `tool` id (`ccs-format-scan`), so a structural profile self-describes
 which scanner build produced it:
