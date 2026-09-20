@@ -490,6 +490,12 @@ def test_null_is_distinct_from_absent_in_every_classifier(tmp_path):
         {"type": "user", "uuid": "u1", "message": {"content": None}},
         {"type": "user", "uuid": "u2", "message": {}},
         {"type": "user", "uuid": "u3", "message": {"content": 42}},
+        # `stop_reason` is the case the `_MISSING` rationale was WRITTEN for,
+        # and this test asserted "every classifier" without covering it. A
+        # mutation pass caught that: making stop_reason_label() return
+        # `<absent>` for an explicit null left the whole suite green.
+        _assistant("a0", stop_reason=None),
+        _assistant("a0b"),  # key genuinely missing
     ]
     lines += [
         {
@@ -514,6 +520,55 @@ def test_null_is_distinct_from_absent_in_every_classifier(tmp_path):
         "list": 1,  # u4 carries the tool_result list
     }
     assert report["tool_cycle"]["by_tool"]["Edit"]["toolUseResult_null"] == 1
+    # The originating classifier, which "every" previously did not include.
+    by_model = report["message_shape"]["stop_reason_by_model_bucket"]["absent"]
+    assert by_model["<null>"] == 1
+    # Two: `a0b` above, plus the `a1` tool_use line further down, which also
+    # carries no `stop_reason`. The point is that neither absorbs the null.
+    assert by_model["<absent>"] == 2
+
+
+def test_stop_reason_presence_and_histogram_reconcile(tmp_path):
+    """The mechanism, not either outcome.
+
+    `stop_reason_presence` and `stop_reason_by_model_bucket` classify the SAME
+    raw value through two independent code paths. Every test before this one
+    asserted one output or the other, so a mutation that broke only the
+    histogram's null/absent split survived the whole suite — the presence
+    counter still said `present_null: N` while the histogram three keys away
+    said `<null>: 0` and `<absent>: N`, in the same committed artifact.
+
+    Asserting that the two paths AGREE is what observes the mechanism. Either
+    output alone is reachable by a broken implementation; their reconciliation
+    is not.
+    """
+    make_session(
+        tmp_path,
+        slug="proj",
+        session_id="s",
+        lines=[
+            _assistant("a1", model="claude-real-1", stop_reason="tool_use"),
+            _assistant("a2", model="claude-real-1", stop_reason=None),
+            _assistant("a3", model="claude-real-1", stop_reason=None),
+            _assistant("a4", model=scan_mod.SYNTHETIC_MODEL_MARKER),
+            _assistant("a5", stop_reason="a_value_nobody_documented"),
+        ],
+    )
+    ms = _report(tmp_path)["message_shape"]
+    presence = ms["stop_reason_presence"]
+    buckets = ms["stop_reason_by_model_bucket"]
+
+    def total(label):
+        return sum(row.get(label, 0) for row in buckets.values())
+
+    assert total("<null>") == presence["present_null"] == 2
+    assert total("<absent>") == presence["absent"] == 1
+    assert total("<null>") + total("<absent>") + presence["present_non_null"] == ms[
+        "assistant_lines"
+    ]
+    # And every histogram cell sums to the same denominator, so neither path
+    # can drift from the line count without this failing.
+    assert sum(sum(row.values()) for row in buckets.values()) == ms["assistant_lines"]
 
 
 def test_non_string_stop_sequence_is_not_reported_as_non_empty_string(tmp_path):
