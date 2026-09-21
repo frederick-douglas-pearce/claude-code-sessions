@@ -139,11 +139,14 @@ Inline minimal example (see [`anatomy-minimal-session.jsonl`](https://github.com
 
 User prompts AND tool result envelopes. In Claude Code, tool results are not their own top-level type — they live inside `user` messages, with optional sibling metadata at the line level. This is the format's most counterintuitive structural detail.
 
-Top-level fields are those listed in [Common fields](#common-fields). One optional top-level sibling key is significant:
+Top-level fields are those listed in [Common fields](#common-fields). Two optional top-level sibling keys are documented here. They share a structural position, not a weight — `toolUseResult` is one of the highest-information surfaces in the format, `toolDenialKind` a narrow marker on denied calls:
 
 | Field | Type | Semantics |
 |---|---|---|
 | `toolUseResult` | object (optional) | Tool invocation metadata. Present when the `user` line carries a `tool_result` block AND the underlying tool was a multi-step or context-bearing tool (Agent, Bash, etc.). Sits at the **top level**, beside `message`, not inside `message.content`. Uses camelCase field names (unusual in this otherwise mostly-snake_case format). See [`toolUseResult` envelope](#tooluseresult-envelope) below. |
+| `toolDenialKind` | string (optional) | Appears on `user` lines carrying a `tool_result` block. **That it marks a denial is read off the key name and its position, not off any observed value** — the scanner never reads values, so treat the denial semantics as strongly indicated rather than verified. **227 distinct `user` lines** carry it, of 107,267 — an exact distinct-line count rather than a ceiling, because the counter behind it (`keys_by_type.user.toolDenialKind`) increments once per line. **The value vocabulary is unobserved:** the scanner counts the key and never reads it, so *which* kind of denial this discriminates is **not established**. Three candidate sources, none confirmed — a hook deny (compare [`system` § Hook-execution fields](#hook-execution-fields), `preventedContinuation` / `stopReason`), a user rejection at a permission prompt, and the `PermissionDenied` auto-mode classifier event ([Event types](#event-types-and-event-specific-fields)). [#244](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/244) folds the values against a fixed allowlist and will settle it. Corpus scope: [`system` § Hook-execution fields](#hook-execution-fields). |
+
+`toolDenialKind` is **user-side**. The top-level tool-linkage keys on `system` lines — `toolUseID` and its relatives — are catalogued separately under [#93](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/93); the two sets do not overlap and neither owns the other's keys.
 
 Inside `message`:
 
@@ -272,6 +275,8 @@ Top-level fields are those listed in [Common fields](#common-fields). The long-s
 
 When configured hooks fire, Claude Code records the outcome on a `system` line. This means hook activity **does** leave a JSONL trace — recorded as `system` events — which is the empirical question [Part 6 ("What hooks leave behind," #68)](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/68) was scoped to answer. All fields below are scan-observed (present as a family on the same lines; values not read):
 
+**Provenance for every count in this subsection and for the [`toolDenialKind`](#user) row.** Figures come from [`tooling/format-scan/scan-2026-09-19.json`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/format-scan/scan-2026-09-19.json) — 3,500 session files, 436,010 lines, 0 parse errors, spanning **130 Claude Code versions, v2.1.4 through v2.1.278**. The scanner emits key names and counts only and never reads a field value, so each figure counts *lines carrying the key* and is evidence about presence, never about content. Because the corpus spans 130 versions (v2.1.278 itself contributes 1,303 of the 436,010 lines), these are **aggregates across versions, not a single-version verification** — do not read them as re-stamping this section, which remains at its v2.1.170 banner pending the sweep in [#231](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/231).
+
 | Field | Type | Semantics |
 |---|---|---|
 | `hookCount` | number | How many hooks matched and ran for the triggering event. |
@@ -280,7 +285,7 @@ When configured hooks fire, Claude Code records the outcome on a `system` line. 
 | `hasOutput` | boolean | Whether any hook produced output. |
 | `preventedContinuation` | boolean | Whether a hook blocked Claude from continuing (a deny/block decision). |
 | `stopReason` | string | Why continuation stopped, when a hook prevented it. |
-| `hookAdditionalContext` | string | The `additionalContext` string a `Stop`/`SubagentStop` hook injected back into context, recorded on disk. Rare. The on-disk trace of the hook **response** contract — see [Hook response schema](#hook-response-schema). |
+| `hookAdditionalContext` | string | The `additionalContext` string a `Stop`/`SubagentStop` hook injected back into context, recorded on disk. **Not rare — 2,981 `system` lines carry it**, against 3,964 for each of the six other fields in this table and 10,429 `system` lines in the corpus. Read those as three separate line counts, not as a nesting: the scanner tallies each key per line and never joins them, so the 2,981 cannot be shown to sit *inside* the 3,964. The on-disk trace of the hook **response** contract — see [Hook response schema](#hook-response-schema). |
 
 These lines are frequently accompanied by a top-level `toolUseID` linking the hook run to the tool call that triggered it (for `PreToolUse`/`PostToolUse` hooks); the top-level tool-linkage keys are catalogued separately ([#93](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/93)).
 
@@ -412,7 +417,7 @@ The response to a `tool_use`. Appears in user messages.
 | `content` | string OR array | The tool's output. Most common shape is a plain string. Array shape carries content blocks (e.g., text + image for tools returning multimodal output). |
 | `is_error` | boolean (optional) | `true` when the tool reported an error. Absent or `false` on the happy path. |
 
-Note that **the actionable tool metadata is NOT in `tool_result`** — it's in the sibling [`toolUseResult` envelope](#tooluseresult-envelope) at the top level of the same line. Tools that produce metadata (Agent, Bash, etc.) populate `toolUseResult`; tools that don't (e.g., simple Reads) often leave `toolUseResult` minimal or absent.
+Note that **the actionable tool metadata is NOT in `tool_result`** — it's in the sibling [`toolUseResult` envelope](#tooluseresult-envelope) at the top level of the same line. Tools that produce metadata (Agent, Bash, etc.) populate `toolUseResult`; tools that don't (e.g., simple Reads) often leave `toolUseResult` minimal or absent. **A denial is likewise recorded at the top level rather than in this block** — see [`toolDenialKind`](#user) on the `user` line.
 
 ### `thinking`
 
