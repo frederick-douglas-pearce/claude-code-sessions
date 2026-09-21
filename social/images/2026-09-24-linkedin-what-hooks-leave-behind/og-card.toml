@@ -1,0 +1,53 @@
+slug = "2026-09-24-linkedin-what-hooks-leave-behind"
+
+title = ["What hooks leave behind"]
+
+subhead = "Thirty events out. Seven fields back."
+
+json_sample = """
+{
+  "type": "system",
+  "subtype": "<unread>",
+  "toolUseID": "toolu_synthetic_004",
+  "hookCount": 1,
+  "hookInfos": ["<unread>"],
+  "hookErrors": [],
+  "hasOutput": true,
+  "preventedContinuation": true,
+  "stopReason": "<unread>"
+}
+{
+  "type": "permission-mode",
+  "sessionId": "00000000-…-0004",
+  "permissionMode": "plan"
+}
+"""
+
+notes = """
+The hero is the hook-execution field family as it actually lands on a `system`
+line, taken from fixtures/synthetic/anatomy-hook-trace.jsonl. It carries the
+post's two findings in one object:
+
+1. `preventedContinuation: true` plus `toolUseID` is the whole audit trail for a
+   blocked tool call. That is the "seven fields back" half of the subhead.
+2. Three values render as the literal `<unread>` marker, which is the post's
+   other argument: the scanner verifies key names and never reads values, so the
+   value vocabulary of `subtype`, `stopReason`, and `hookInfos` is genuinely
+   unknown. Showing invented enum values on the card would contradict the post.
+
+The second object is the `permission-mode` line, shown whole. Putting the
+format's thinnest line directly under its fattest hook line is the visual
+argument: both record something a hook did, and one of them cannot even be
+placed in time. It also fills the window, which 11 lines alone did not.
+
+Title fits one line at 23 characters, well under the 34-char wrap threshold, so
+no comma break is needed.
+
+Subhead is 37 characters. The asymmetry (30 documented outbound hook events
+against a 7-field on-disk record) is the post's opening claim and the most
+compressible thing about it.
+
+Data is synthetic throughout: `toolu_synthetic_004` follows the series' existing
+fixture convention and is deliberately distinguishable from a real Claude Code
+tool-use id. No session UUIDs, paths, or prompts appear.
+"""
