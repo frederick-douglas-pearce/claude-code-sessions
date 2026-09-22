@@ -1,0 +1,35 @@
+sidecar_schema_version: 1
+sanitizer_version: 0.4.0
+scrubbed_at: '2026-09-22T21:05:28Z'
+input_filename: c7d5aa0e-6032-49f3-85ad-69754f68748e.jsonl
+input_sha256: 0bd92ff9b119d7904bdc51845a59e7b0db2b3586b490228b914301b6b4b00571
+config_version: 1
+config_source: .ccs-sanitize.yaml
+lines_processed: 98
+stripped_lines:
+  file-history-snapshot: 5
+  attachment: 30
+rules_applied:
+  paths:
+    substitutions: 54
+    distinct: 1
+  identifiers:
+    substitutions: 45
+    distinct: 2
+  secrets:
+    matches: 0
+  jitter: disabled
+substitutions:
+- rule: paths
+  placeholder: <path-1>
+  replacement: /home/user
+  occurrences: 54
+- rule: identifiers
+  placeholder: <git-branch>
+  replacement: feature/example
+  occurrences: 41
+- rule: identifiers
+  placeholder: <identifier-1>
+  replacement: user
+  occurrences: 4
+residual_scan: clean
