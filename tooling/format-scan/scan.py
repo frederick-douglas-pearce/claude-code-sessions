@@ -32,14 +32,17 @@ SECURITY CONTRACT (read before editing — see CLAUDE.md "Security posture"):
         EMITTABLE_META_VALUE_FIELDS whitelist below — a small integer describing
         the runtime's own nesting bookkeeping (`spawnDepth`), never user content
       - a FOLDED ENUM value: one drawn from a fixed set this file declares
-        (STOP_REASON_VALUES, TOOL_NAME_ALLOWLIST, TOOL_RESULT_PREFIX_ALLOWLIST),
+        (STOP_REASON_VALUES, TOOL_NAME_ALLOWLIST, TOOL_RESULT_PREFIX_ALLOWLIST,
+        SYSTEM_SUBTYPE_ALLOWLIST, TOOL_DENIAL_KIND_ALLOWLIST),
         with everything outside that set replaced by the literal OTHER_BUCKET —
         except that the MCP tool-results family folds to the fixed MCP_BUCKET
         label instead, so the family stays countable without naming a server.
         Folding is what lets an OPEN-ended field be counted without its bytes
         being emitted — see STOP_REASON_VALUES for why `stop_reason` needs it,
         TOOL_NAME_ALLOWLIST for why tool names do, and
-        TOOL_RESULT_PREFIX_ALLOWLIST for why a tool-results FILENAME PREFIX does
+        TOOL_RESULT_PREFIX_ALLOWLIST for why a tool-results FILENAME PREFIX does,
+        and SYSTEM_SUBTYPE_ALLOWLIST / TOOL_DENIAL_KIND_ALLOWLIST for two folds
+        that exist to TEST A CLAIM rather than to inventory a vocabulary
         (that one was emitting corpus text until #237; the comment that said
         otherwise is the cautionary case for this whole docstring). A fold is NOT
         a drop: an unrecognized value still shows up as a count against
@@ -98,7 +101,7 @@ from pathlib import Path
 #
 # Bump __version__ (semver) on ANY change that alters --json output shape or
 # semantics; CCDC gates on it, so it must move when the output does.
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 TOOL_ID = "ccs-format-scan"
 
 # The ONLY message fields whose *values* may be emitted. Each is a public
@@ -170,6 +173,41 @@ TOOL_RESULT_PREFIX_ALLOWLIST = frozenset({"toolu"})
 # keeping the signal without the vocabulary.
 MCP_PREFIX = "mcp-"
 MCP_BUCKET = "mcp"
+
+# The ONLY `system`-line subtypes whose text may be emitted, and the ONLY
+# `toolDenialKind` values. Both exist to answer a specific question rather than
+# to inventory a vocabulary, which is why each is deliberately tiny.
+#
+# The question for subtypes: Part 6 reads the seven-key hook-execution family as
+# a general record of hook activity. Three purpose-built sessions
+# (fixtures/sanitized/hook-trace-*.jsonl) say otherwise — every line carrying
+# that family was `stop_hook_summary`, while a PreToolUse denial and four
+# confirmed PostToolUse firings produced no `system` line at all. Three scratch
+# sessions cannot settle what 10,429 lines can, and a CROSS-TAB settles it
+# without a vocabulary: fold every subtype to these three or to OTHER_BUCKET,
+# then count the family against the fold. If the family lands only on
+# `stop_hook_summary`, the claim holds corpus-wide; if it also lands on
+# OTHER_BUCKET, it does not, and the count says by how much.
+#
+# The question for `toolDenialKind`: its name promises a discriminator between a
+# hook block, a user rejection, and a classifier denial. The one observed value
+# is `permission-rule`, on a denial that came from a PreToolUse HOOK. Folding
+# against that single value asks whether the corpus holds anything else at all.
+# All 227 folding to `permission-rule` means the field never discriminates here.
+#
+# Each member is a harness-supplied label, not user content, and each is
+# attested by a committed fixture. That is the bar EMITTABLE_VALUE_FIELDS sets.
+# Adding a member is an output-affecting change: bump __version__.
+SYSTEM_SUBTYPE_ALLOWLIST = frozenset(
+    {"stop_hook_summary", "turn_duration", "informational"}
+)
+TOOL_DENIAL_KIND_ALLOWLIST = frozenset({"permission-rule"})
+
+# The top-level key whose presence defines "this `system` line carries the
+# hook-execution family". All seven co-occur on exactly the same line count in
+# every scan so far, so any one of them would do; this one is named in
+# reference/data-dictionary.md and reads as the family's anchor.
+HOOK_FAMILY_KEY = "hookCount"
 
 # The fold target for any value outside a whitelist above. A string WE supply,
 # so it is content-free by construction.
@@ -307,6 +345,40 @@ def stop_reason_label(value) -> str:
     return OTHER_BUCKET
 
 
+def system_subtype_label(value) -> str:
+    """Fold a `system` line's `subtype` to SYSTEM_SUBTYPE_ALLOWLIST.
+
+    Same contract as stop_reason_label: allowlisted strings verbatim, `<null>`
+    and `<absent>` kept apart because a subtype-less `system` line is a real
+    observation, and everything else to OTHER_BUCKET.
+    """
+    if value is _MISSING:
+        return "<absent>"
+    if value is None:
+        return "<null>"
+    if isinstance(value, str) and value in SYSTEM_SUBTYPE_ALLOWLIST:
+        return value
+    return OTHER_BUCKET
+
+
+def tool_denial_kind_label(value) -> str:
+    """Fold a `toolDenialKind` to TOOL_DENIAL_KIND_ALLOWLIST.
+
+    Counted per LINE by the caller, not per `tool_result` block. The existing
+    tool_result_line_keys probe is block-weighted (a line carrying two results
+    contributes its top-level keys twice), which makes its `toolDenialKind`
+    count an upper bound on distinct lines rather than a count of them. This
+    fold is the line-weighted figure that resolves the difference.
+    """
+    if value is _MISSING:
+        return "<absent>"
+    if value is None:
+        return "<null>"
+    if isinstance(value, str) and value in TOOL_DENIAL_KIND_ALLOWLIST:
+        return value
+    return OTHER_BUCKET
+
+
 def model_bucket(message: dict) -> str:
     """Classify `message.model` into one of MODEL_BUCKETS. Never emits it.
 
@@ -421,6 +493,16 @@ class Observation:
         # Top-level keys seen on user lines that carry a tool_result block.
         # A new key here is the prime suspect for a tool-results/ sidecar pointer.
         self.tool_result_line_keys: Counter[str] = Counter()
+        # Hook records. `system_subtypes` is every `system` line folded;
+        # `hook_family_subtypes` is the subset carrying HOOK_FAMILY_KEY, folded
+        # the same way. Read as a cross-tab: the second over the first says
+        # which subtypes the hook-execution family actually lands on.
+        self.system_subtypes: Counter[str] = Counter()
+        self.hook_family_subtypes: Counter[str] = Counter()
+        # `toolDenialKind`, folded and counted per LINE. See
+        # tool_denial_kind_label for why the block-weighted probe is not enough.
+        self.tool_denial_kinds: Counter[str] = Counter()
+        self.tool_denial_lines = 0
         # Directory shape.
         self.session_subdirs: Counter[str] = Counter()
         self.tool_results_extensions: Counter[str] = Counter()
@@ -495,6 +577,19 @@ class Observation:
         for key in obj.keys():
             self.top_level_keys[key] += 1
             self.keys_by_type[type_label][key] += 1
+
+        if type_label == "system":
+            subtype_label = system_subtype_label(obj.get("subtype", _MISSING))
+            self.system_subtypes[subtype_label] += 1
+            if HOOK_FAMILY_KEY in obj:
+                self.hook_family_subtypes[subtype_label] += 1
+
+        # Line-weighted, so a line carrying two tool_result blocks counts once.
+        if "toolDenialKind" in obj:
+            self.tool_denial_lines += 1
+            self.tool_denial_kinds[
+                tool_denial_kind_label(obj.get("toolDenialKind", _MISSING))
+            ] += 1
 
         if isinstance(line_type, str) and "type" in EMITTABLE_VALUE_FIELDS:
             pass  # type already recorded as the label above
@@ -1120,6 +1215,34 @@ def build_report(obs: Observation, diff: dict | None, max_files: int | None = No
         "keys_by_type": {t: dict(c.most_common()) for t, c in sorted(obs.keys_by_type.items())},
         "content_block_types": dict(obs.content_block_types.most_common()),
         "tool_result_line_keys": dict(obs.tool_result_line_keys.most_common()),
+        "hook_records": {
+            "system_lines": obs.top_level_types.get("system", 0),
+            "by_subtype": dict(obs.system_subtypes.most_common()),
+            "hook_family_lines": sum(obs.hook_family_subtypes.values()),
+            "hook_family_by_subtype": dict(obs.hook_family_subtypes.most_common()),
+            "tool_denial_lines": obs.tool_denial_lines,
+            "tool_denial_by_kind": dict(obs.tool_denial_kinds.most_common()),
+            "denominators": {
+                "by_subtype": (
+                    "every `system` line, folded to SYSTEM_SUBTYPE_ALLOWLIST or "
+                    "OTHER_BUCKET. `<absent>` and `<null>` are kept apart: a "
+                    "`system` line with no subtype is a real observation"
+                ),
+                "hook_family_by_subtype": (
+                    "the subset of those lines carrying HOOK_FAMILY_KEY "
+                    f"(`{HOOK_FAMILY_KEY}`), folded the same way. Read against "
+                    "`by_subtype` as a cross-tab. The whole family landing on "
+                    "one subtype is the claim this probe exists to test; any "
+                    "count under OTHER_BUCKET falsifies it"
+                ),
+                "tool_denial_by_kind": (
+                    "counted per LINE carrying `toolDenialKind`, NOT per "
+                    "`tool_result` block. `tool_result_line_keys` counts the "
+                    "same key block-weighted, so its figure is an upper bound "
+                    "on distinct lines and this one is the actual count"
+                ),
+            },
+        },
         "session_subdirs": dict(obs.session_subdirs.most_common()),
         "tool_results": {
             "extensions": dict(obs.tool_results_extensions.most_common()),
@@ -1304,6 +1427,13 @@ def print_human(report: dict) -> None:
     table("Content-block `type` values", report["content_block_types"], "blocks")
     table("Top-level keys on tool_result-bearing user lines", report["tool_result_line_keys"], "lines")
     table("Session subdirectories", report["session_subdirs"], "sessions")
+
+    hr = report["hook_records"]
+    print("## Hook records\n")
+    print(f"- `system` lines: {hr['system_lines']}  |  carrying the hook family: {hr['hook_family_lines']}")
+    print(f"- all `system` subtypes: {hr['by_subtype']}")
+    print(f"- subtypes of the hook-family subset: {hr['hook_family_by_subtype']}")
+    print(f"- lines with `toolDenialKind`: {hr['tool_denial_lines']}  |  by kind: {hr['tool_denial_by_kind']}\n")
 
     tr = report["tool_results"]
     print("## tool-results/ file shape\n")

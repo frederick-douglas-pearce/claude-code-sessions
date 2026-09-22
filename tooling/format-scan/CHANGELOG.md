@@ -39,6 +39,52 @@ Use semver: `MAJOR.MINOR.PATCH`.
   consumer reading the prior shape. Reserve `1.0.0` for the point at which the
   `--json` shape is declared stable.
 
+## [0.4.0] — two folds that test a claim
+
+Added for issue #244. Part 6 reads the seven-key hook-execution family as a
+general record of hook activity, and treats `toolDenialKind` as a field whose
+value space is unknown. Three purpose-built sessions
+(`fixtures/sanitized/hook-trace-*.jsonl`) contradicted the first and put one
+value under the second. Three scratch sessions cannot settle either question;
+this release is what settles them against the corpus.
+
+Both folds are deliberately narrow. Neither exists to inventory a vocabulary,
+which is the thing `TOOL_NAME_ALLOWLIST` already refuses to do. Each exists to
+ask one question whose answer is a count.
+
+- **New top-level report key `hook_records`.** Two cross-tabs and a corrected
+  denominator.
+
+  `by_subtype` folds every `system` line's `subtype` to
+  `SYSTEM_SUBTYPE_ALLOWLIST` (`stop_hook_summary`, `turn_duration`,
+  `informational`) or to `OTHER_BUCKET`. `hook_family_by_subtype` folds the
+  subset carrying `hookCount` the same way. Read together they answer whether
+  the hook family lands anywhere other than a Stop-hook summary. Against a
+  464,037-line corpus it does not: all 4,154 family lines are
+  `stop_hook_summary`, and `OTHER_BUCKET` is zero. A non-zero `OTHER_BUCKET`
+  there would have falsified the claim and said by how much, which is why the
+  fold reports it rather than dropping it.
+
+  `tool_denial_by_kind` folds `toolDenialKind` to `TOOL_DENIAL_KIND_ALLOWLIST`
+  (`permission-rule`, the one value a committed fixture attests) or to
+  `OTHER_BUCKET`. The corpus holds 146 `permission-rule` and 86 `OTHER_BUCKET`,
+  so the field carries at least two values and is not the single-value field one
+  session suggested. What the other values *are* stays unread, by design.
+
+- **`toolDenialKind` is now counted per LINE.** `tool_result_line_keys`
+  increments per `tool_result` **block**, so a line carrying two results
+  contributes its top-level keys twice, which makes that figure an upper bound
+  on distinct lines rather than a count of them. `tool_denial_lines` is the
+  line-weighted figure. On this corpus the two agree at 232, so no denial line
+  carried a second `tool_result` — but that is an observation, not a guarantee,
+  and the contract test plants exactly that case to keep the two apart.
+
+- **Both allowlists are attested by committed fixtures.** Every member appears
+  in `fixtures/sanitized/hook-trace-*.jsonl`. That is the bar
+  `EMITTABLE_VALUE_FIELDS` sets: a closed, content-free vocabulary this file
+  declares, not one the corpus supplies. Adding a member is output-affecting and
+  bumps this version.
+
 ## [0.3.0] — five statistic families, and a fold rule for open enums
 
 Added for issue #237. `reference/tool-invocation.md` needs ten figures that

@@ -1,0 +1,2090 @@
+{
+  "baseline_diff": null,
+  "content_block_types": {
+    "image": 5,
+    "text": 41919,
+    "thinking": 48781,
+    "tool_result": 101320,
+    "tool_use": 101319
+  },
+  "hook_records": {
+    "by_subtype": {
+      "<other>": 1996,
+      "informational": 14,
+      "stop_hook_summary": 4154,
+      "turn_duration": 4700
+    },
+    "denominators": {
+      "by_subtype": "every `system` line, folded to SYSTEM_SUBTYPE_ALLOWLIST or OTHER_BUCKET. `<absent>` and `<null>` are kept apart: a `system` line with no subtype is a real observation",
+      "hook_family_by_subtype": "the subset of those lines carrying HOOK_FAMILY_KEY (`hookCount`), folded the same way. Read against `by_subtype` as a cross-tab. The whole family landing on one subtype is the claim this probe exists to test; any count under OTHER_BUCKET falsifies it",
+      "tool_denial_by_kind": "counted per LINE carrying `toolDenialKind`, NOT per `tool_result` block. `tool_result_line_keys` counts the same key block-weighted, so its figure is an upper bound on distinct lines and this one is the actual count"
+    },
+    "hook_family_by_subtype": {
+      "stop_hook_summary": 4154
+    },
+    "hook_family_lines": 4154,
+    "system_lines": 10864,
+    "tool_denial_by_kind": {
+      "<other>": 86,
+      "permission-rule": 146
+    },
+    "tool_denial_lines": 232
+  },
+  "keys_by_type": {
+    "agent-name": {
+      "agentName": 408,
+      "sessionId": 408,
+      "type": 408
+    },
+    "ai-title": {
+      "aiTitle": 8914,
+      "sessionId": 8914,
+      "type": 8914
+    },
+    "assistant": {
+      "advisorModel": 4127,
+      "agentId": 75880,
+      "apiBlockIndex": 46409,
+      "apiError": 1,
+      "apiErrorIsTransient": 1,
+      "apiErrorStatus": 51,
+      "attributionAgent": 65492,
+      "attributionMcpServer": 8722,
+      "attributionMcpTool": 8722,
+      "attributionPlugin": 17966,
+      "attributionSkill": 37699,
+      "cwd": 191300,
+      "effort": 119411,
+      "entrypoint": 186238,
+      "error": 82,
+      "gitBranch": 191300,
+      "isAbortedMidStream": 3,
+      "isApiErrorMessage": 263,
+      "isSidechain": 191300,
+      "message": 191300,
+      "parentUuid": 191300,
+      "perTurnEffort": 24923,
+      "quotaLimits": 37,
+      "requestId": 191090,
+      "serverClassifierRequest": 6014,
+      "sessionId": 191300,
+      "sessionKind": 721,
+      "session_id": 71466,
+      "slug": 35637,
+      "timestamp": 191300,
+      "type": 191300,
+      "userType": 191300,
+      "uuid": 191300,
+      "version": 191300,
+      "wireIngestContext": 8394,
+      "wireToolInputs": 12930
+    },
+    "atis-latch": {
+      "atis": 7961,
+      "sessionId": 7961,
+      "type": 7961
+    },
+    "attachment": {
+      "agentId": 15144,
+      "attachment": 55736,
+      "cwd": 55736,
+      "entrypoint": 55736,
+      "gitBranch": 55736,
+      "isSidechain": 55736,
+      "parentUuid": 55736,
+      "rendered": 19811,
+      "renderedInHumanTurn": 168,
+      "sessionId": 55736,
+      "sessionKind": 100,
+      "session_id": 26018,
+      "slug": 9466,
+      "timestamp": 55736,
+      "type": 55736,
+      "userType": 55736,
+      "uuid": 55736,
+      "version": 55736
+    },
+    "bridge-session": {
+      "bridgeSessionId": 5024,
+      "lastSequenceNum": 5024,
+      "ownerAccountUuid": 5024,
+      "ownerOrganizationUuid": 5024,
+      "sessionId": 5024,
+      "type": 5024
+    },
+    "cost-state": {
+      "hasUnknownModelCost": 233,
+      "modelUsage": 233,
+      "sessionId": 233,
+      "startTime": 233,
+      "totalAPIDuration": 233,
+      "totalAPIDurationWithoutRetries": 233,
+      "totalCostUSD": 233,
+      "totalDuration": 233,
+      "totalLinesAdded": 233,
+      "totalLinesRemoved": 233,
+      "totalToolDuration": 233,
+      "type": 233
+    },
+    "custom-title": {
+      "customTitle": 4588,
+      "sessionId": 4588,
+      "type": 4588
+    },
+    "file-history-delta": {
+      "backup": 1277,
+      "messageId": 1277,
+      "snapshotMessageId": 1277,
+      "timestamp": 1277,
+      "trackingPath": 1277,
+      "type": 1277
+    },
+    "file-history-snapshot": {
+      "isSnapshotUpdate": 6396,
+      "messageId": 6396,
+      "snapshot": 6396,
+      "type": 6396
+    },
+    "frame-link": {
+      "frameUrl": 2,
+      "path": 2,
+      "sessionId": 2,
+      "timestamp": 2,
+      "title": 2,
+      "type": 2
+    },
+    "last-prompt": {
+      "lastPrompt": 15588,
+      "leafUuid": 18408,
+      "sessionId": 19123,
+      "type": 19123
+    },
+    "mode": {
+      "mode": 14864,
+      "sessionId": 14864,
+      "type": 14864
+    },
+    "permission-mode": {
+      "permissionMode": 6740,
+      "sessionId": 6740,
+      "type": 6740
+    },
+    "pr-link": {
+      "prNumber": 9899,
+      "prRepository": 9899,
+      "prUrl": 9899,
+      "sessionId": 9899,
+      "timestamp": 9899,
+      "type": 9899
+    },
+    "progress": {
+      "agentId": 2747,
+      "cwd": 2747,
+      "data": 2747,
+      "gitBranch": 2747,
+      "isSidechain": 2747,
+      "parentToolUseID": 2747,
+      "parentUuid": 2747,
+      "sessionId": 2747,
+      "slug": 2747,
+      "timestamp": 2747,
+      "toolUseID": 2747,
+      "type": 2747,
+      "userType": 2747,
+      "uuid": 2747,
+      "version": 2747
+    },
+    "queue-operation": {
+      "content": 3272,
+      "operation": 5425,
+      "reason": 288,
+      "sessionId": 5425,
+      "timestamp": 5425,
+      "type": 5425
+    },
+    "system": {
+      "agentId": 71,
+      "cause": 5,
+      "commandRun": 29,
+      "compactMetadata": 113,
+      "content": 1979,
+      "cwd": 10864,
+      "durationMs": 4700,
+      "entrypoint": 10793,
+      "error": 31,
+      "gitBranch": 10864,
+      "hasOutput": 4154,
+      "hookAdditionalContext": 3171,
+      "hookCount": 4154,
+      "hookErrors": 4154,
+      "hookInfos": 4154,
+      "isMeta": 6602,
+      "isSidechain": 10864,
+      "level": 4918,
+      "logicalParentUuid": 113,
+      "maxRetries": 31,
+      "messageCount": 4638,
+      "parentUuid": 10864,
+      "pendingBackgroundAgentCount": 977,
+      "preventContinuation": 3,
+      "preventedContinuation": 4154,
+      "retryAttempt": 31,
+      "retryInMs": 31,
+      "sessionId": 10864,
+      "sessionKind": 125,
+      "session_id": 2909,
+      "slug": 2739,
+      "stopReason": 4154,
+      "subtype": 10864,
+      "timestamp": 10864,
+      "toolUseID": 4154,
+      "type": 10864,
+      "userType": 10864,
+      "uuid": 10864,
+      "version": 10864
+    },
+    "user": {
+      "agentId": 45967,
+      "classifierMetaLines": 1898,
+      "cwd": 112536,
+      "entrypoint": 108953,
+      "gitBranch": 112536,
+      "interruptedByShutdown": 14,
+      "interruptedMessageId": 23,
+      "isCompactSummary": 113,
+      "isMeta": 1820,
+      "isSidechain": 112536,
+      "isVisibleInTranscriptOnly": 113,
+      "message": 112536,
+      "origin": 3279,
+      "parentUuid": 112536,
+      "permissionMode": 5488,
+      "promptId": 108418,
+      "promptSource": 4089,
+      "queuePriority": 4,
+      "queueSkipAttachments": 531,
+      "serverClassifierContext": 1692,
+      "sessionId": 112536,
+      "sessionKind": 427,
+      "session_id": 35367,
+      "slug": 22503,
+      "sourceToolAssistantUUID": 101320,
+      "sourceToolUseID": 176,
+      "timestamp": 112536,
+      "toolDenialKind": 232,
+      "toolEndsTurn": 657,
+      "toolUseResult": 88911,
+      "turnCompanion": 164,
+      "turnOrigin": 145,
+      "type": 112536,
+      "userFeedback": 7,
+      "userType": 112536,
+      "uuid": 112536,
+      "version": 112536
+    }
+  },
+  "message_shape": {
+    "assistant_api_error_lines": 82,
+    "assistant_lines": 191300,
+    "assistant_lines_sidechain": 75880,
+    "denominators": {
+      "model_bucket": "`synthetic` = message.model is the fixed marker; `absent` = key missing or null; `real` = anything else. The observed model string is never emitted",
+      "scope": "every figure in this section POOLS subagent-trace lines with parent-transcript ones \u2014 the scan walks both. `assistant_lines_sidechain` / `user_lines_sidechain` quantify how much is subagent traffic; there is no per-bucket split",
+      "stop_reason": "assistant lines carrying a dict `message`; the three-way presence split below is over that same denominator, and a null `stop_reason` is a real observation (an incomplete turn), not an absence",
+      "stop_reason_values": "documented values emitted verbatim; any other value folds to the fixed `<other>` bucket, which is a drift signal rather than a discard",
+      "stop_sequence_state": "the SHAPE of `message.stop_sequence`, never its value, over the same assistant-line denominator: `absent` (key missing) / `null` / `empty_string` / `non_empty_string` / `non_string` (malformed or a format change). The value is the caller-supplied matched sequence and is never emitted, which is why only the shape is reported",
+      "user_content_shape": "user lines carrying a dict `message`, by the shape of `message.content`: `list` / `str` / `null` (key present, explicitly null) / `absent` (key missing) / `other` (any other JSON type). `null` and `absent` are separate facts and are never merged"
+    },
+    "stop_reason_by_model_bucket": {
+      "real": {
+        "<null>": 48854,
+        "end_turn": 8996,
+        "tool_use": 133187
+      },
+      "synthetic": {
+        "stop_sequence": 263
+      }
+    },
+    "stop_reason_presence": {
+      "present_non_null": 142446,
+      "present_null": 48854
+    },
+    "stop_sequence_state_by_model_bucket": {
+      "real": {
+        "null": 191037
+      },
+      "synthetic": {
+        "empty_string": 263
+      }
+    },
+    "user_content_shape": {
+      "list": 102006,
+      "str": 10530
+    },
+    "user_lines": 112536,
+    "user_lines_sidechain": 45967
+  },
+  "meta_json_by_version": {
+    "attribution": "earliest `version` observed on the subagent's own trace file (spawn time); manifests carry no version of their own",
+    "manifests_attributed": 2235,
+    "manifests_unattributed": 0,
+    "traces_spanning_multiple_versions": 0,
+    "versions": {
+      "2.1.109": {
+        "keys": {
+          "agentType": 19,
+          "description": 19
+        },
+        "manifests": 19,
+        "values": {}
+      },
+      "2.1.110": {
+        "keys": {
+          "agentType": 19,
+          "description": 19
+        },
+        "manifests": 19,
+        "values": {}
+      },
+      "2.1.112": {
+        "keys": {
+          "agentType": 6,
+          "description": 6
+        },
+        "manifests": 6,
+        "values": {}
+      },
+      "2.1.113": {
+        "keys": {
+          "agentType": 5,
+          "description": 5
+        },
+        "manifests": 5,
+        "values": {}
+      },
+      "2.1.116": {
+        "keys": {
+          "agentType": 20,
+          "description": 20,
+          "worktreePath": 2
+        },
+        "manifests": 20,
+        "values": {}
+      },
+      "2.1.119": {
+        "keys": {
+          "agentType": 23,
+          "description": 23
+        },
+        "manifests": 23,
+        "values": {}
+      },
+      "2.1.123": {
+        "keys": {
+          "agentType": 13,
+          "description": 13
+        },
+        "manifests": 13,
+        "values": {}
+      },
+      "2.1.126": {
+        "keys": {
+          "agentType": 64,
+          "description": 64
+        },
+        "manifests": 64,
+        "values": {}
+      },
+      "2.1.128": {
+        "keys": {
+          "agentType": 27,
+          "description": 27
+        },
+        "manifests": 27,
+        "values": {}
+      },
+      "2.1.131": {
+        "keys": {
+          "agentType": 22,
+          "description": 22,
+          "worktreePath": 2
+        },
+        "manifests": 22,
+        "values": {}
+      },
+      "2.1.132": {
+        "keys": {
+          "agentType": 27,
+          "description": 27
+        },
+        "manifests": 27,
+        "values": {}
+      },
+      "2.1.133": {
+        "keys": {
+          "agentType": 11,
+          "description": 11
+        },
+        "manifests": 11,
+        "values": {}
+      },
+      "2.1.137": {
+        "keys": {
+          "agentType": 6,
+          "description": 6,
+          "worktreePath": 2
+        },
+        "manifests": 6,
+        "values": {}
+      },
+      "2.1.138": {
+        "keys": {
+          "agentType": 8,
+          "description": 8
+        },
+        "manifests": 8,
+        "values": {}
+      },
+      "2.1.139": {
+        "keys": {
+          "agentType": 3,
+          "description": 3
+        },
+        "manifests": 3,
+        "values": {}
+      },
+      "2.1.141": {
+        "keys": {
+          "agentType": 11,
+          "description": 11
+        },
+        "manifests": 11,
+        "values": {}
+      },
+      "2.1.142": {
+        "keys": {
+          "agentType": 2,
+          "description": 2
+        },
+        "manifests": 2,
+        "values": {}
+      },
+      "2.1.143": {
+        "keys": {
+          "agentType": 4,
+          "description": 4
+        },
+        "manifests": 4,
+        "values": {}
+      },
+      "2.1.144": {
+        "keys": {
+          "agentType": 2,
+          "description": 2,
+          "toolUseId": 2
+        },
+        "manifests": 2,
+        "values": {}
+      },
+      "2.1.145": {
+        "keys": {
+          "agentType": 1,
+          "description": 1,
+          "toolUseId": 1
+        },
+        "manifests": 1,
+        "values": {}
+      },
+      "2.1.146": {
+        "keys": {
+          "agentType": 6,
+          "description": 6,
+          "toolUseId": 6
+        },
+        "manifests": 6,
+        "values": {}
+      },
+      "2.1.147": {
+        "keys": {
+          "agentType": 12,
+          "description": 12,
+          "toolUseId": 12
+        },
+        "manifests": 12,
+        "values": {}
+      },
+      "2.1.148": {
+        "keys": {
+          "agentType": 1,
+          "description": 1,
+          "toolUseId": 1
+        },
+        "manifests": 1,
+        "values": {}
+      },
+      "2.1.150": {
+        "keys": {
+          "agentType": 44,
+          "description": 44,
+          "toolUseId": 44
+        },
+        "manifests": 44,
+        "values": {}
+      },
+      "2.1.152": {
+        "keys": {
+          "agentType": 115,
+          "description": 115,
+          "toolUseId": 115
+        },
+        "manifests": 115,
+        "values": {}
+      },
+      "2.1.158": {
+        "keys": {
+          "agentType": 33,
+          "description": 33,
+          "toolUseId": 33
+        },
+        "manifests": 33,
+        "values": {}
+      },
+      "2.1.159": {
+        "keys": {
+          "agentType": 5,
+          "description": 5,
+          "toolUseId": 5
+        },
+        "manifests": 5,
+        "values": {}
+      },
+      "2.1.160": {
+        "keys": {
+          "agentType": 12,
+          "description": 12,
+          "toolUseId": 12
+        },
+        "manifests": 12,
+        "values": {}
+      },
+      "2.1.161": {
+        "keys": {
+          "agentType": 1,
+          "description": 1,
+          "toolUseId": 1
+        },
+        "manifests": 1,
+        "values": {}
+      },
+      "2.1.167": {
+        "keys": {
+          "agentType": 4,
+          "description": 4,
+          "toolUseId": 4
+        },
+        "manifests": 4,
+        "values": {}
+      },
+      "2.1.168": {
+        "keys": {
+          "agentType": 18,
+          "description": 18,
+          "toolUseId": 18
+        },
+        "manifests": 18,
+        "values": {}
+      },
+      "2.1.170": {
+        "keys": {
+          "agentType": 9,
+          "description": 9,
+          "toolUseId": 9
+        },
+        "manifests": 9,
+        "values": {}
+      },
+      "2.1.173": {
+        "keys": {
+          "agentType": 4,
+          "description": 4,
+          "toolUseId": 4
+        },
+        "manifests": 4,
+        "values": {}
+      },
+      "2.1.175": {
+        "keys": {
+          "agentType": 6,
+          "description": 6,
+          "toolUseId": 6
+        },
+        "manifests": 6,
+        "values": {}
+      },
+      "2.1.177": {
+        "keys": {
+          "agentType": 33,
+          "description": 33,
+          "toolUseId": 33
+        },
+        "manifests": 33,
+        "values": {}
+      },
+      "2.1.178": {
+        "keys": {
+          "agentType": 3,
+          "description": 3,
+          "toolUseId": 3
+        },
+        "manifests": 3,
+        "values": {}
+      },
+      "2.1.179": {
+        "keys": {
+          "agentType": 6,
+          "description": 6,
+          "toolUseId": 6
+        },
+        "manifests": 6,
+        "values": {}
+      },
+      "2.1.181": {
+        "keys": {
+          "agentType": 1,
+          "description": 1,
+          "toolUseId": 1
+        },
+        "manifests": 1,
+        "values": {}
+      },
+      "2.1.183": {
+        "keys": {
+          "agentType": 4,
+          "description": 4,
+          "toolUseId": 4
+        },
+        "manifests": 4,
+        "values": {}
+      },
+      "2.1.185": {
+        "keys": {
+          "agentType": 349,
+          "description": 349,
+          "toolUseId": 349
+        },
+        "manifests": 349,
+        "values": {}
+      },
+      "2.1.186": {
+        "keys": {
+          "agentType": 7,
+          "description": 7,
+          "toolUseId": 7
+        },
+        "manifests": 7,
+        "values": {}
+      },
+      "2.1.187": {
+        "keys": {
+          "agentType": 3,
+          "description": 3,
+          "spawnDepth": 3,
+          "toolUseId": 3
+        },
+        "manifests": 3,
+        "values": {
+          "spawnDepth": {
+            "1": 3
+          }
+        }
+      },
+      "2.1.191": {
+        "keys": {
+          "agentType": 2,
+          "description": 2,
+          "spawnDepth": 2,
+          "toolUseId": 2
+        },
+        "manifests": 2,
+        "values": {
+          "spawnDepth": {
+            "1": 2
+          }
+        }
+      },
+      "2.1.195": {
+        "keys": {
+          "agentType": 29,
+          "description": 29,
+          "spawnDepth": 29,
+          "toolUseId": 29
+        },
+        "manifests": 29,
+        "values": {
+          "spawnDepth": {
+            "1": 24,
+            "2": 5
+          }
+        }
+      },
+      "2.1.196": {
+        "keys": {
+          "agentType": 8,
+          "description": 8,
+          "spawnDepth": 8,
+          "toolUseId": 8
+        },
+        "manifests": 8,
+        "values": {
+          "spawnDepth": {
+            "1": 8
+          }
+        }
+      },
+      "2.1.197": {
+        "keys": {
+          "agentType": 19,
+          "description": 19,
+          "spawnDepth": 19,
+          "toolUseId": 19
+        },
+        "manifests": 19,
+        "values": {
+          "spawnDepth": {
+            "1": 19
+          }
+        }
+      },
+      "2.1.198": {
+        "keys": {
+          "agentType": 5,
+          "description": 5,
+          "spawnDepth": 5,
+          "toolUseId": 5
+        },
+        "manifests": 5,
+        "values": {
+          "spawnDepth": {
+            "1": 5
+          }
+        }
+      },
+      "2.1.199": {
+        "keys": {
+          "agentType": 2,
+          "description": 2,
+          "spawnDepth": 2,
+          "toolUseId": 2
+        },
+        "manifests": 2,
+        "values": {
+          "spawnDepth": {
+            "1": 2
+          }
+        }
+      },
+      "2.1.200": {
+        "keys": {
+          "agentType": 3,
+          "description": 3,
+          "spawnDepth": 3,
+          "toolUseId": 3
+        },
+        "manifests": 3,
+        "values": {
+          "spawnDepth": {
+            "1": 3
+          }
+        }
+      },
+      "2.1.201": {
+        "keys": {
+          "agentType": 32,
+          "description": 32,
+          "spawnDepth": 32,
+          "toolUseId": 32
+        },
+        "manifests": 32,
+        "values": {
+          "spawnDepth": {
+            "1": 32
+          }
+        }
+      },
+      "2.1.202": {
+        "keys": {
+          "agentType": 4,
+          "description": 4,
+          "spawnDepth": 4,
+          "toolUseId": 4
+        },
+        "manifests": 4,
+        "values": {
+          "spawnDepth": {
+            "1": 4
+          }
+        }
+      },
+      "2.1.204": {
+        "keys": {
+          "agentType": 4,
+          "description": 4,
+          "spawnDepth": 4,
+          "toolUseId": 4
+        },
+        "manifests": 4,
+        "values": {
+          "spawnDepth": {
+            "1": 4
+          }
+        }
+      },
+      "2.1.205": {
+        "keys": {
+          "agentType": 15,
+          "description": 15,
+          "spawnDepth": 15,
+          "toolUseId": 15
+        },
+        "manifests": 15,
+        "values": {
+          "spawnDepth": {
+            "1": 15
+          }
+        }
+      },
+      "2.1.206": {
+        "keys": {
+          "agentType": 6,
+          "description": 6,
+          "spawnDepth": 6,
+          "toolUseId": 6
+        },
+        "manifests": 6,
+        "values": {
+          "spawnDepth": {
+            "1": 6
+          }
+        }
+      },
+      "2.1.207": {
+        "keys": {
+          "agentType": 22,
+          "description": 22,
+          "spawnDepth": 22,
+          "toolUseId": 22
+        },
+        "manifests": 22,
+        "values": {
+          "spawnDepth": {
+            "1": 22
+          }
+        }
+      },
+      "2.1.208": {
+        "keys": {
+          "agentType": 2,
+          "description": 2,
+          "spawnDepth": 2,
+          "toolUseId": 2
+        },
+        "manifests": 2,
+        "values": {
+          "spawnDepth": {
+            "1": 2
+          }
+        }
+      },
+      "2.1.209": {
+        "keys": {
+          "agentType": 2,
+          "description": 2,
+          "spawnDepth": 2,
+          "toolUseId": 2
+        },
+        "manifests": 2,
+        "values": {
+          "spawnDepth": {
+            "1": 2
+          }
+        }
+      },
+      "2.1.210": {
+        "keys": {
+          "agentType": 4,
+          "description": 4,
+          "spawnDepth": 4,
+          "toolUseId": 4
+        },
+        "manifests": 4,
+        "values": {
+          "spawnDepth": {
+            "1": 4
+          }
+        }
+      },
+      "2.1.211": {
+        "keys": {
+          "agentType": 11,
+          "description": 11,
+          "spawnDepth": 11,
+          "toolUseId": 11
+        },
+        "manifests": 11,
+        "values": {
+          "spawnDepth": {
+            "1": 11
+          }
+        }
+      },
+      "2.1.212": {
+        "keys": {
+          "agentType": 7,
+          "description": 7,
+          "spawnDepth": 7,
+          "toolUseId": 7
+        },
+        "manifests": 7,
+        "values": {
+          "spawnDepth": {
+            "1": 7
+          }
+        }
+      },
+      "2.1.214": {
+        "keys": {
+          "agentType": 15,
+          "description": 15,
+          "spawnDepth": 15,
+          "toolUseId": 15
+        },
+        "manifests": 15,
+        "values": {
+          "spawnDepth": {
+            "1": 15
+          }
+        }
+      },
+      "2.1.215": {
+        "keys": {
+          "agentType": 10,
+          "description": 10,
+          "spawnDepth": 10,
+          "toolUseId": 10
+        },
+        "manifests": 10,
+        "values": {
+          "spawnDepth": {
+            "1": 10
+          }
+        }
+      },
+      "2.1.216": {
+        "keys": {
+          "agentType": 2,
+          "description": 2,
+          "spawnDepth": 2,
+          "toolUseId": 2
+        },
+        "manifests": 2,
+        "values": {
+          "spawnDepth": {
+            "1": 2
+          }
+        }
+      },
+      "2.1.217": {
+        "keys": {
+          "agentType": 2,
+          "description": 2,
+          "spawnDepth": 2,
+          "toolUseId": 2
+        },
+        "manifests": 2,
+        "values": {
+          "spawnDepth": {
+            "1": 2
+          }
+        }
+      },
+      "2.1.218": {
+        "keys": {
+          "agentType": 21,
+          "description": 21,
+          "name": 4,
+          "spawnDepth": 21,
+          "toolUseId": 17
+        },
+        "manifests": 21,
+        "values": {
+          "spawnDepth": {
+            "1": 21
+          }
+        }
+      },
+      "2.1.219": {
+        "keys": {
+          "agentType": 13,
+          "description": 13,
+          "spawnDepth": 13,
+          "toolUseId": 13
+        },
+        "manifests": 13,
+        "values": {
+          "spawnDepth": {
+            "1": 13
+          }
+        }
+      },
+      "2.1.220": {
+        "keys": {
+          "agentType": 36,
+          "description": 36,
+          "model": 3,
+          "name": 3,
+          "spawnDepth": 36,
+          "toolUseId": 33,
+          "worktreeBranch": 1,
+          "worktreePath": 1
+        },
+        "manifests": 36,
+        "values": {
+          "spawnDepth": {
+            "1": 36
+          }
+        }
+      },
+      "2.1.221": {
+        "keys": {
+          "agentType": 7,
+          "description": 7,
+          "spawnDepth": 7,
+          "toolUseId": 7
+        },
+        "manifests": 7,
+        "values": {
+          "spawnDepth": {
+            "1": 7
+          }
+        }
+      },
+      "2.1.222": {
+        "keys": {
+          "agentType": 18,
+          "description": 18,
+          "spawnDepth": 18,
+          "toolUseId": 18
+        },
+        "manifests": 18,
+        "values": {
+          "spawnDepth": {
+            "1": 18
+          }
+        }
+      },
+      "2.1.223": {
+        "keys": {
+          "agentType": 6,
+          "description": 6,
+          "model": 1,
+          "name": 1,
+          "spawnDepth": 6,
+          "toolUseId": 5
+        },
+        "manifests": 6,
+        "values": {
+          "spawnDepth": {
+            "1": 6
+          }
+        }
+      },
+      "2.1.224": {
+        "keys": {
+          "agentType": 14,
+          "description": 14,
+          "spawnDepth": 14,
+          "toolUseId": 14
+        },
+        "manifests": 14,
+        "values": {
+          "spawnDepth": {
+            "1": 14
+          }
+        }
+      },
+      "2.1.225": {
+        "keys": {
+          "agentType": 2,
+          "description": 2,
+          "name": 1,
+          "spawnDepth": 2,
+          "toolUseId": 1
+        },
+        "manifests": 2,
+        "values": {
+          "spawnDepth": {
+            "1": 2
+          }
+        }
+      },
+      "2.1.226": {
+        "keys": {
+          "agentType": 88,
+          "description": 88,
+          "model": 22,
+          "name": 5,
+          "parentAgentId": 1,
+          "spawnDepth": 88,
+          "spawnedWithWorktree": 1,
+          "toolUseId": 83,
+          "worktreeBranch": 1,
+          "worktreeCleanlyRemoved": 1,
+          "worktreePath": 1
+        },
+        "manifests": 88,
+        "values": {
+          "spawnDepth": {
+            "1": 87,
+            "2": 1
+          }
+        }
+      },
+      "2.1.228": {
+        "keys": {
+          "agentType": 46,
+          "description": 46,
+          "spawnDepth": 46,
+          "toolUseId": 46
+        },
+        "manifests": 46,
+        "values": {
+          "spawnDepth": {
+            "1": 46
+          }
+        }
+      },
+      "2.1.229": {
+        "keys": {
+          "agentType": 3,
+          "description": 3,
+          "spawnDepth": 3,
+          "toolUseId": 3
+        },
+        "manifests": 3,
+        "values": {
+          "spawnDepth": {
+            "1": 3
+          }
+        }
+      },
+      "2.1.231": {
+        "keys": {
+          "agentType": 1,
+          "description": 1,
+          "spawnDepth": 1,
+          "toolUseId": 1
+        },
+        "manifests": 1,
+        "values": {
+          "spawnDepth": {
+            "1": 1
+          }
+        }
+      },
+      "2.1.232": {
+        "keys": {
+          "agentType": 2,
+          "description": 2,
+          "spawnDepth": 2,
+          "toolUseId": 2
+        },
+        "manifests": 2,
+        "values": {
+          "spawnDepth": {
+            "1": 2
+          }
+        }
+      },
+      "2.1.233": {
+        "keys": {
+          "agentType": 46,
+          "description": 46,
+          "parentAgentId": 2,
+          "spawnDepth": 46,
+          "toolUseId": 46
+        },
+        "manifests": 46,
+        "values": {
+          "spawnDepth": {
+            "1": 44,
+            "2": 2
+          }
+        }
+      },
+      "2.1.234": {
+        "keys": {
+          "agentType": 24,
+          "description": 24,
+          "name": 1,
+          "spawnDepth": 24,
+          "toolUseId": 23
+        },
+        "manifests": 24,
+        "values": {
+          "spawnDepth": {
+            "1": 24
+          }
+        }
+      },
+      "2.1.235": {
+        "keys": {
+          "agentType": 1,
+          "description": 1,
+          "spawnDepth": 1,
+          "toolUseId": 1
+        },
+        "manifests": 1,
+        "values": {
+          "spawnDepth": {
+            "1": 1
+          }
+        }
+      },
+      "2.1.236": {
+        "keys": {
+          "agentType": 3,
+          "description": 3,
+          "spawnDepth": 3,
+          "toolUseId": 3
+        },
+        "manifests": 3,
+        "values": {
+          "spawnDepth": {
+            "1": 3
+          }
+        }
+      },
+      "2.1.237": {
+        "keys": {
+          "agentType": 3,
+          "description": 3,
+          "name": 1,
+          "spawnDepth": 3,
+          "toolUseId": 2
+        },
+        "manifests": 3,
+        "values": {
+          "spawnDepth": {
+            "1": 3
+          }
+        }
+      },
+      "2.1.238": {
+        "keys": {
+          "agentType": 29,
+          "description": 29,
+          "name": 4,
+          "spawnDepth": 29,
+          "toolUseId": 25
+        },
+        "manifests": 29,
+        "values": {
+          "spawnDepth": {
+            "1": 29
+          }
+        }
+      },
+      "2.1.239": {
+        "keys": {
+          "agentType": 43,
+          "description": 43,
+          "name": 4,
+          "spawnDepth": 43,
+          "spawnedWithWorktree": 3,
+          "toolUseId": 39,
+          "worktreeBranch": 3,
+          "worktreePath": 3
+        },
+        "manifests": 43,
+        "values": {
+          "spawnDepth": {
+            "1": 43
+          }
+        }
+      },
+      "2.1.240": {
+        "keys": {
+          "agentType": 42,
+          "description": 42,
+          "model": 5,
+          "name": 6,
+          "spawnDepth": 42,
+          "spawnedWithWorktree": 2,
+          "toolUseId": 36,
+          "worktreeBranch": 2,
+          "worktreePath": 2
+        },
+        "manifests": 42,
+        "values": {
+          "spawnDepth": {
+            "1": 42
+          }
+        }
+      },
+      "2.1.241": {
+        "keys": {
+          "agentType": 14,
+          "description": 14,
+          "model": 1,
+          "name": 1,
+          "spawnDepth": 14,
+          "toolUseId": 13
+        },
+        "manifests": 14,
+        "values": {
+          "spawnDepth": {
+            "1": 14
+          }
+        }
+      },
+      "2.1.243": {
+        "keys": {
+          "agentType": 6,
+          "description": 6,
+          "model": 1,
+          "spawnDepth": 6,
+          "toolUseId": 6
+        },
+        "manifests": 6,
+        "values": {
+          "spawnDepth": {
+            "1": 6
+          }
+        }
+      },
+      "2.1.246": {
+        "keys": {
+          "agentType": 65,
+          "description": 65,
+          "model": 2,
+          "name": 4,
+          "spawnDepth": 65,
+          "spawnedWithWorktree": 1,
+          "toolUseId": 61,
+          "worktreeBranch": 1,
+          "worktreeCleanlyRemoved": 1,
+          "worktreePath": 1
+        },
+        "manifests": 65,
+        "values": {
+          "spawnDepth": {
+            "1": 65
+          }
+        }
+      },
+      "2.1.250": {
+        "keys": {
+          "agentType": 17,
+          "description": 17,
+          "spawnDepth": 17,
+          "spawnedWithWorktree": 1,
+          "toolUseId": 17,
+          "worktreeBranch": 1,
+          "worktreePath": 1
+        },
+        "manifests": 17,
+        "values": {
+          "spawnDepth": {
+            "1": 17
+          }
+        }
+      },
+      "2.1.251": {
+        "keys": {
+          "agentType": 63,
+          "description": 63,
+          "model": 17,
+          "name": 5,
+          "spawnDepth": 63,
+          "spawnedWithWorktree": 7,
+          "toolUseId": 58,
+          "worktreeBranch": 7,
+          "worktreePath": 7
+        },
+        "manifests": 63,
+        "values": {
+          "spawnDepth": {
+            "1": 63
+          }
+        }
+      },
+      "2.1.252": {
+        "keys": {
+          "agentType": 6,
+          "description": 6,
+          "spawnDepth": 6,
+          "toolUseId": 6
+        },
+        "manifests": 6,
+        "values": {
+          "spawnDepth": {
+            "1": 6
+          }
+        }
+      },
+      "2.1.258": {
+        "keys": {
+          "agentType": 9,
+          "description": 9,
+          "spawnDepth": 9,
+          "toolUseId": 9
+        },
+        "manifests": 9,
+        "values": {
+          "spawnDepth": {
+            "1": 9
+          }
+        }
+      },
+      "2.1.260": {
+        "keys": {
+          "agentType": 7,
+          "description": 7,
+          "name": 4,
+          "spawnDepth": 7,
+          "toolUseId": 3
+        },
+        "manifests": 7,
+        "values": {
+          "spawnDepth": {
+            "1": 7
+          }
+        }
+      },
+      "2.1.261": {
+        "keys": {
+          "agentType": 51,
+          "description": 50,
+          "name": 1,
+          "spawnDepth": 51,
+          "toolUseId": 49
+        },
+        "manifests": 51,
+        "values": {
+          "spawnDepth": {
+            "1": 51
+          }
+        }
+      },
+      "2.1.263": {
+        "keys": {
+          "agentType": 106,
+          "description": 106,
+          "model": 11,
+          "name": 3,
+          "parentAgentId": 13,
+          "spawnDepth": 106,
+          "spawnedWithWorktree": 6,
+          "toolUseId": 103,
+          "worktreeBranch": 6,
+          "worktreeCleanlyRemoved": 1,
+          "worktreePath": 6
+        },
+        "manifests": 106,
+        "values": {
+          "spawnDepth": {
+            "1": 93,
+            "2": 7,
+            "3": 6
+          }
+        }
+      },
+      "2.1.265": {
+        "keys": {
+          "agentType": 8,
+          "description": 8,
+          "name": 3,
+          "requestNonInteractive": 8,
+          "requestShape": 8,
+          "spawnDepth": 8,
+          "toolUseId": 5
+        },
+        "manifests": 8,
+        "values": {
+          "spawnDepth": {
+            "1": 8
+          }
+        }
+      },
+      "2.1.266": {
+        "keys": {
+          "agentType": 15,
+          "description": 15,
+          "model": 5,
+          "name": 2,
+          "parentAgentId": 2,
+          "requestNonInteractive": 15,
+          "requestShape": 15,
+          "spawnDepth": 15,
+          "toolUseId": 13
+        },
+        "manifests": 15,
+        "values": {
+          "spawnDepth": {
+            "1": 13,
+            "2": 2
+          }
+        }
+      },
+      "2.1.267": {
+        "keys": {
+          "agentType": 50,
+          "description": 50,
+          "model": 2,
+          "name": 3,
+          "requestNonInteractive": 50,
+          "requestShape": 50,
+          "spawnDepth": 50,
+          "spawnedWithWorktree": 2,
+          "toolUseId": 47,
+          "worktreeBranch": 2,
+          "worktreePath": 2
+        },
+        "manifests": 50,
+        "values": {
+          "spawnDepth": {
+            "1": 50
+          }
+        }
+      },
+      "2.1.269": {
+        "keys": {
+          "agentType": 33,
+          "description": 33,
+          "model": 9,
+          "parentAgentId": 1,
+          "requestNonInteractive": 33,
+          "requestShape": 33,
+          "spawnDepth": 33,
+          "spawnedWithWorktree": 2,
+          "toolUseId": 33,
+          "worktreeBranch": 2,
+          "worktreePath": 2
+        },
+        "manifests": 33,
+        "values": {
+          "spawnDepth": {
+            "1": 32,
+            "2": 1
+          }
+        }
+      },
+      "2.1.270": {
+        "keys": {
+          "agentType": 21,
+          "description": 21,
+          "requestNonInteractive": 21,
+          "requestShape": 21,
+          "spawnDepth": 21,
+          "toolUseId": 21
+        },
+        "manifests": 21,
+        "values": {
+          "spawnDepth": {
+            "1": 21
+          }
+        }
+      },
+      "2.1.273": {
+        "keys": {
+          "agentType": 66,
+          "description": 66,
+          "model": 22,
+          "name": 5,
+          "requestNonInteractive": 66,
+          "requestShape": 66,
+          "spawnDepth": 66,
+          "spawnedWithWorktree": 3,
+          "toolUseId": 61,
+          "worktreeBranch": 3,
+          "worktreePath": 3
+        },
+        "manifests": 66,
+        "values": {
+          "spawnDepth": {
+            "1": 66
+          }
+        }
+      },
+      "2.1.274": {
+        "keys": {
+          "agentType": 21,
+          "description": 21,
+          "model": 12,
+          "name": 4,
+          "requestNonInteractive": 21,
+          "requestShape": 21,
+          "spawnDepth": 21,
+          "spawnedWithWorktree": 2,
+          "toolUseId": 17,
+          "worktreeBranch": 2,
+          "worktreePath": 2
+        },
+        "manifests": 21,
+        "values": {
+          "spawnDepth": {
+            "1": 21
+          }
+        }
+      },
+      "2.1.278": {
+        "keys": {
+          "agentType": 54,
+          "description": 54,
+          "name": 2,
+          "requestNonInteractive": 54,
+          "requestShape": 54,
+          "spawnDepth": 54,
+          "toolUseId": 52
+        },
+        "manifests": 54,
+        "values": {
+          "spawnDepth": {
+            "1": 54
+          }
+        }
+      }
+    }
+  },
+  "meta_json_keys": {
+    "files": 2235,
+    "key_types": {
+      "agentType": {
+        "str": 2235
+      },
+      "description": {
+        "str": 2234
+      },
+      "model": {
+        "str": 113
+      },
+      "name": {
+        "str": 67
+      },
+      "parentAgentId": {
+        "str": 19
+      },
+      "requestNonInteractive": {
+        "bool": 268
+      },
+      "requestShape": {
+        "str": 268
+      },
+      "spawnDepth": {
+        "int": 1269
+      },
+      "spawnedWithWorktree": {
+        "bool": 30
+      },
+      "toolUseId": {
+        "str": 1877
+      },
+      "worktreeBranch": {
+        "str": 31
+      },
+      "worktreeCleanlyRemoved": {
+        "bool": 3
+      },
+      "worktreePath": {
+        "str": 37
+      }
+    },
+    "keys": {
+      "agentType": 2235,
+      "description": 2234,
+      "model": 113,
+      "name": 67,
+      "parentAgentId": 19,
+      "requestNonInteractive": 268,
+      "requestShape": 268,
+      "spawnDepth": 1269,
+      "spawnedWithWorktree": 30,
+      "toolUseId": 1877,
+      "worktreeBranch": 31,
+      "worktreeCleanlyRemoved": 3,
+      "worktreePath": 37
+    },
+    "parse_errors": 0
+  },
+  "scan_version": "0.4.0",
+  "session_subdirs": {
+    "subagents": 432,
+    "tool-results": 206
+  },
+  "summary": {
+    "files_scanned": 3674,
+    "lines_scanned": 464037,
+    "max_files": null,
+    "parse_errors": 0,
+    "session_dirs_with_subdirectories": 449
+  },
+  "tool": "ccs-format-scan",
+  "tool_cycle": {
+    "by_tool": {
+      "<other>": {
+        "results": 91271,
+        "structuredPatch": 1622,
+        "toolUseResult_absent": 12318,
+        "toolUseResult_dict": 74064,
+        "toolUseResult_non_dict": 4889
+      },
+      "Agent": {
+        "prompt": 2176,
+        "results": 2189,
+        "toolStats": 1171,
+        "toolUseResult_absent": 8,
+        "toolUseResult_dict": 2176,
+        "toolUseResult_non_dict": 5
+      },
+      "Edit": {
+        "results": 7856,
+        "structuredPatch": 7516,
+        "toolUseResult_absent": 83,
+        "toolUseResult_dict": 7516,
+        "toolUseResult_non_dict": 257
+      }
+    },
+    "denominators": {
+      "by_tool": "keyed by the resolved tool name, folded to the fixed allowlist; `<other>` covers every unallowlisted name. `structuredPatch`/`prompt`/`toolStats` are presence counts within `toolUseResult_dict`, NOT within `results` \u2014 `toolUseResult` is a bare string on a minority of results and those carry no keys to test",
+      "by_tool_envelope": "`toolUseResult` shape per resolved result: `dict` / `non_dict` (a bare string body) / `null` (key present, explicitly null) / `absent` (key missing) / `ambiguous_multi_block`. The last one exists because `toolUseResult` is one key on the LINE: when a line carries several `tool_result` blocks the envelope belongs to no single result, so those contribute NO conditional-key counts rather than crediting the same envelope to each block. A multi-block line whose envelope is missing or null is recorded as `absent`/`null` instead \u2014 there is nothing to misattribute",
+      "orphaned": "a `tool_result` whose `tool_use_id` matches no `tool_use` in its own file, split on the line's `isSidechain`",
+      "resolution": "a `tool_result` resolves when its `tool_use_id` matches a `tool_use` id IN THE SAME FILE. Per-file is the correct scope: subagent traces carry their own tool_use_id space",
+      "tool_result_blocks": "every `tool_result` content block observed IN A FILE READ TO COMPLETION; equals `resolved` + the `orphaned` totals by construction. A file this scan could not open, or that failed partway through, has its whole join buffer dropped and is counted in `files_dropped_mid_read`. When that is non-zero this figure MAY be lower than `content_block_types.tool_result` \u2014 by however many blocks those files had already contributed before failing, which is zero for a file that never opened"
+    },
+    "files_dropped_mid_read": 0,
+    "orphaned": {
+      "sidechain": 4
+    },
+    "resolved": 101316,
+    "tool_result_blocks": 101320
+  },
+  "tool_result_line_keys": {
+    "agentId": 42994,
+    "classifierMetaLines": 1898,
+    "cwd": 101320,
+    "entrypoint": 98101,
+    "gitBranch": 101320,
+    "isSidechain": 101320,
+    "message": 101320,
+    "parentUuid": 101320,
+    "promptId": 98082,
+    "serverClassifierContext": 1692,
+    "sessionId": 101320,
+    "sessionKind": 336,
+    "session_id": 34882,
+    "slug": 19941,
+    "sourceToolAssistantUUID": 101320,
+    "timestamp": 101320,
+    "toolDenialKind": 232,
+    "toolEndsTurn": 657,
+    "toolUseResult": 88911,
+    "type": 101320,
+    "userFeedback": 7,
+    "userType": 101320,
+    "uuid": 101320,
+    "version": 101320
+  },
+  "tool_results": {
+    "extensions": {
+      "json": 18,
+      "pdf": 34,
+      "txt": 596
+    },
+    "name_prefixes": {
+      "<other>": 496,
+      "mcp": 82,
+      "toolu": 70
+    },
+    "size_bytes": {
+      "count": 648,
+      "max": 5958844,
+      "median": 45023,
+      "min": 6327
+    }
+  },
+  "top_level_keys": {
+    "advisorModel": 4127,
+    "agentId": 139809,
+    "agentName": 408,
+    "aiTitle": 8914,
+    "apiBlockIndex": 46409,
+    "apiError": 1,
+    "apiErrorIsTransient": 1,
+    "apiErrorStatus": 51,
+    "atis": 7961,
+    "attachment": 55736,
+    "attributionAgent": 65492,
+    "attributionMcpServer": 8722,
+    "attributionMcpTool": 8722,
+    "attributionPlugin": 17966,
+    "attributionSkill": 37699,
+    "backup": 1277,
+    "bridgeSessionId": 5024,
+    "cause": 5,
+    "classifierMetaLines": 1898,
+    "commandRun": 29,
+    "compactMetadata": 113,
+    "content": 5251,
+    "customTitle": 4588,
+    "cwd": 373183,
+    "data": 2747,
+    "durationMs": 4700,
+    "effort": 119411,
+    "entrypoint": 361720,
+    "error": 113,
+    "frameUrl": 2,
+    "gitBranch": 373183,
+    "hasOutput": 4154,
+    "hasUnknownModelCost": 233,
+    "hookAdditionalContext": 3171,
+    "hookCount": 4154,
+    "hookErrors": 4154,
+    "hookInfos": 4154,
+    "interruptedByShutdown": 14,
+    "interruptedMessageId": 23,
+    "isAbortedMidStream": 3,
+    "isApiErrorMessage": 263,
+    "isCompactSummary": 113,
+    "isMeta": 8422,
+    "isSidechain": 373183,
+    "isSnapshotUpdate": 6396,
+    "isVisibleInTranscriptOnly": 113,
+    "lastPrompt": 15588,
+    "lastSequenceNum": 5024,
+    "leafUuid": 18408,
+    "level": 4918,
+    "logicalParentUuid": 113,
+    "maxRetries": 31,
+    "message": 303836,
+    "messageCount": 4638,
+    "messageId": 7673,
+    "mode": 14864,
+    "modelUsage": 233,
+    "operation": 5425,
+    "origin": 3279,
+    "ownerAccountUuid": 5024,
+    "ownerOrganizationUuid": 5024,
+    "parentToolUseID": 2747,
+    "parentUuid": 373183,
+    "path": 2,
+    "pendingBackgroundAgentCount": 977,
+    "perTurnEffort": 24923,
+    "permissionMode": 12228,
+    "prNumber": 9899,
+    "prRepository": 9899,
+    "prUrl": 9899,
+    "preventContinuation": 3,
+    "preventedContinuation": 4154,
+    "promptId": 108418,
+    "promptSource": 4089,
+    "queuePriority": 4,
+    "queueSkipAttachments": 531,
+    "quotaLimits": 37,
+    "reason": 288,
+    "rendered": 19811,
+    "renderedInHumanTurn": 168,
+    "requestId": 191090,
+    "retryAttempt": 31,
+    "retryInMs": 31,
+    "serverClassifierContext": 1692,
+    "serverClassifierRequest": 6014,
+    "sessionId": 456364,
+    "sessionKind": 1373,
+    "session_id": 135760,
+    "slug": 73092,
+    "snapshot": 6396,
+    "snapshotMessageId": 1277,
+    "sourceToolAssistantUUID": 101320,
+    "sourceToolUseID": 176,
+    "startTime": 233,
+    "stopReason": 4154,
+    "subtype": 10864,
+    "timestamp": 389786,
+    "title": 2,
+    "toolDenialKind": 232,
+    "toolEndsTurn": 657,
+    "toolUseID": 6901,
+    "toolUseResult": 88911,
+    "totalAPIDuration": 233,
+    "totalAPIDurationWithoutRetries": 233,
+    "totalCostUSD": 233,
+    "totalDuration": 233,
+    "totalLinesAdded": 233,
+    "totalLinesRemoved": 233,
+    "totalToolDuration": 233,
+    "trackingPath": 1277,
+    "turnCompanion": 164,
+    "turnOrigin": 145,
+    "type": 464037,
+    "userFeedback": 7,
+    "userType": 373183,
+    "uuid": 373183,
+    "version": 373183,
+    "wireIngestContext": 8394,
+    "wireToolInputs": 12930
+  },
+  "top_level_types": {
+    "agent-name": 408,
+    "ai-title": 8914,
+    "assistant": 191300,
+    "atis-latch": 7961,
+    "attachment": 55736,
+    "bridge-session": 5024,
+    "cost-state": 233,
+    "custom-title": 4588,
+    "file-history-delta": 1277,
+    "file-history-snapshot": 6396,
+    "frame-link": 2,
+    "last-prompt": 19123,
+    "mode": 14864,
+    "permission-mode": 6740,
+    "pr-link": 9899,
+    "progress": 2747,
+    "queue-operation": 5425,
+    "system": 10864,
+    "user": 112536
+  },
+  "versions": {
+    "2.1.101": 194,
+    "2.1.109": 2632,
+    "2.1.110": 2151,
+    "2.1.112": 594,
+    "2.1.113": 558,
+    "2.1.114": 104,
+    "2.1.116": 3055,
+    "2.1.119": 5704,
+    "2.1.123": 1763,
+    "2.1.126": 6471,
+    "2.1.128": 2672,
+    "2.1.129": 8,
+    "2.1.131": 2002,
+    "2.1.132": 5422,
+    "2.1.133": 1739,
+    "2.1.137": 798,
+    "2.1.138": 1172,
+    "2.1.139": 161,
+    "2.1.140": 4,
+    "2.1.141": 811,
+    "2.1.142": 1169,
+    "2.1.143": 1590,
+    "2.1.144": 172,
+    "2.1.145": 72,
+    "2.1.146": 585,
+    "2.1.147": 1297,
+    "2.1.148": 890,
+    "2.1.150": 8300,
+    "2.1.152": 9757,
+    "2.1.158": 4343,
+    "2.1.159": 1147,
+    "2.1.160": 1250,
+    "2.1.161": 1078,
+    "2.1.163": 191,
+    "2.1.167": 406,
+    "2.1.168": 2045,
+    "2.1.169": 6,
+    "2.1.170": 1520,
+    "2.1.172": 6,
+    "2.1.173": 1155,
+    "2.1.175": 1364,
+    "2.1.176": 42,
+    "2.1.177": 4703,
+    "2.1.178": 757,
+    "2.1.179": 1301,
+    "2.1.181": 388,
+    "2.1.183": 580,
+    "2.1.185": 4615,
+    "2.1.186": 1589,
+    "2.1.187": 389,
+    "2.1.191": 793,
+    "2.1.193": 56,
+    "2.1.195": 2694,
+    "2.1.196": 1078,
+    "2.1.197": 2548,
+    "2.1.198": 1226,
+    "2.1.199": 437,
+    "2.1.200": 393,
+    "2.1.201": 5107,
+    "2.1.202": 645,
+    "2.1.204": 595,
+    "2.1.205": 1990,
+    "2.1.206": 2079,
+    "2.1.207": 4474,
+    "2.1.208": 468,
+    "2.1.209": 501,
+    "2.1.210": 881,
+    "2.1.211": 3099,
+    "2.1.212": 2415,
+    "2.1.214": 2212,
+    "2.1.215": 4233,
+    "2.1.216": 755,
+    "2.1.217": 544,
+    "2.1.218": 5500,
+    "2.1.219": 2225,
+    "2.1.220": 7789,
+    "2.1.221": 804,
+    "2.1.222": 2650,
+    "2.1.223": 2181,
+    "2.1.224": 1333,
+    "2.1.225": 711,
+    "2.1.226": 15262,
+    "2.1.227": 282,
+    "2.1.228": 5665,
+    "2.1.229": 895,
+    "2.1.231": 310,
+    "2.1.232": 1612,
+    "2.1.233": 10797,
+    "2.1.234": 5134,
+    "2.1.235": 705,
+    "2.1.236": 1520,
+    "2.1.237": 962,
+    "2.1.238": 6284,
+    "2.1.239": 9174,
+    "2.1.240": 8163,
+    "2.1.241": 3572,
+    "2.1.243": 1652,
+    "2.1.246": 12484,
+    "2.1.247": 453,
+    "2.1.248": 330,
+    "2.1.250": 2887,
+    "2.1.251": 13435,
+    "2.1.252": 1703,
+    "2.1.258": 1584,
+    "2.1.259": 69,
+    "2.1.260": 3300,
+    "2.1.261": 9551,
+    "2.1.263": 24673,
+    "2.1.265": 2882,
+    "2.1.266": 3459,
+    "2.1.267": 12399,
+    "2.1.269": 7311,
+    "2.1.27": 57,
+    "2.1.270": 4942,
+    "2.1.271": 460,
+    "2.1.272": 51,
+    "2.1.273": 18869,
+    "2.1.274": 4490,
+    "2.1.278": 11166,
+    "2.1.280": 95,
+    "2.1.31": 435,
+    "2.1.4": 10,
+    "2.1.42": 54,
+    "2.1.44": 932,
+    "2.1.5": 10,
+    "2.1.63": 1945,
+    "2.1.66": 1422,
+    "2.1.7": 74,
+    "2.1.71": 5003,
+    "2.1.72": 1074,
+    "2.1.9": 447
+  }
+}

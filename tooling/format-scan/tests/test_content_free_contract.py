@@ -106,6 +106,39 @@ def planted_root(tmp_path):
                       "input": {"q": S_CRED}},
                  ],
              }},
+            # --- The two folds added for #244. Each field gets a sentinel
+            # value AND a legitimate one, because a fold has two failure modes:
+            # echoing the unrecognized value (a leak) and dropping the
+            # observation (a lost drift signal). Only planting both catches both.
+            {"type": "system", "uuid": "s1", "version": "2.1.150",
+             "subtype": S_PROMPT, "hookCount": 1, "hookInfos": [],
+             "hookErrors": [], "hasOutput": False,
+             "preventedContinuation": False, "stopReason": "",
+             "toolUseID": S_UUID},
+            {"type": "system", "uuid": "s2", "version": "2.1.150",
+             "subtype": "stop_hook_summary", "hookCount": 2, "hookInfos": [],
+             "hookErrors": [], "hasOutput": True,
+             "preventedContinuation": False, "stopReason": "",
+             "toolUseID": S_UUID},
+            # A `system` line with no subtype at all: `<absent>` must stay
+            # distinct from OTHER_BUCKET, and this line carries no hook family,
+            # so it must NOT appear in the cross-tab's numerator.
+            {"type": "system", "uuid": "s3", "version": "2.1.150"},
+            # `toolDenialKind`, counted per line. The first carries TWO
+            # tool_result blocks, which is exactly the case that makes the
+            # block-weighted probe overcount: the line-weighted fold must still
+            # count it once.
+            {"type": "user", "uuid": "u-deny1", "version": "2.1.150",
+             "toolDenialKind": S_PROMPT,
+             "message": {"content": [
+                 {"type": "tool_result", "tool_use_id": "t1", "content": S_PROMPT},
+                 {"type": "tool_result", "tool_use_id": "t2", "content": S_PROMPT},
+             ]}},
+            {"type": "user", "uuid": "u-deny2", "version": "2.1.150",
+             "toolDenialKind": "permission-rule",
+             "message": {"content": [
+                 {"type": "tool_result", "tool_use_id": "t3", "content": S_PATH},
+             ]}},
             # --- The Edit result: a dict `toolUseResult` carrying the diff body.
             {"type": "user", "uuid": "u2", "version": "2.1.150",
              "isSidechain": False,
@@ -290,6 +323,26 @@ def test_modes_still_emit_expected_structure(planted_root, mode_args):
             assert ms["stop_reason_by_model_bucket"]["real"][scan_mod.OTHER_BUCKET] >= 1
             # Likewise the MCP-shaped tool name.
             assert tc["by_tool"][scan_mod.OTHER_BUCKET]["results"] >= 1
+            # --- The #244 folds. Both halves of each: the allowlisted value
+            # survives verbatim, the sentinel folds to OTHER_BUCKET rather than
+            # disappearing, and `<absent>` stays its own bucket.
+            hr = report["hook_records"]
+            assert hr["by_subtype"]["stop_hook_summary"] == 1
+            assert hr["by_subtype"][scan_mod.OTHER_BUCKET] >= 1
+            assert hr["by_subtype"]["<absent>"] >= 1
+            # The cross-tab numerator counts only lines carrying the family, so
+            # the subtype-less line above must be excluded from it.
+            assert hr["hook_family_lines"] == 2
+            assert hr["hook_family_by_subtype"]["stop_hook_summary"] == 1
+            assert hr["hook_family_by_subtype"][scan_mod.OTHER_BUCKET] == 1
+            assert "<absent>" not in hr["hook_family_by_subtype"]
+            # Line-weighted: the two-block denial line counts once, not twice.
+            assert hr["tool_denial_lines"] == 2
+            assert hr["tool_denial_by_kind"]["permission-rule"] == 1
+            assert hr["tool_denial_by_kind"][scan_mod.OTHER_BUCKET] == 1
+            # And the block-weighted probe still overcounts, which is the
+            # discrepancy the line-weighted figure exists to resolve.
+            assert report["tool_result_line_keys"]["toolDenialKind"] == 3
         else:
             assert "Message shape" in out
             assert "Tool cycle" in out
