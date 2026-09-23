@@ -121,9 +121,25 @@ def planted_root(tmp_path):
              "preventedContinuation": False, "stopReason": "",
              "toolUseID": S_UUID},
             # A `system` line with no subtype at all: `<absent>` must stay
-            # distinct from OTHER_BUCKET, and this line carries no hook family,
-            # so it must NOT appear in the cross-tab's numerator.
+            # distinct from OTHER_BUCKET, and this line carries no hook keys at
+            # all, so it must NOT appear in either cross-tab numerator.
             {"type": "system", "uuid": "s3", "version": "2.1.150"},
+            # Hook records that do NOT carry the hook-execution family. This is the
+            # shape a blocking UserPromptSubmit hook writes, observed in
+            # fixtures/sanitized/hook-trace-prompt-hook-refusal.jsonl. A probe
+            # anchored on `hookCount` is blind to them by construction, so they
+            # are what makes `hook_record_by_subtype` falsifiable rather than
+            # tautological. The sentinel-subtype one proves the wider anchor
+            # folds its subtype too, instead of echoing it.
+            {"type": "system", "uuid": "s4", "version": "2.1.150",
+             "subtype": "informational", "preventContinuation": True},
+            {"type": "system", "uuid": "s5", "version": "2.1.150",
+             "subtype": S_PROMPT, "preventContinuation": True},
+            # One of the subtypes added to the allowlist because a fixture
+            # attests it. It must survive verbatim, not land in OTHER_BUCKET —
+            # the point of allowlisting it was to keep that bucket meaningful.
+            {"type": "system", "uuid": "s6", "version": "2.1.150",
+             "subtype": "api_error"},
             # `toolDenialKind`, counted per line. The first carries TWO
             # tool_result blocks, which is exactly the case that makes the
             # block-weighted probe overcount: the line-weighted fold must still
@@ -328,24 +344,115 @@ def test_modes_still_emit_expected_structure(planted_root, mode_args):
             # disappearing, and `<absent>` stays its own bucket.
             hr = report["hook_records"]
             assert hr["by_subtype"]["stop_hook_summary"] == 1
-            assert hr["by_subtype"][scan_mod.OTHER_BUCKET] >= 1
+            assert hr["by_subtype"]["informational"] == 1
+            assert hr["by_subtype"]["api_error"] == 1
+            assert hr["by_subtype"][scan_mod.OTHER_BUCKET] == 2
             assert hr["by_subtype"]["<absent>"] >= 1
-            # The cross-tab numerator counts only lines carrying the family, so
-            # the subtype-less line above must be excluded from it.
+            # The wide cross-tab: every line carrying ANY hook key. Four of the
+            # six `system` lines qualify, and they land on three subtypes — so
+            # hook activity is NOT confined to one subtype, which is precisely
+            # what the family-anchored probe could not have told us.
+            assert hr["hook_record_lines"] == 4
+            assert hr["hook_record_by_subtype"]["stop_hook_summary"] == 1
+            assert hr["hook_record_by_subtype"]["informational"] == 1
+            # Two: the family-bearing sentinel line and the preventContinuation
+            # sentinel line both fold here.
+            assert hr["hook_record_by_subtype"][scan_mod.OTHER_BUCKET] == 2
+            assert "<absent>" not in hr["hook_record_by_subtype"]
+            # Two distinct shapes, named by key only. A sentinel must never
+            # reach this string, and the count of entries is the finding.
+            assert hr["hook_record_shapes"]["preventContinuation"] == 2
+            assert (
+                hr["hook_record_shapes"][
+                    "hookCount+hookErrors+hookInfos+preventedContinuation"
+                ]
+                == 2
+            )
+            # The narrow cross-tab still counts only lines carrying the family,
+            # so the subtype-less line and both non-family hook records above
+            # must be excluded from it.
             assert hr["hook_family_lines"] == 2
             assert hr["hook_family_by_subtype"]["stop_hook_summary"] == 1
             assert hr["hook_family_by_subtype"][scan_mod.OTHER_BUCKET] == 1
             assert "<absent>" not in hr["hook_family_by_subtype"]
             # Line-weighted: the two-block denial line counts once, not twice.
             assert hr["tool_denial_lines"] == 2
+            assert hr["tool_denial_result_lines"] == 2
             assert hr["tool_denial_by_kind"]["permission-rule"] == 1
             assert hr["tool_denial_by_kind"][scan_mod.OTHER_BUCKET] == 1
-            # And the block-weighted probe still overcounts, which is the
-            # discrepancy the line-weighted figure exists to resolve.
-            assert report["tool_result_line_keys"]["toolDenialKind"] == 3
+            # The block-weighted probe counts the same key once per tool_result
+            # block, so over the comparable population (denial lines that carry
+            # at least one such block) it can only ever be >= the line count,
+            # and here it is strictly greater because one line carries two.
+            # Asserted as a RELATION, not as the literal 3: re-weighting that
+            # probe later is a fix, and a fix should not have to present itself
+            # as a regression in the security-contract suite.
+            assert (
+                report["tool_result_line_keys"]["toolDenialKind"]
+                > hr["tool_denial_result_lines"]
+            )
         else:
             assert "Message shape" in out
             assert "Tool cycle" in out
+
+
+def test_folded_histograms_emit_explicit_zero_buckets(tmp_path):
+    """A fold that finds nothing outside its allowlist must say so with a `0`.
+
+    ``dict(Counter.most_common())`` omits a bucket that never fired, so the
+    negative result arrives as a MISSING KEY. To a consumer that makes "the
+    fold found no drift" and "this build did not compute the fold"
+    indistinguishable, and a lookup of OTHER_BUCKET raises instead of returning
+    zero. CCDC attests a contributed row by (tool, scan_version) without
+    re-deriving it, so an explicit zero is the only thing carrying the negative.
+
+    The planted corpus above can only ever prove the positive case, because
+    every fold there has a sentinel in it. This one is deliberately clean.
+    """
+    make_session(
+        tmp_path,
+        slug="-home-clean-proj",
+        session_id="clean-1",
+        lines=[
+            {"type": "system", "uuid": "c1", "version": "2.1.150",
+             "subtype": "stop_hook_summary", "hookCount": 1, "hookInfos": [],
+             "hookErrors": [], "preventedContinuation": False},
+        ],
+    )
+    report = _run_scan_json(str(tmp_path), "--json")
+    hr = report["hook_records"]
+
+    # The claim "the whole family lands on one subtype" is only readable if the
+    # bucket that would falsify it is present and zero.
+    assert hr["hook_family_by_subtype"] == {
+        "stop_hook_summary": 1,
+        scan_mod.OTHER_BUCKET: 0,
+    }
+    assert hr["hook_record_by_subtype"][scan_mod.OTHER_BUCKET] == 0
+    assert hr["by_subtype"][scan_mod.OTHER_BUCKET] == 0
+    # `<absent>` and `<null>` are seeded on the all-lines fold too: a zero there
+    # is the statement that every `system` line carried a subtype.
+    assert hr["by_subtype"]["<absent>"] == 0
+    assert hr["by_subtype"]["<null>"] == 0
+    # A corpus with no denials still reports the bucket rather than omitting it.
+    assert hr["tool_denial_lines"] == 0
+    assert hr["tool_denial_result_lines"] == 0
+    assert hr["tool_denial_by_kind"][scan_mod.OTHER_BUCKET] == 0
+
+
+def test_hook_record_shapes_name_only_allowlisted_keys(planted_root):
+    """Every component of a shape string must come from HOOK_RECORD_KEYS.
+
+    The shape probe is the one place this scanner joins key names into a new
+    string and prints it. That is safe only because the components are drawn
+    from a frozenset this file declares. Asserting it here means a future edit
+    that widened the anchor to "any key starting with hook" would fail rather
+    than quietly gain a path from corpus bytes to stdout.
+    """
+    report = _run_scan_json(str(planted_root), "--json")
+    for shape in report["hook_records"]["hook_record_shapes"]:
+        for key in shape.split("+"):
+            assert key in scan_mod.HOOK_RECORD_KEYS, shape
 
 
 def test_sentinels_are_actually_present_in_fixtures(planted_root):

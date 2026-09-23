@@ -39,51 +39,112 @@ Use semver: `MAJOR.MINOR.PATCH`.
   consumer reading the prior shape. Reserve `1.0.0` for the point at which the
   `--json` shape is declared stable.
 
-## [0.4.0] — two folds that test a claim
+## [0.4.0] — a falsifiable probe for hook records
 
-Added for issue #244. Part 6 reads the seven-key hook-execution family as a
-general record of hook activity, and treats `toolDenialKind` as a field whose
-value space is unknown. Three purpose-built sessions
-(`fixtures/sanitized/hook-trace-*.jsonl`) contradicted the first and put one
-value under the second. Three scratch sessions cannot settle either question;
-this release is what settles them against the corpus.
+Added for issue #244. Part 6 reads the hook-execution family as a general record
+of hook activity, and treats `toolDenialKind` as a field whose value space is
+unknown. Three purpose-built sessions (`fixtures/sanitized/hook-trace-*.jsonl`)
+contradicted the first and put one value under the second. Three scratch
+sessions cannot settle either question; this release settles them against the
+corpus, and in doing so falsifies two things this file previously asserted.
 
-Both folds are deliberately narrow. Neither exists to inventory a vocabulary,
-which is the thing `TOOL_NAME_ALLOWLIST` already refuses to do. Each exists to
-ask one question whose answer is a count.
+Neither fold exists to inventory a vocabulary, which is the thing
+`TOOL_NAME_ALLOWLIST` already refuses to do. Each exists to ask one question
+whose answer is a count.
 
-- **New top-level report key `hook_records`.** Two cross-tabs and a corrected
-  denominator.
+- **New top-level report key `hook_records`.** Three cross-tabs, a shape probe,
+  and two denial denominators.
 
   `by_subtype` folds every `system` line's `subtype` to
-  `SYSTEM_SUBTYPE_ALLOWLIST` (`stop_hook_summary`, `turn_duration`,
-  `informational`) or to `OTHER_BUCKET`. `hook_family_by_subtype` folds the
-  subset carrying `hookCount` the same way. Read together they answer whether
-  the hook family lands anywhere other than a Stop-hook summary. Against a
-  464,037-line corpus it does not: all 4,154 family lines are
-  `stop_hook_summary`, and `OTHER_BUCKET` is zero. A non-zero `OTHER_BUCKET`
-  there would have falsified the claim and said by how much, which is why the
-  fold reports it rather than dropping it.
+  `SYSTEM_SUBTYPE_ALLOWLIST` or to `OTHER_BUCKET`.
+  `hook_record_by_subtype` narrows to lines carrying any member of
+  `HOOK_RECORD_KEYS`. `hook_family_by_subtype` narrows again to lines carrying
+  `hookCount`.
 
-  `tool_denial_by_kind` folds `toolDenialKind` to `TOOL_DENIAL_KIND_ALLOWLIST`
+  The middle width is the one that makes the probe falsifiable, and the first
+  draft of this release did not have it. Anchored on `hookCount` alone, the
+  cross-tab was blind by construction to any hook record using a different key
+  set, so "the family only ever lands on `stop_hook_summary`" was guaranteed
+  regardless of what the corpus held. It is not a finding if no corpus could
+  contradict it. `fixtures/sanitized/hook-trace-prompt-hook-refusal.jsonl` holds
+  the counterexample: three `informational` lines carrying `preventContinuation`
+  and no `hookCount`, written by a blocking `UserPromptSubmit` hook.
+
+  Against a 465,452-line corpus: 4,162 lines record hook activity, 4,159 of them
+  carrying the family, and every one of those 4,159 is `stop_hook_summary` with
+  `OTHER_BUCKET` at zero. The narrow claim holds. The broad one does not, and
+  only the wider denominator can say so.
+
+- **New `hook_record_shapes`, which disproved this file's own comment.** It
+  names each observed combination of `HOOK_RECORD_KEYS` by joining the sorted
+  key names with `+`. Key names only, every one drawn from a frozenset this file
+  declares, so the string is content-free by construction.
+
+  The scanner previously asserted that all seven keys of the hook-execution
+  family "co-occur on exactly the same line count in every scan so far". They do
+  not. Six co-occur on 4,159 lines; `hookAdditionalContext` is on 3,176 of them
+  and absent from the other 983, making it an optional member. `toolUseID` is on
+  6,906 lines, more than the family has, so it co-occurs rather than belongs.
+  Three shapes exist in the corpus, not one.
+
+- **`toolDenialKind` is counted per LINE, against a stated population.**
+  `tool_result_line_keys` increments per `tool_result` **block** over lines
+  carrying at least one such block. `tool_denial_lines` counts every line
+  carrying the key, whatever its content shape. Those are different
+  populations, so their agreement proves nothing on its own — the first draft of
+  this release claimed it did. `tool_denial_result_lines` is the overlap, and
+  only that figure read against the block-weighted one is a valid comparison.
+  On this corpus all three are 233, which does establish that no denial line
+  carried a second `tool_result`.
+
+  `tool_denial_by_kind` folds the value to `TOOL_DENIAL_KIND_ALLOWLIST`
   (`permission-rule`, the one value a committed fixture attests) or to
-  `OTHER_BUCKET`. The corpus holds 146 `permission-rule` and 86 `OTHER_BUCKET`,
-  so the field carries at least two values and is not the single-value field one
-  session suggested. What the other values *are* stays unread, by design.
+  `OTHER_BUCKET`: 147 and 86. The field carries at least two values and is not
+  the single-value field one session suggested. What the other values *are*
+  stays unread, by design.
 
-- **`toolDenialKind` is now counted per LINE.** `tool_result_line_keys`
-  increments per `tool_result` **block**, so a line carrying two results
-  contributes its top-level keys twice, which makes that figure an upper bound
-  on distinct lines rather than a count of them. `tool_denial_lines` is the
-  line-weighted figure. On this corpus the two agree at 232, so no denial line
-  carried a second `tool_result` — but that is an observation, not a guarantee,
-  and the contract test plants exactly that case to keep the two apart.
+- **`SYSTEM_SUBTYPE_ALLOWLIST` covers every fixture-attested subtype**, not only
+  the three the hook question needs. `api_error`, `away_summary` and
+  `local_command` are on it for the sake of the bucket they would otherwise sit
+  in: `OTHER_BUCKET` is a drift signal, and a bucket already holding thousands
+  of attested lines cannot raise one, because a genuinely new subtype arriving
+  would move it by a few counts and read as noise. Allowlisting them took that
+  bucket from 1,996 lines to 119.
 
-- **Both allowlists are attested by committed fixtures.** Every member appears
-  in `fixtures/sanitized/hook-trace-*.jsonl`. That is the bar
-  `EMITTABLE_VALUE_FIELDS` sets: a closed, content-free vocabulary this file
-  declares, not one the corpus supplies. Adding a member is output-affecting and
-  bumps this version.
+- **Folded histograms seed their falsification buckets at `0`.**
+  `dict(Counter.most_common())` omits a bucket that never fired, so a negative
+  result arrived as a missing key and `report[...]["<other>"]` raised instead of
+  returning zero. CCDC attests by `(tool, scan_version)` without re-deriving, so
+  an explicit zero is the only thing carrying the negative.
+
+- **Every fold now delegates to one `_fold()`.** Three byte-identical bodies had
+  accumulated, so a change to the fold contract could reach one and miss the
+  others. An assertion at import time also refuses any allowlist member that
+  collides with a bucket label, since an emitted-verbatim `<other>` would be
+  indistinguishable from a fold result.
+
+- **The human report routes the new section through `table()`.** It printed raw
+  dict reprs, and this report is Markdown: a bare `<other>` parses as an HTML
+  tag and renders as nothing, so the drift bucket was the one value a reader
+  could not see. The `tool_result_line_keys` section is now labelled in
+  `tool_result blocks` rather than `lines`, which is what it has always counted.
+  Its weighting is left alone deliberately: re-weighting it would break
+  comparison with every retained scan.
+
+- **Both allowlists are attested by committed fixtures**, which is the bar
+  `EMITTABLE_VALUE_FIELDS` sets. Both new folded fields are now named in that
+  frozenset, so it remains the single answer to "what can this tool print?".
+  Adding a member is output-affecting and bumps this version.
+
+- **CI.** `.github/workflows/format-scan-ci.yml` runs the suite on a 3.11/3.12/
+  3.13 matrix. Nothing ran it before, so an edit widening an allowlist or
+  dropping a fold could merge green past the content-free contract test.
+
+Retained artifact: `scan-2026-09-23.json` (3,680 files, 465,452 lines, 131
+versions, 0 parse errors). It replaces an unreleased `scan-2026-09-22.json`
+produced by the first draft of this version, whose `hook_records` block has a
+different shape under the same `scan_version` — keeping both would defeat the
+handle the version field exists to provide.
 
 ## [0.3.0] — five statistic families, and a fold rule for open enums
 

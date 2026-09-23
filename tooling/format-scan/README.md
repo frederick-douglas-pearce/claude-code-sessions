@@ -82,9 +82,11 @@ presence counts, plus orphaned `tool_result` blocks split on `isSidechain`. The
 join is per-file because subagent traces carry their own `tool_use_id` space, so
 a cross-file join would resolve ids a real parser never could.
 
-Three values are **folded**: `stop_reason` against `STOP_REASON_VALUES`, the
-joined tool name against `TOOL_NAME_ALLOWLIST`, and the `tool-results/` filename
-prefix against `TOOL_RESULT_PREFIX_ALLOWLIST`. Anything outside those fixed sets
+Five values are **folded**: `stop_reason` against `STOP_REASON_VALUES`, the
+joined tool name against `TOOL_NAME_ALLOWLIST`, the `tool-results/` filename
+prefix against `TOOL_RESULT_PREFIX_ALLOWLIST`, a `system` line's `subtype`
+against `SYSTEM_SUBTYPE_ALLOWLIST`, and `toolDenialKind` against
+`TOOL_DENIAL_KIND_ALLOWLIST`. Anything outside those fixed sets
 is counted as the literal `<other>`, with one declared exception: an MCP
 tool-results prefix folds to the fixed label `mcp` instead (below). Folding is
 what lets an open-ended field be
@@ -101,6 +103,43 @@ hyphen form is recognised: a file named with the double-underscore convention
 (`mcp__<server>__<tool>_...`) cuts at the first `_` and yields a bare `mcp`,
 which lands in `<other>`. That is safe — nothing leaks either way — but it means
 the `mcp` count is a floor, not a total.
+
+### Hook records
+
+`hook_records` is a cross-tab over `system` lines, at three widths, and the
+widths are the point. `by_subtype` folds every `system` line. `hook_record_by_subtype`
+narrows to lines carrying any member of `HOOK_RECORD_KEYS`, which is the
+denominator for "which subtypes does hook activity land on". `hook_family_by_subtype`
+narrows again to lines carrying `hookCount`, the anchor of the hook-execution
+family. That family is six keys that always co-occur plus one optional seventh:
+`hookAdditionalContext` is on 3,176 of the 4,159 family lines and absent from
+the other 983. `toolUseID` appears on more lines than the family has, so it
+co-occurs rather than belongs.
+
+Read the inner one against the middle one, never against `by_subtype`. A probe
+anchored on the family alone cannot answer the broad question, because a hook
+record that uses a different key set is excluded from it by construction, and
+the answer "the family only lands on `stop_hook_summary`" would come back
+whatever the corpus held. The corpus does hold a second shape: a blocking
+`UserPromptSubmit` hook writes an `informational` line carrying
+`preventContinuation` and no `hookCount`.
+
+`hook_record_shapes` names each observed combination by joining the sorted
+`HOOK_RECORD_KEYS` present with `+`. Key names only, all of them drawn from a
+frozenset the scanner declares, so the string is content-free by construction.
+The number of entries is the number of distinct hook-record shapes in the
+corpus.
+
+`toolDenialKind` is folded and counted per **line**. `tool_result_line_keys`
+counts the same key per `tool_result` **block**, over a different population,
+so the two are not comparable on their own. `tool_denial_result_lines` is the
+overlap: denial lines that carry at least one `tool_result` block. Only that
+figure read against the block-weighted one says whether a denial line ever
+carried a second result.
+
+Every histogram here seeds its falsification buckets at `0` rather than
+omitting them, so "the fold found nothing outside the allowlist" is a value a
+consumer can read rather than a `KeyError`.
 
 ### Retained scan artifacts
 

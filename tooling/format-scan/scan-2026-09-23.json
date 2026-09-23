@@ -2,33 +2,53 @@
   "baseline_diff": null,
   "content_block_types": {
     "image": 5,
-    "text": 41919,
-    "thinking": 48781,
-    "tool_result": 101320,
-    "tool_use": 101319
+    "text": 41964,
+    "thinking": 48925,
+    "tool_result": 101553,
+    "tool_use": 101552
   },
   "hook_records": {
     "by_subtype": {
-      "<other>": 1996,
+      "<absent>": 0,
+      "<null>": 0,
+      "<other>": 119,
+      "api_error": 31,
+      "away_summary": 1243,
       "informational": 14,
-      "stop_hook_summary": 4154,
-      "turn_duration": 4700
+      "local_command": 607,
+      "stop_hook_summary": 4159,
+      "turn_duration": 4705
     },
     "denominators": {
       "by_subtype": "every `system` line, folded to SYSTEM_SUBTYPE_ALLOWLIST or OTHER_BUCKET. `<absent>` and `<null>` are kept apart: a `system` line with no subtype is a real observation",
-      "hook_family_by_subtype": "the subset of those lines carrying HOOK_FAMILY_KEY (`hookCount`), folded the same way. Read against `by_subtype` as a cross-tab. The whole family landing on one subtype is the claim this probe exists to test; any count under OTHER_BUCKET falsifies it",
-      "tool_denial_by_kind": "counted per LINE carrying `toolDenialKind`, NOT per `tool_result` block. `tool_result_line_keys` counts the same key block-weighted, so its figure is an upper bound on distinct lines and this one is the actual count"
+      "hook_family_by_subtype": "the narrower subset carrying HOOK_FAMILY_KEY (`hookCount`). Read against `hook_record_by_subtype`, NOT against `by_subtype`: the claim it tests is about the family specifically, and it says nothing about hook records that omit the family. Any count under OTHER_BUCKET falsifies the narrow claim",
+      "hook_record_by_subtype": "the subset of those lines carrying ANY HOOK_RECORD_KEYS member, folded the same way. THIS is the denominator for 'which subtypes does hook activity land on'. A probe anchored on the hook-execution family alone cannot answer it: a hook record using a different key set is excluded by construction, so the family-only answer is guaranteed regardless of what the corpus holds",
+      "hook_record_shapes": "HOOK_RECORD_KEYS present on each hook record, sorted and joined with `+`. Key NAMES only, every one drawn from an allowlist this file declares, so the string is content-free by construction. The number of entries is the number of distinct hook-record shapes in the corpus",
+      "tool_denial_by_kind": "counted per LINE carrying `toolDenialKind`, NOT per `tool_result` block. `tool_result_line_keys` counts the same key block-weighted over a DIFFERENT population (lines with at least one `tool_result` block), so the two figures are not comparable on their own. `tool_denial_result_lines` is the overlap, and only that figure against the block-weighted one says whether any denial line carried a second `tool_result`"
     },
     "hook_family_by_subtype": {
-      "stop_hook_summary": 4154
+      "<other>": 0,
+      "stop_hook_summary": 4159
     },
-    "hook_family_lines": 4154,
-    "system_lines": 10864,
+    "hook_family_lines": 4159,
+    "hook_record_by_subtype": {
+      "<other>": 0,
+      "informational": 3,
+      "stop_hook_summary": 4159
+    },
+    "hook_record_lines": 4162,
+    "hook_record_shapes": {
+      "hookAdditionalContext+hookCount+hookErrors+hookInfos+preventedContinuation": 3176,
+      "hookCount+hookErrors+hookInfos+preventedContinuation": 983,
+      "preventContinuation": 3
+    },
+    "system_lines": 10878,
     "tool_denial_by_kind": {
       "<other>": 86,
-      "permission-rule": 146
+      "permission-rule": 147
     },
-    "tool_denial_lines": 232
+    "tool_denial_lines": 233,
+    "tool_denial_result_lines": 233
   },
   "keys_by_type": {
     "agent-name": {
@@ -37,94 +57,94 @@
       "type": 408
     },
     "ai-title": {
-      "aiTitle": 8914,
-      "sessionId": 8914,
-      "type": 8914
+      "aiTitle": 8918,
+      "sessionId": 8918,
+      "type": 8918
     },
     "assistant": {
-      "advisorModel": 4127,
-      "agentId": 75880,
-      "apiBlockIndex": 46409,
+      "advisorModel": 4495,
+      "agentId": 76027,
+      "apiBlockIndex": 46829,
       "apiError": 1,
       "apiErrorIsTransient": 1,
       "apiErrorStatus": 51,
-      "attributionAgent": 65492,
-      "attributionMcpServer": 8722,
-      "attributionMcpTool": 8722,
-      "attributionPlugin": 17966,
-      "attributionSkill": 37699,
-      "cwd": 191300,
-      "effort": 119411,
-      "entrypoint": 186238,
+      "attributionAgent": 65571,
+      "attributionMcpServer": 8727,
+      "attributionMcpTool": 8727,
+      "attributionPlugin": 18174,
+      "attributionSkill": 37975,
+      "cwd": 191720,
+      "effort": 119831,
+      "entrypoint": 186658,
       "error": 82,
-      "gitBranch": 191300,
+      "gitBranch": 191720,
       "isAbortedMidStream": 3,
       "isApiErrorMessage": 263,
-      "isSidechain": 191300,
-      "message": 191300,
-      "parentUuid": 191300,
-      "perTurnEffort": 24923,
+      "isSidechain": 191720,
+      "message": 191720,
+      "parentUuid": 191720,
+      "perTurnEffort": 25343,
       "quotaLimits": 37,
-      "requestId": 191090,
-      "serverClassifierRequest": 6014,
-      "sessionId": 191300,
+      "requestId": 191510,
+      "serverClassifierRequest": 6426,
+      "sessionId": 191720,
       "sessionKind": 721,
-      "session_id": 71466,
-      "slug": 35637,
-      "timestamp": 191300,
-      "type": 191300,
-      "userType": 191300,
-      "uuid": 191300,
-      "version": 191300,
-      "wireIngestContext": 8394,
-      "wireToolInputs": 12930
+      "session_id": 71731,
+      "slug": 35818,
+      "timestamp": 191720,
+      "type": 191720,
+      "userType": 191720,
+      "uuid": 191720,
+      "version": 191720,
+      "wireIngestContext": 8510,
+      "wireToolInputs": 13163
     },
     "atis-latch": {
-      "atis": 7961,
-      "sessionId": 7961,
-      "type": 7961
+      "atis": 8033,
+      "sessionId": 8033,
+      "type": 8033
     },
     "attachment": {
-      "agentId": 15144,
-      "attachment": 55736,
-      "cwd": 55736,
-      "entrypoint": 55736,
-      "gitBranch": 55736,
-      "isSidechain": 55736,
-      "parentUuid": 55736,
-      "rendered": 19811,
-      "renderedInHumanTurn": 168,
-      "sessionId": 55736,
+      "agentId": 15245,
+      "attachment": 56085,
+      "cwd": 56085,
+      "entrypoint": 56085,
+      "gitBranch": 56085,
+      "isSidechain": 56085,
+      "parentUuid": 56085,
+      "rendered": 20134,
+      "renderedInHumanTurn": 170,
+      "sessionId": 56085,
       "sessionKind": 100,
-      "session_id": 26018,
-      "slug": 9466,
-      "timestamp": 55736,
-      "type": 55736,
-      "userType": 55736,
-      "uuid": 55736,
-      "version": 55736
+      "session_id": 26225,
+      "slug": 9591,
+      "timestamp": 56085,
+      "type": 56085,
+      "userType": 56085,
+      "uuid": 56085,
+      "version": 56085
     },
     "bridge-session": {
-      "bridgeSessionId": 5024,
-      "lastSequenceNum": 5024,
-      "ownerAccountUuid": 5024,
-      "ownerOrganizationUuid": 5024,
-      "sessionId": 5024,
-      "type": 5024
+      "bridgeSessionId": 5091,
+      "lastSequenceNum": 5091,
+      "ownerAccountUuid": 5091,
+      "ownerOrganizationUuid": 5091,
+      "sessionId": 5091,
+      "type": 5091
     },
     "cost-state": {
-      "hasUnknownModelCost": 233,
-      "modelUsage": 233,
-      "sessionId": 233,
-      "startTime": 233,
-      "totalAPIDuration": 233,
-      "totalAPIDurationWithoutRetries": 233,
-      "totalCostUSD": 233,
-      "totalDuration": 233,
-      "totalLinesAdded": 233,
-      "totalLinesRemoved": 233,
-      "totalToolDuration": 233,
-      "type": 233
+      "hasUnknownModelCost": 235,
+      "modelUsage": 235,
+      "sessionId": 235,
+      "startTime": 235,
+      "totalAPIDuration": 235,
+      "totalAPIDurationWithoutRetries": 235,
+      "totalCostUSD": 235,
+      "totalDuration": 235,
+      "totalLinesAdded": 235,
+      "totalLinesRemoved": 235,
+      "totalToolDuration": 235,
+      "type": 235
     },
     "custom-title": {
       "customTitle": 4588,
@@ -132,18 +152,18 @@
       "type": 4588
     },
     "file-history-delta": {
-      "backup": 1277,
-      "messageId": 1277,
-      "snapshotMessageId": 1277,
-      "timestamp": 1277,
-      "trackingPath": 1277,
-      "type": 1277
+      "backup": 1279,
+      "messageId": 1279,
+      "snapshotMessageId": 1279,
+      "timestamp": 1279,
+      "trackingPath": 1279,
+      "type": 1279
     },
     "file-history-snapshot": {
-      "isSnapshotUpdate": 6396,
-      "messageId": 6396,
-      "snapshot": 6396,
-      "type": 6396
+      "isSnapshotUpdate": 6403,
+      "messageId": 6403,
+      "snapshot": 6403,
+      "type": 6403
     },
     "frame-link": {
       "frameUrl": 2,
@@ -154,28 +174,28 @@
       "type": 2
     },
     "last-prompt": {
-      "lastPrompt": 15588,
-      "leafUuid": 18408,
-      "sessionId": 19123,
-      "type": 19123
+      "lastPrompt": 15623,
+      "leafUuid": 18477,
+      "sessionId": 19192,
+      "type": 19192
     },
     "mode": {
-      "mode": 14864,
-      "sessionId": 14864,
-      "type": 14864
+      "mode": 14929,
+      "sessionId": 14929,
+      "type": 14929
     },
     "permission-mode": {
-      "permissionMode": 6740,
-      "sessionId": 6740,
-      "type": 6740
+      "permissionMode": 6783,
+      "sessionId": 6783,
+      "type": 6783
     },
     "pr-link": {
-      "prNumber": 9899,
-      "prRepository": 9899,
-      "prUrl": 9899,
-      "sessionId": 9899,
-      "timestamp": 9899,
-      "type": 9899
+      "prNumber": 9930,
+      "prRepository": 9930,
+      "prUrl": 9930,
+      "sessionId": 9930,
+      "timestamp": 9930,
+      "type": 9930
     },
     "progress": {
       "agentId": 2747,
@@ -195,98 +215,98 @@
       "version": 2747
     },
     "queue-operation": {
-      "content": 3272,
-      "operation": 5425,
-      "reason": 288,
-      "sessionId": 5425,
-      "timestamp": 5425,
-      "type": 5425
+      "content": 3284,
+      "operation": 5439,
+      "reason": 293,
+      "sessionId": 5439,
+      "timestamp": 5439,
+      "type": 5439
     },
     "system": {
       "agentId": 71,
       "cause": 5,
-      "commandRun": 29,
-      "compactMetadata": 113,
-      "content": 1979,
-      "cwd": 10864,
-      "durationMs": 4700,
-      "entrypoint": 10793,
+      "commandRun": 30,
+      "compactMetadata": 114,
+      "content": 1983,
+      "cwd": 10878,
+      "durationMs": 4705,
+      "entrypoint": 10807,
       "error": 31,
-      "gitBranch": 10864,
-      "hasOutput": 4154,
-      "hookAdditionalContext": 3171,
-      "hookCount": 4154,
-      "hookErrors": 4154,
-      "hookInfos": 4154,
-      "isMeta": 6602,
-      "isSidechain": 10864,
-      "level": 4918,
-      "logicalParentUuid": 113,
+      "gitBranch": 10878,
+      "hasOutput": 4159,
+      "hookAdditionalContext": 3176,
+      "hookCount": 4159,
+      "hookErrors": 4159,
+      "hookInfos": 4159,
+      "isMeta": 6610,
+      "isSidechain": 10878,
+      "level": 4925,
+      "logicalParentUuid": 114,
       "maxRetries": 31,
-      "messageCount": 4638,
-      "parentUuid": 10864,
-      "pendingBackgroundAgentCount": 977,
+      "messageCount": 4643,
+      "parentUuid": 10878,
+      "pendingBackgroundAgentCount": 979,
       "preventContinuation": 3,
-      "preventedContinuation": 4154,
+      "preventedContinuation": 4159,
       "retryAttempt": 31,
       "retryInMs": 31,
-      "sessionId": 10864,
+      "sessionId": 10878,
       "sessionKind": 125,
-      "session_id": 2909,
-      "slug": 2739,
-      "stopReason": 4154,
-      "subtype": 10864,
-      "timestamp": 10864,
-      "toolUseID": 4154,
-      "type": 10864,
-      "userType": 10864,
-      "uuid": 10864,
-      "version": 10864
+      "session_id": 2914,
+      "slug": 2747,
+      "stopReason": 4159,
+      "subtype": 10878,
+      "timestamp": 10878,
+      "toolUseID": 4159,
+      "type": 10878,
+      "userType": 10878,
+      "uuid": 10878,
+      "version": 10878
     },
     "user": {
-      "agentId": 45967,
+      "agentId": 46058,
       "classifierMetaLines": 1898,
-      "cwd": 112536,
-      "entrypoint": 108953,
-      "gitBranch": 112536,
+      "cwd": 112792,
+      "entrypoint": 109209,
+      "gitBranch": 112792,
       "interruptedByShutdown": 14,
       "interruptedMessageId": 23,
-      "isCompactSummary": 113,
-      "isMeta": 1820,
-      "isSidechain": 112536,
-      "isVisibleInTranscriptOnly": 113,
-      "message": 112536,
-      "origin": 3279,
-      "parentUuid": 112536,
-      "permissionMode": 5488,
-      "promptId": 108418,
-      "promptSource": 4089,
+      "isCompactSummary": 114,
+      "isMeta": 1828,
+      "isSidechain": 112792,
+      "isVisibleInTranscriptOnly": 114,
+      "message": 112792,
+      "origin": 3285,
+      "parentUuid": 112792,
+      "permissionMode": 5493,
+      "promptId": 108672,
+      "promptSource": 4094,
       "queuePriority": 4,
-      "queueSkipAttachments": 531,
-      "serverClassifierContext": 1692,
-      "sessionId": 112536,
+      "queueSkipAttachments": 532,
+      "serverClassifierContext": 1812,
+      "sessionId": 112792,
       "sessionKind": 427,
-      "session_id": 35367,
-      "slug": 22503,
-      "sourceToolAssistantUUID": 101320,
+      "session_id": 35516,
+      "slug": 22609,
+      "sourceToolAssistantUUID": 101553,
       "sourceToolUseID": 176,
-      "timestamp": 112536,
-      "toolDenialKind": 232,
-      "toolEndsTurn": 657,
-      "toolUseResult": 88911,
-      "turnCompanion": 164,
-      "turnOrigin": 145,
-      "type": 112536,
+      "timestamp": 112792,
+      "toolDenialKind": 233,
+      "toolEndsTurn": 658,
+      "toolUseResult": 89109,
+      "turnCompanion": 166,
+      "turnOrigin": 152,
+      "type": 112792,
       "userFeedback": 7,
-      "userType": 112536,
-      "uuid": 112536,
-      "version": 112536
+      "userType": 112792,
+      "uuid": 112792,
+      "version": 112792
     }
   },
   "message_shape": {
     "assistant_api_error_lines": 82,
-    "assistant_lines": 191300,
-    "assistant_lines_sidechain": 75880,
+    "assistant_lines": 191720,
+    "assistant_lines_sidechain": 76027,
     "denominators": {
       "model_bucket": "`synthetic` = message.model is the fixed marker; `absent` = key missing or null; `real` = anything else. The observed model string is never emitted",
       "scope": "every figure in this section POOLS subagent-trace lines with parent-transcript ones \u2014 the scan walks both. `assistant_lines_sidechain` / `user_lines_sidechain` quantify how much is subagent traffic; there is no per-bucket split",
@@ -297,36 +317,36 @@
     },
     "stop_reason_by_model_bucket": {
       "real": {
-        "<null>": 48854,
-        "end_turn": 8996,
-        "tool_use": 133187
+        "<null>": 48988,
+        "end_turn": 9006,
+        "tool_use": 133463
       },
       "synthetic": {
         "stop_sequence": 263
       }
     },
     "stop_reason_presence": {
-      "present_non_null": 142446,
-      "present_null": 48854
+      "present_non_null": 142732,
+      "present_null": 48988
     },
     "stop_sequence_state_by_model_bucket": {
       "real": {
-        "null": 191037
+        "null": 191457
       },
       "synthetic": {
         "empty_string": 263
       }
     },
     "user_content_shape": {
-      "list": 102006,
-      "str": 10530
+      "list": 102241,
+      "str": 10551
     },
-    "user_lines": 112536,
-    "user_lines_sidechain": 45967
+    "user_lines": 112792,
+    "user_lines_sidechain": 46058
   },
   "meta_json_by_version": {
     "attribution": "earliest `version` observed on the subagent's own trace file (spawn time); manifests carry no version of their own",
-    "manifests_attributed": 2235,
+    "manifests_attributed": 2239,
     "manifests_unattributed": 0,
     "traces_spanning_multiple_versions": 0,
     "versions": {
@@ -1639,55 +1659,72 @@
       },
       "2.1.278": {
         "keys": {
-          "agentType": 54,
-          "description": 54,
-          "name": 2,
-          "requestNonInteractive": 54,
-          "requestShape": 54,
-          "spawnDepth": 54,
-          "toolUseId": 52
+          "agentType": 57,
+          "description": 57,
+          "model": 2,
+          "name": 3,
+          "requestNonInteractive": 57,
+          "requestShape": 57,
+          "spawnDepth": 57,
+          "toolUseId": 54
         },
-        "manifests": 54,
+        "manifests": 57,
         "values": {
           "spawnDepth": {
-            "1": 54
+            "1": 57
+          }
+        }
+      },
+      "2.1.280": {
+        "keys": {
+          "agentType": 1,
+          "description": 1,
+          "requestNonInteractive": 1,
+          "requestShape": 1,
+          "spawnDepth": 1,
+          "toolUseId": 1
+        },
+        "manifests": 1,
+        "values": {
+          "spawnDepth": {
+            "1": 1
           }
         }
       }
     }
   },
   "meta_json_keys": {
-    "files": 2235,
+    "files": 2239,
     "key_types": {
       "agentType": {
-        "str": 2235
+        "str": 2239
       },
       "description": {
-        "str": 2234
+        "str": 2238
       },
       "model": {
-        "str": 113
+        "str": 115
       },
       "name": {
-        "str": 67
+        "str": 68
       },
       "parentAgentId": {
         "str": 19
       },
       "requestNonInteractive": {
-        "bool": 268
+        "bool": 272
       },
       "requestShape": {
-        "str": 268
+        "str": 272
       },
       "spawnDepth": {
-        "int": 1269
+        "int": 1273
       },
       "spawnedWithWorktree": {
         "bool": 30
       },
       "toolUseId": {
-        "str": 1877
+        "str": 1880
       },
       "worktreeBranch": {
         "str": 31
@@ -1700,16 +1737,16 @@
       }
     },
     "keys": {
-      "agentType": 2235,
-      "description": 2234,
-      "model": 113,
-      "name": 67,
+      "agentType": 2239,
+      "description": 2238,
+      "model": 115,
+      "name": 68,
       "parentAgentId": 19,
-      "requestNonInteractive": 268,
-      "requestShape": 268,
-      "spawnDepth": 1269,
+      "requestNonInteractive": 272,
+      "requestShape": 272,
+      "spawnDepth": 1273,
       "spawnedWithWorktree": 30,
-      "toolUseId": 1877,
+      "toolUseId": 1880,
       "worktreeBranch": 31,
       "worktreeCleanlyRemoved": 3,
       "worktreePath": 37
@@ -1718,32 +1755,32 @@
   },
   "scan_version": "0.4.0",
   "session_subdirs": {
-    "subagents": 432,
-    "tool-results": 206
+    "subagents": 435,
+    "tool-results": 207
   },
   "summary": {
-    "files_scanned": 3674,
-    "lines_scanned": 464037,
+    "files_scanned": 3680,
+    "lines_scanned": 465452,
     "max_files": null,
     "parse_errors": 0,
-    "session_dirs_with_subdirectories": 449
+    "session_dirs_with_subdirectories": 451
   },
   "tool": "ccs-format-scan",
   "tool_cycle": {
     "by_tool": {
       "<other>": {
-        "results": 91271,
-        "structuredPatch": 1622,
-        "toolUseResult_absent": 12318,
-        "toolUseResult_dict": 74064,
-        "toolUseResult_non_dict": 4889
+        "results": 91501,
+        "structuredPatch": 1624,
+        "toolUseResult_absent": 12353,
+        "toolUseResult_dict": 74252,
+        "toolUseResult_non_dict": 4896
       },
       "Agent": {
-        "prompt": 2176,
-        "results": 2189,
+        "prompt": 2179,
+        "results": 2192,
         "toolStats": 1171,
         "toolUseResult_absent": 8,
-        "toolUseResult_dict": 2176,
+        "toolUseResult_dict": 2179,
         "toolUseResult_non_dict": 5
       },
       "Edit": {
@@ -1765,194 +1802,194 @@
     "orphaned": {
       "sidechain": 4
     },
-    "resolved": 101316,
-    "tool_result_blocks": 101320
+    "resolved": 101549,
+    "tool_result_blocks": 101553
   },
   "tool_result_line_keys": {
-    "agentId": 42994,
+    "agentId": 43078,
     "classifierMetaLines": 1898,
-    "cwd": 101320,
-    "entrypoint": 98101,
-    "gitBranch": 101320,
-    "isSidechain": 101320,
-    "message": 101320,
-    "parentUuid": 101320,
-    "promptId": 98082,
-    "serverClassifierContext": 1692,
-    "sessionId": 101320,
+    "cwd": 101553,
+    "entrypoint": 98334,
+    "gitBranch": 101553,
+    "isSidechain": 101553,
+    "message": 101553,
+    "parentUuid": 101553,
+    "promptId": 98315,
+    "serverClassifierContext": 1812,
+    "sessionId": 101553,
     "sessionKind": 336,
-    "session_id": 34882,
-    "slug": 19941,
-    "sourceToolAssistantUUID": 101320,
-    "timestamp": 101320,
-    "toolDenialKind": 232,
-    "toolEndsTurn": 657,
-    "toolUseResult": 88911,
-    "type": 101320,
+    "session_id": 35027,
+    "slug": 20038,
+    "sourceToolAssistantUUID": 101553,
+    "timestamp": 101553,
+    "toolDenialKind": 233,
+    "toolEndsTurn": 658,
+    "toolUseResult": 89109,
+    "type": 101553,
     "userFeedback": 7,
-    "userType": 101320,
-    "uuid": 101320,
-    "version": 101320
+    "userType": 101553,
+    "uuid": 101553,
+    "version": 101553
   },
   "tool_results": {
     "extensions": {
       "json": 18,
       "pdf": 34,
-      "txt": 596
+      "txt": 597
     },
     "name_prefixes": {
-      "<other>": 496,
+      "<other>": 497,
       "mcp": 82,
       "toolu": 70
     },
     "size_bytes": {
-      "count": 648,
+      "count": 649,
       "max": 5958844,
       "median": 45023,
       "min": 6327
     }
   },
   "top_level_keys": {
-    "advisorModel": 4127,
-    "agentId": 139809,
+    "advisorModel": 4495,
+    "agentId": 140148,
     "agentName": 408,
-    "aiTitle": 8914,
-    "apiBlockIndex": 46409,
+    "aiTitle": 8918,
+    "apiBlockIndex": 46829,
     "apiError": 1,
     "apiErrorIsTransient": 1,
     "apiErrorStatus": 51,
-    "atis": 7961,
-    "attachment": 55736,
-    "attributionAgent": 65492,
-    "attributionMcpServer": 8722,
-    "attributionMcpTool": 8722,
-    "attributionPlugin": 17966,
-    "attributionSkill": 37699,
-    "backup": 1277,
-    "bridgeSessionId": 5024,
+    "atis": 8033,
+    "attachment": 56085,
+    "attributionAgent": 65571,
+    "attributionMcpServer": 8727,
+    "attributionMcpTool": 8727,
+    "attributionPlugin": 18174,
+    "attributionSkill": 37975,
+    "backup": 1279,
+    "bridgeSessionId": 5091,
     "cause": 5,
     "classifierMetaLines": 1898,
-    "commandRun": 29,
-    "compactMetadata": 113,
-    "content": 5251,
+    "commandRun": 30,
+    "compactMetadata": 114,
+    "content": 5267,
     "customTitle": 4588,
-    "cwd": 373183,
+    "cwd": 374222,
     "data": 2747,
-    "durationMs": 4700,
-    "effort": 119411,
-    "entrypoint": 361720,
+    "durationMs": 4705,
+    "effort": 119831,
+    "entrypoint": 362759,
     "error": 113,
     "frameUrl": 2,
-    "gitBranch": 373183,
-    "hasOutput": 4154,
-    "hasUnknownModelCost": 233,
-    "hookAdditionalContext": 3171,
-    "hookCount": 4154,
-    "hookErrors": 4154,
-    "hookInfos": 4154,
+    "gitBranch": 374222,
+    "hasOutput": 4159,
+    "hasUnknownModelCost": 235,
+    "hookAdditionalContext": 3176,
+    "hookCount": 4159,
+    "hookErrors": 4159,
+    "hookInfos": 4159,
     "interruptedByShutdown": 14,
     "interruptedMessageId": 23,
     "isAbortedMidStream": 3,
     "isApiErrorMessage": 263,
-    "isCompactSummary": 113,
-    "isMeta": 8422,
-    "isSidechain": 373183,
-    "isSnapshotUpdate": 6396,
-    "isVisibleInTranscriptOnly": 113,
-    "lastPrompt": 15588,
-    "lastSequenceNum": 5024,
-    "leafUuid": 18408,
-    "level": 4918,
-    "logicalParentUuid": 113,
+    "isCompactSummary": 114,
+    "isMeta": 8438,
+    "isSidechain": 374222,
+    "isSnapshotUpdate": 6403,
+    "isVisibleInTranscriptOnly": 114,
+    "lastPrompt": 15623,
+    "lastSequenceNum": 5091,
+    "leafUuid": 18477,
+    "level": 4925,
+    "logicalParentUuid": 114,
     "maxRetries": 31,
-    "message": 303836,
-    "messageCount": 4638,
-    "messageId": 7673,
-    "mode": 14864,
-    "modelUsage": 233,
-    "operation": 5425,
-    "origin": 3279,
-    "ownerAccountUuid": 5024,
-    "ownerOrganizationUuid": 5024,
+    "message": 304512,
+    "messageCount": 4643,
+    "messageId": 7682,
+    "mode": 14929,
+    "modelUsage": 235,
+    "operation": 5439,
+    "origin": 3285,
+    "ownerAccountUuid": 5091,
+    "ownerOrganizationUuid": 5091,
     "parentToolUseID": 2747,
-    "parentUuid": 373183,
+    "parentUuid": 374222,
     "path": 2,
-    "pendingBackgroundAgentCount": 977,
-    "perTurnEffort": 24923,
-    "permissionMode": 12228,
-    "prNumber": 9899,
-    "prRepository": 9899,
-    "prUrl": 9899,
+    "pendingBackgroundAgentCount": 979,
+    "perTurnEffort": 25343,
+    "permissionMode": 12276,
+    "prNumber": 9930,
+    "prRepository": 9930,
+    "prUrl": 9930,
     "preventContinuation": 3,
-    "preventedContinuation": 4154,
-    "promptId": 108418,
-    "promptSource": 4089,
+    "preventedContinuation": 4159,
+    "promptId": 108672,
+    "promptSource": 4094,
     "queuePriority": 4,
-    "queueSkipAttachments": 531,
+    "queueSkipAttachments": 532,
     "quotaLimits": 37,
-    "reason": 288,
-    "rendered": 19811,
-    "renderedInHumanTurn": 168,
-    "requestId": 191090,
+    "reason": 293,
+    "rendered": 20134,
+    "renderedInHumanTurn": 170,
+    "requestId": 191510,
     "retryAttempt": 31,
     "retryInMs": 31,
-    "serverClassifierContext": 1692,
-    "serverClassifierRequest": 6014,
-    "sessionId": 456364,
+    "serverClassifierContext": 1812,
+    "serverClassifierRequest": 6426,
+    "sessionId": 457770,
     "sessionKind": 1373,
-    "session_id": 135760,
-    "slug": 73092,
-    "snapshot": 6396,
-    "snapshotMessageId": 1277,
-    "sourceToolAssistantUUID": 101320,
+    "session_id": 136386,
+    "slug": 73512,
+    "snapshot": 6403,
+    "snapshotMessageId": 1279,
+    "sourceToolAssistantUUID": 101553,
     "sourceToolUseID": 176,
-    "startTime": 233,
-    "stopReason": 4154,
-    "subtype": 10864,
-    "timestamp": 389786,
+    "startTime": 235,
+    "stopReason": 4159,
+    "subtype": 10878,
+    "timestamp": 390872,
     "title": 2,
-    "toolDenialKind": 232,
-    "toolEndsTurn": 657,
-    "toolUseID": 6901,
-    "toolUseResult": 88911,
-    "totalAPIDuration": 233,
-    "totalAPIDurationWithoutRetries": 233,
-    "totalCostUSD": 233,
-    "totalDuration": 233,
-    "totalLinesAdded": 233,
-    "totalLinesRemoved": 233,
-    "totalToolDuration": 233,
-    "trackingPath": 1277,
-    "turnCompanion": 164,
-    "turnOrigin": 145,
-    "type": 464037,
+    "toolDenialKind": 233,
+    "toolEndsTurn": 658,
+    "toolUseID": 6906,
+    "toolUseResult": 89109,
+    "totalAPIDuration": 235,
+    "totalAPIDurationWithoutRetries": 235,
+    "totalCostUSD": 235,
+    "totalDuration": 235,
+    "totalLinesAdded": 235,
+    "totalLinesRemoved": 235,
+    "totalToolDuration": 235,
+    "trackingPath": 1279,
+    "turnCompanion": 166,
+    "turnOrigin": 152,
+    "type": 465452,
     "userFeedback": 7,
-    "userType": 373183,
-    "uuid": 373183,
-    "version": 373183,
-    "wireIngestContext": 8394,
-    "wireToolInputs": 12930
+    "userType": 374222,
+    "uuid": 374222,
+    "version": 374222,
+    "wireIngestContext": 8510,
+    "wireToolInputs": 13163
   },
   "top_level_types": {
     "agent-name": 408,
-    "ai-title": 8914,
-    "assistant": 191300,
-    "atis-latch": 7961,
-    "attachment": 55736,
-    "bridge-session": 5024,
-    "cost-state": 233,
+    "ai-title": 8918,
+    "assistant": 191720,
+    "atis-latch": 8033,
+    "attachment": 56085,
+    "bridge-session": 5091,
+    "cost-state": 235,
     "custom-title": 4588,
-    "file-history-delta": 1277,
-    "file-history-snapshot": 6396,
+    "file-history-delta": 1279,
+    "file-history-snapshot": 6403,
     "frame-link": 2,
-    "last-prompt": 19123,
-    "mode": 14864,
-    "permission-mode": 6740,
-    "pr-link": 9899,
+    "last-prompt": 19192,
+    "mode": 14929,
+    "permission-mode": 6783,
+    "pr-link": 9930,
     "progress": 2747,
-    "queue-operation": 5425,
-    "system": 10864,
-    "user": 112536
+    "queue-operation": 5439,
+    "system": 10878,
+    "user": 112792
   },
   "versions": {
     "2.1.101": 194,
@@ -2073,8 +2110,8 @@
     "2.1.272": 51,
     "2.1.273": 18869,
     "2.1.274": 4490,
-    "2.1.278": 11166,
-    "2.1.280": 95,
+    "2.1.278": 11965,
+    "2.1.280": 335,
     "2.1.31": 435,
     "2.1.4": 10,
     "2.1.42": 54,
