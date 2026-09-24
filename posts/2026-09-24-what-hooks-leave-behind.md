@@ -28,21 +28,23 @@ This post rests on two pieces of evidence. The first is a structural scan of eve
 
 Claude Code's hooks documentation describes an outbound contract. When a configured event fires, Claude Code hands the hook a JSON payload: on stdin for a shell command, as a request body for an HTTP hook, as an interpolated argument for a prompt. The [reference](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#hook-event-fields) catalogues thirty of those events, from `SessionStart` and `PreToolUse` through `WorktreeCreate`, `ElicitationResult`, and `post-session`. Each carries the session id, the transcript path, the working directory, the event name, and usually a payload specific to the event.
 
-That is what goes out. What comes back to disk is smaller by an order of magnitude, and it is not evenly distributed across those thirty events. Across the whole scan the on-disk hook record is three things:
+That is what goes out. What comes back to disk is smaller by an order of magnitude, and it is not evenly distributed across those thirty events. Across the whole scan the on-disk hook record takes three forms:
 
-1. A `system` line carrying a family of hook-execution fields
+1. A `system` line with `subtype: "stop_hook_summary"`, carrying a family of hook-execution fields
 2. One field on the `user` line carrying a denied tool result
 3. A `permission-mode` line with three keys total
 
-None of the thirty event names appears in any _field_. One of them reaches disk anyway, inside an error message, which is the sort of thing this post keeps running into. Everything else you can learn about a hook firing comes from the harness's own bookkeeping about it.
+The first of those is the bulk of it, and the subtype is the part to notice. What looks like a general record of hook execution is a summary written by one class of hook.
+
+None of the thirty event names appears in any _field_. One of them reaches disk anyway, inside the text of an error message. That is the first of several places where what you need is written down as prose inside a message rather than as a field you can parse, and it is the pattern worth carrying through the rest of this post. Everything else you can learn about a hook firing comes from the harness's own bookkeeping about it.
 
 ## The record is a Stop-hook summary
 
 Hook activity rides on `system` lines. There is no hook-specific top-level type. What there is, and what I missed the first time, is a `subtype` that names the event.
 
-Of the 10,878 `system` lines in the scan, 4,162 record hook activity. **4,159 of them carry `subtype: "stop_hook_summary"`.** Not a general record of hook execution. A summary written when a `Stop` or `SubagentStop` hook runs.
+Of the 10,878 `system` lines in the scan, 4,162 record hook activity, and **4,159 of them carry `subtype: "stop_hook_summary"`.** Three lines out of 4,162 are anything else, and I had to build a session to produce those three.
 
-That reframes everything. The field family this post was originally built around is not the trace a hook leaves. It is the trace one specific class of hook leaves.
+So the field family this post was originally built around is the trace a `Stop` or `SubagentStop` hook leaves. Everything the first version generalised from it was generalised from one class of hook.
 
 The fields on those lines:
 
