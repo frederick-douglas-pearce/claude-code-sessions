@@ -118,7 +118,7 @@ That prefix is the only thing separating "this hook decided something" from "thi
 
 ## Where a denial actually lands
 
-The first version of this post had a section called "A blocked call, recorded twice", which claimed a `PreToolUse` denial writes both a `system` line and a `user` line. I built a session that denies a tool call to show it, and the `system` line is not there.
+You would expect a denial to be written down twice: once by the hook that blocked the call, once by the tool cycle closing around it. That is what the `system` line exists for everywhere else. I built a session that denies a tool call to look at both halves, and the `system` half is not there.
 
 A denied tool call produces one record: the `user` line that closes the tool cycle, the way any tool result does, with `is_error: true` inside the block and one extra top-level key. Here it is from the fixture, with two long strings elided:
 
@@ -133,7 +133,7 @@ Two things are worth pulling out of it. The first is that the hook **is** named,
 
 The second is the prefix. `PreToolUse:Read hook error:` encodes the event and the tool, which is the only place in the entire record where the event name appears. Thirty documented events, and one of them reaches disk by being typed into an error message.
 
-Which brings us to `toolDenialKind` itself, and where the scan now says something the first version could not. The field is on 233 lines out of 101,553 `tool_result` blocks, roughly two in a thousand. The original post called 233 an upper bound, because the probe counted per block rather than per line and a line carrying two results would be counted twice. The scanner now counts both ways over a stated population, and the two agree at 233, so no denial line carried a second result and the figure is exact.
+Which brings us to `toolDenialKind` itself. The field is on 233 lines out of 101,553 `tool_result` blocks, roughly two in a thousand, and stating that honestly took two attempts. The obvious probe counts keys per `tool_result` block, so a line carrying two results contributes its keys twice, which makes a block-weighted figure an upper bound on lines rather than a count of them. The scanner now counts both ways over a stated population. They agree at 233, so no denial line carried a second result and the figure is exact.
 
 The values split 147 `permission-rule` to 86 something else. So the field does discriminate. It carries at least two values, which rules out its being a constant. What it does not do is separate a hook from a rule: the denial above came from a hook and is labelled `permission-rule`. Whatever the other 86 are, they are not "hook" as distinct from "rule".
 
@@ -201,33 +201,34 @@ The related `progress` type is a different story: 2,747 lines, carrying `toolUse
 
 **Do not use `preventedContinuation` as the "a hook interfered" signal.** It was `false` on every outcome I produced, including a block. Whatever it means, it is not that.
 
-**`hasOutput` is a boolean about whether output happened, not what it was.** That much of the original post survives. But it is less of a limit than I made it sound, because `hookInfos`, `hookErrors`, `hookAdditionalContext`, and `content` between them carry a great deal of what a hook actually said.
+**`hasOutput` is a boolean about whether output happened, not what it was.** A real limit, and a smaller one than it looks, because `hookInfos`, `hookErrors`, `hookAdditionalContext` and `content` between them carry a great deal of what a hook actually said.
 
-## Corrections to my own reference doc, and to this post
+## Four corrections to my own reference doc
 
-Part 5 found three places the reference doc was wrong. This pass found more, and most of them are corrections to the first version of this post rather than to the doc.
-
-Against the reference doc:
+Part 5 found three places the reference doc was wrong. This pass found four more.
 
 - `hookAdditionalContext` is not "Rare." It is on 3,176 lines. It is also an array, not a string.
 - `toolDenialKind` has no row at all. It needs one, with `permission-rule` named and the remaining values marked unknown.
-- The hook-execution section describes its fields as "present as a family on the same lines." Six are. `hookAdditionalContext` is optional and `toolUseID` is not a member.
-- The doc's hook coverage assumes shell scripts on stdin. Five implementation types exist. That is [issue #250](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/250).
+- The hook-execution section describes its fields as "present as a family on the same lines." Five are, measured. `hookAdditionalContext` is optional and `toolUseID` is not a member.
+- The hook coverage assumes shell scripts on stdin. Five implementation types exist. That is [issue #250](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/250).
 
-Against the first version of this post:
+All four have the same cause as Part 5's three: a claim written against what a structural scan could see, never checked against a session built to test it.
 
-- The seven-field family is six fields plus an optional one, and `toolUseID` was never part of it.
-- The record is a Stop-hook summary, named as such by a `subtype` I had not read.
-- A blocked tool call is recorded once, not twice.
-- `hookInfos` names the hook, so "you cannot audit which hook" was wrong.
-- The hook-density caveat blamed two hooks that leave no trace at all.
-- "None of the thirty event names appears anywhere in the JSONL" was too strong. One does, in the text of a denial message.
+## What the scan could not have told me
 
-Both sets have the same cause as Part 5's three: a claim written against what a structural scan could see, never checked against a session built to test it. The scan was necessary and not sufficient. What closed the gap was four hooks, three runs, and a sanitizer.
+It is worth being specific about that, because the scan is not a weak instrument. It reads 3,680 files and 465,452 lines in 26 seconds, it has never miscounted anything I have caught it on, and every number in this post comes from it. It is also the reason I believed five wrong propositions at once.
+
+- That the hook-execution family was seven fields on the same lines. Matching key totals are not shared lines, and a key-count scan cannot tell the two apart.
+- That `toolUseID` belonged to the family. Its total is larger than the family's, which is visible in the counts and easy to skim past.
+- That a blocked tool call was recorded twice. That came from a synthetic fixture built on the same assumption, which is a scan's error laundered through an example.
+- That you could not tell which hook ran. The scan reads key names, never values, so `hookInfos` looks empty from the outside.
+- That no event name reaches disk. None reaches a _field_. One is written into the text of an error message, where a field-oriented probe does not look.
+
+The common shape: a structural scan tells you what is present, and every one of those was a question about what the present thing means. Four hooks, three runs and a sanitizer is what answered them.
 
 ## Why the blind spots moved
 
-The first version of this post had a section explaining that it could not tell you the value of `toolDenialKind`, the value of `stopReason`, the subtype a hook line carries, or the contents of `hookInfos`, because the scanner's contract is that it never emits a value it read from a session.
+A scanner that never emits a value it read cannot tell you the value of `toolDenialKind`, the value of `stopReason`, the subtype a hook line carries, or the contents of `hookInfos`.
 
 That constraint is still there, and it still matters: this repo's whole premise is that session files hold prompts, paths, command output, and sometimes secrets, so the tool that reads 3,680 of them has to be provably incapable of leaking what it saw. But the constraint turned out to be narrower than the blind spot. Two things moved it.
 
