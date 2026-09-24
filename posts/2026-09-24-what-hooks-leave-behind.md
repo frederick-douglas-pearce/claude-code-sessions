@@ -86,9 +86,9 @@ Here is one, from a session built to fire it. The hook ran, produced no output, 
 }
 ```
 
-Four things in that record contradict what the first version of this post said.
+Four of those fields are worth reading closely, because in each case the key name and the key count together give you the wrong idea.
 
-**`hookInfos` names the hook.** I wrote that you cannot audit which hook ran. You can. Each entry carries the `command` as configured, plus `durationMs`. For a shell hook that is the script path, which is usually enough to identify it. A second hook on the same event adds a second entry, so `hookCount: 2` comes with two named commands.
+**`hookInfos` names the hook.** A key-count scan can tell you this field exists and how often, which is what makes it look like a dead end. Each entry carries the `command` as configured, plus `durationMs`. For a shell hook that is the script path, which is usually enough to identify it. A second hook on the same event adds a second entry, so `hookCount: 2` comes with two named commands.
 
 **`hookErrors` is not only errors.** When the same hook blocks, its reason lands here:
 
@@ -114,7 +114,7 @@ That prefix is the only thing separating "this hook decided something" from "thi
 
 **`preventedContinuation` was `false` in every outcome I produced, including the block.** All four: a plain allow, a block, an injected-context pass, and a deliberate failure. The semantics explain it for `Stop` hooks, where blocking means "do not stop yet" and continuation is therefore not what got prevented. But it means the field is not the signal you want if you are asking "did a hook interfere here", and I never managed to observe it `true`. The synthetic fixture in this repo sets it `true` on a blocked tool call, and that value is a guess, labelled as one.
 
-`stopReason` was the empty string in all four. `level` is a key the original post missed entirely: `"suggestion"` on these lines, `"warning"` on the ones in the next section but one.
+`stopReason` was the empty string in all four. And there is a fifth key I have not mentioned: `level`, which reads `"suggestion"` on these lines and `"warning"` on the ones two sections down.
 
 ## Where a denial actually lands
 
