@@ -40,11 +40,11 @@ None of the thirty event names appears in any _field_. One of them reaches disk 
 
 ## The record is a Stop-hook summary
 
-Hook activity rides on `system` lines. There is no hook-specific top-level type. What there is, and what I missed the first time, is a `subtype` that names the event.
+Hook activity rides on `system` lines. There is no hook-specific top-level type. What there is, and it is easy to read past, is a `subtype` that names the event.
 
 Of the 10,878 `system` lines in the scan, 4,162 record hook activity, and **4,159 of them carry `subtype: "stop_hook_summary"`.** Three lines out of 4,162 are anything else, and I had to build a session to produce those three.
 
-So the field family this post was originally built around is the trace a `Stop` or `SubagentStop` hook leaves. Everything the first version generalised from it was generalised from one class of hook.
+So this family is the trace a `Stop` or `SubagentStop` hook leaves, and anything generalised from it is a generalisation from one class of hook.
 
 The fields on those lines:
 
@@ -58,19 +58,13 @@ The fields on those lines:
 | `stopReason`            | string  | Why continuation stopped                   | 4,159 |
 | `hookAdditionalContext` | array   | Text a hook injected back into the context | 3,176 |
 
-Six of those co-occur on exactly the same lines. The seventh does not: `hookAdditionalContext` is present on 3,176 of the 4,159 and absent from the other 983, so it is optional rather than part of the family.
+Six sit on all 4,159 lines. `hookAdditionalContext` is on 3,176 of them and absent from the other 983, which makes it optional rather than part of the family.
 
-The first version of this post asserted that seven keys co-occurred and then admitted the scan could not prove it, because aggregate key counts cannot distinguish one family on one set of lines from two disjoint sets of the same size. That caveat was correct and the assertion beside it was wrong. The scanner now computes per-line co-occurrence directly, and there are three shapes in the corpus, not one:
+Be careful what that table proves, because I nearly wasn't. Matching totals are not shared lines. One key counted 4,159 times against another counted 4,159 times is equally consistent with a single family on a single set of lines and with two disjoint sets of the same size, and nothing in a key-count scan tells those apart. The scanner computes per-line co-occurrence for the keys it treats as hook markers, which is how I can say that `hookCount`, `hookInfos`, `hookErrors`, `preventedContinuation` and `hookAdditionalContext` share lines and mean it. For `hasOutput` and `stopReason` I have matching totals and three fixtures showing them alongside the rest. That is good evidence. It is not the same claim, and the distance between the two is most of what this post is about.
 
-| Shape                                                                                        | Lines |
-| -------------------------------------------------------------------------------------------- | ----- |
-| `hookCount` + `hookInfos` + `hookErrors` + `preventedContinuation` + `hookAdditionalContext` | 3,176 |
-| `hookCount` + `hookInfos` + `hookErrors` + `preventedContinuation`                           | 983   |
-| `preventContinuation` alone                                                                  | 3     |
+`toolUseID` sits on these lines too, and it is not a member. It is on 6,906 lines, more than the family has, so it is a general key that happens to co-occur. On a Stop-hook line it holds a UUID matching no `tool_use.id` anywhere in the file, which follows from a `Stop` hook having no triggering tool call. It is a per-firing identifier, not a join key.
 
-`toolUseID` is not on that list, and the original table was wrong to include it. It appears on 6,906 lines, which is more lines than the hook family has, so it is a general key that happens to co-occur rather than a member of the family. On a Stop-hook line it holds a UUID that matches no `tool_use.id` anywhere in the file. A `Stop` hook has no triggering tool call, so there is nothing for it to point at, and it points at nothing: a per-firing identifier rather than a join key. The original post built a small puzzle out of the count matching, and the puzzle dissolved once the counts were measured properly instead of compared.
-
-One caveat on the rates, and this is the other thing I got wrong. I wrote that my corpus is hook-dense because this repo ships two hooks that fire on nearly every tool call. Those two hooks are `PreToolUse` and `PostToolUse` guards, and they leave **no `system` line at all**. They contribute nothing to the 4,159. That density comes from `Stop` hooks supplied by plugins, which run a review at the end of a turn. The number is real and the explanation attached to it was not.
+One caveat on the rates. My corpus is hook-dense, and not for the reason you would expect from a repo that ships two hooks of its own. Those two are `PreToolUse` and `PostToolUse` guards, and they leave **no `system` line at all**. They contribute nothing to the 4,159. The density comes from `Stop` hooks supplied by plugins, which run a review at the end of every turn. So read the presence and absence findings here as general, and do not read 4,159 out of 10,878 as a typical ratio.
 
 ## What a Stop hook actually writes
 
