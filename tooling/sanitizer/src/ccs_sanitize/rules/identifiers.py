@@ -135,8 +135,37 @@ UUID_PATHS: frozenset[JsonPath] = frozenset({
 # Unlike the UUID remap this is not gated behind an opt-in flag --
 # ``scrub_git_branch`` defaults to True -- so the any-depth version corrupted
 # a colliding tool parameter under a DEFAULT config.
+#
+# Issue #251. The branch name also rides a SECOND structure the camelCase
+# anchor never reached: ``serverClassifierContext.context.git_state``, whose
+# leaf is spelled ``branch``. The pre-#199 any-depth rule missed it too, for
+# the same reason -- it matched the NAME ``gitBranch``, and this key is not
+# called that. So the leak predates #199 rather than being caused by it.
+#
+# It shipped in 0.3.0 and was found because the paths rule, which is
+# value-based, rewrote the SIBLING leaves ``git_state.root`` and
+# ``git_state.cwd`` while the branch survived beside them -- with the sidecar
+# reporting ``residual_scan: clean``. That combination is the whole severity:
+# a user is told the file is safe.
+#
+# ``default_branch`` is included although every observed occurrence is null.
+# It is a branch name by its key name and takes the identical placeholder, so
+# covering it costs nothing and closes the case where a repo has one set.
+#
+# Listed as EXACT ROOTED PATHS, never as a subtree or a bare name, for #199's
+# reason: a tool parameter called ``branch`` is common, and corrupting one
+# under a default config is the failure that anchoring exists to prevent.
+#
+# NOT covered here, deliberately: ``git_state.visibility.origin`` is a remote
+# URL and would carry an org and repo name, but it was null in every observed
+# record and a URL is not a branch, so GIT_BRANCH_PLACEHOLDER is the wrong
+# value for it. ``git_state.status.porcelain`` is ``git status`` output and
+# would carry file paths, which the value-based paths rule already reaches for
+# configured roots. Both are tracked separately rather than guessed at.
 GIT_BRANCH_PATHS: frozenset[JsonPath] = frozenset({
     ("gitBranch",),
+    ("serverClassifierContext", "context", "git_state", "branch"),
+    ("serverClassifierContext", "context", "git_state", "default_branch"),
 })
 
 

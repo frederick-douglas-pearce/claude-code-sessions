@@ -475,6 +475,108 @@ def test_uuid_remap_consistent_within_file(tmp_path: Path) -> None:
     assert entries[0].occurrences == 2
 
 
+def test_git_state_branch_is_scrubbed(tmp_path: Path) -> None:
+    """#251 regression, the leak half. The branch name rides a second
+    structure, ``serverClassifierContext.context.git_state.branch``, whose
+    leaf is spelled ``branch`` rather than ``gitBranch``.
+
+    This shipped in 0.3.0. Neither the current rooted anchor nor the
+    pre-#199 any-depth rule reached it, because both matched the NAME
+    ``gitBranch`` and this key is not called that, so the leak predates
+    #199 rather than being caused by it.
+
+    What makes it worth a test rather than a note: the value-based paths
+    rule DOES rewrite the sibling leaves in the same object, so the
+    output looks scrubbed and the sidecar reports ``residual_scan:
+    clean``. A user is told the file is safe to publish while a branch
+    name that may carry a customer or an unreleased feature is still in
+    it. Nothing else in the tool would catch it."""
+    config = _config(tmp_path, "version: 1\n")
+    line = serialize_line(
+        {
+            "type": "user",
+            "gitBranch": "feature/acme-corp-migration",
+            "serverClassifierContext": {
+                "context": {
+                    "git_state": {
+                        "cwd": "/tmp/p",
+                        "root": "/tmp/p",
+                        "branch": "feature/acme-corp-migration",
+                        "default_branch": "release/unannounced-product",
+                    }
+                }
+            },
+        }
+    )
+    out, _, _ = _run(config.identifiers, [line], scrub_git_branch=True)
+    # Neither branch-bearing leaf survives anywhere in the line.
+    assert "acme-corp-migration" not in out[0]
+    assert "unannounced-product" not in out[0]
+    assert f'"branch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
+    assert f'"default_branch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
+    # Control: the line-level field still scrubs, so this cannot pass by
+    # way of a transform that does nothing.
+    assert f'"gitBranch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
+
+
+def test_git_state_branch_respects_the_opt_out(tmp_path: Path) -> None:
+    """``scrub_git_branch: false`` opts out of the placeholder for every
+    anchored position, not just the line-level one. A user who turned the
+    option off to keep branch names readable in a fixture would be
+    surprised by one position still being rewritten."""
+    config = _config(tmp_path, "version: 1\n")
+    line = serialize_line(
+        {
+            "type": "user",
+            "gitBranch": "feature/keep-me",
+            "serverClassifierContext": {
+                "context": {"git_state": {"branch": "feature/keep-me"}}
+            },
+        }
+    )
+    out, _, _ = _run(config.identifiers, [line], scrub_git_branch=False)
+    assert '"gitBranch":"feature/keep-me"' in out[0]
+    assert '"branch":"feature/keep-me"' in out[0]
+
+
+def test_branch_named_tool_input_is_not_rewritten(tmp_path: Path) -> None:
+    """#251 regression, the corruption half, and the reason the new
+    positions are EXACT ROOTED PATHS rather than the bare name ``branch``.
+
+    ``branch`` is a far more plausible tool parameter than ``gitBranch``
+    (``gh pr create --base``, any git wrapper), and ``scrub_git_branch``
+    defaults to True. Matching the bare name would overwrite a real
+    argument under a DEFAULT config, which is #199's failure reintroduced
+    through a wider door. Like #199 it corrupts rather than leaks, so no
+    residual scan and no oracle would ever flag it."""
+    config = _config(tmp_path, "version: 1\n")
+    line = serialize_line(
+        {
+            "type": "assistant",
+            "gitBranch": "feature/real-branch",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "input": {
+                            "branch": "release/2026-q3-payments",
+                            "default_branch": "main",
+                            "git_state": {"branch": "release/2026-q3-payments"},
+                        },
+                    }
+                ],
+            },
+        }
+    )
+    out, _, _ = _run(config.identifiers, [line], scrub_git_branch=True)
+    # Every tool-supplied value survives verbatim.
+    assert out[0].count('"branch":"release/2026-q3-payments"') == 2
+    assert '"default_branch":"main"' in out[0]
+    # Control: the real line-level field was still rewritten.
+    assert f'"gitBranch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
+
+
 def test_git_branch_inside_a_tool_input_is_not_rewritten(tmp_path: Path) -> None:
     """#199 regression. The transform matched ``gitBranch`` as a bare name at
     any depth, so a tool whose parameter happened to be called ``gitBranch``

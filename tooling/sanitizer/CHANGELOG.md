@@ -272,6 +272,44 @@ by construction.
   appearing at non-allow-listed paths is pinned, so a new collision has to be
   classified rather than silently absorbed.
 
+### Fixed (issue #251 — the branch name survived at `git_state.branch`, a 0.3.0 leak)
+
+**Security.** The branch name was replaced at the line-level `gitBranch`
+field and left intact at
+`serverClassifierContext.context.git_state.branch`. A session on a branch
+whose name carries a customer, a ticket, or an unreleased feature published
+that name.
+
+Present in **0.3.0**, the published release. This is not a #199 regression:
+both the current rooted anchor and the pre-#199 any-depth rule matched the
+*name* `gitBranch`, and this key is spelled `branch`, so neither ever reached
+it. Fixed here and released separately as **0.3.1** for users of the 0.3.x
+line, who should upgrade.
+
+What makes it a security fix rather than a missed field: the paths rule is
+value-based, so it *did* rewrite the sibling leaves `git_state.root` and
+`git_state.cwd` in the same object. The output therefore looked scrubbed, and
+the sidecar reported `residual_scan: clean`. The user is told the file is safe
+to publish. Neither the residual scan nor the 0.4.0 output-side oracle would
+have caught it, because the oracle covers *configured* path and identifier
+rules and `scrub_git_branch` is a built-in with no output-side check.
+
+`git_state.default_branch` is now covered too. Every observed occurrence is
+null, but it is a branch name by its key name and takes the same placeholder.
+
+The two positions are added as **exact rooted paths**, never as the bare name
+`branch`, for #199's reason and more urgently: `branch` is a far more
+plausible tool parameter than `gitBranch`, and `scrub_git_branch` defaults to
+True, so a bare-name match would corrupt a real argument under a default
+config.
+
+Deliberately **not** covered, rather than guessed at:
+`git_state.visibility.origin` is a remote URL that would carry an org and repo
+name, but it was null in every observed record and a URL is not a branch, so
+the branch placeholder is the wrong value for it.
+`git_state.status.porcelain` is `git status` output and would carry file
+paths, which the value-based paths rule already reaches for configured roots.
+
 ### Fixed (issue #199 — `gitBranch` was replaced at any depth)
 - **`gitBranch` and the UUID remap are anchored by path too.** The identifier
   layer decides what to do with a leaf *when it is visited*, and it also
