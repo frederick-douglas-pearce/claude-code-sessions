@@ -89,6 +89,69 @@ No version bump: nothing below changes the produced bytes.
   reports green: without it, a misfiring sdist condition would silently stop
   checking the hook against `VENDORED_PATTERNS` and nothing would go red.
 
+## [0.3.1] — 2026-09-25
+
+**PATCH, security.** One fix, nothing else. Cut from the `sanitizer-v0.3.0`
+tag rather than from `main` so users of the published 0.3.x line can take it
+without also taking the unreleased 0.4.0, which changes which inputs the tool
+refuses (#195 / #198) and would make a security upgrade carry a behavior
+change.
+
+On the level: this changes which leaves are scrubbed, and by this file's own
+policy that reads as MINOR rather than PATCH. It ships as PATCH deliberately.
+The policy exists to protect the determinism contract — "same input + same
+config → byte-identical output" holds only *within* a version — and bumping at
+all satisfies that. Forcing a MINOR's expectations onto a one-line security
+fix is how people pin to the vulnerable version instead of upgrading.
+
+### Fixed (issue #251 — the branch name survived at `git_state.branch`)
+
+The branch name was replaced at the line-level `gitBranch` field and left
+intact at `serverClassifierContext.context.git_state.branch`. A session on a
+branch whose name carries a customer, a ticket, or an unreleased feature
+published that name.
+
+`serverClassifierContext` is attached to ordinary tool-result lines, so this
+rides normal sessions rather than an exotic configuration.
+
+**Anyone who published output from 0.3.0 should check it for a branch name.**
+The value is verbatim, so `grep` for the branch you were on.
+
+The `gitBranch` match is a name match, and this key is spelled `branch`, so it
+was never reached. Two exact rooted positions are now covered:
+
+- `serverClassifierContext.context.git_state.branch`
+- `serverClassifierContext.context.git_state.default_branch`
+
+`default_branch` is included although every observed occurrence is null: it is
+a branch name by its key name and takes the identical placeholder.
+
+Added as **exact rooted paths**, never the bare name `branch`. `branch` is a
+common tool parameter and `scrub_git_branch` defaults to True, so a name match
+would overwrite a real argument under a default config. This patch does not
+touch the existing any-depth `gitBranch` behavior; narrowing that is a
+behavior change rather than a security fix, and it landed separately on the
+0.4.0 line as #199.
+
+Why the tool reported success: the paths rule is value-based, so it rewrote the
+sibling leaves `git_state.root` and `git_state.cwd` in the same object. The
+output looked scrubbed and the sidecar recorded `residual_scan: clean`. The
+residual scan looks for configured values and built-in secret patterns, and the
+surviving value was neither — it was the real branch name, which only the
+field-anchored built-in was ever going to catch, and that built-in has no
+output-side verification.
+
+Not covered, rather than guessed at: `git_state.visibility.origin` is a remote
+URL that would carry an org and repo name, null in every observed record, and a
+URL is not a branch so the branch placeholder is wrong for it.
+`git_state.status.porcelain` is `git status` output carrying file paths, which
+the value-based paths rule already reaches for configured roots.
+
+**Sidecar impact.** `sidecar_schema_version` stays `1`. The new positions reuse
+the existing `identifiers:gitBranch` label and its `<git-branch>` placeholder,
+so only the occurrence count changes. Output bytes change for any input
+carrying this structure, which is the point of the fix.
+
 ## [0.3.0] — 2026-08-17
 
 **First public release.** Everything below has been accumulating unreleased

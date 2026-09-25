@@ -81,6 +81,31 @@ UUID_FIELDS: frozenset[str] = frozenset({
 })
 
 
+# Issue #251. The branch name also rides a SECOND structure the
+# ``gitBranch`` name-match never reached:
+# ``serverClassifierContext.context.git_state``, whose leaf is spelled
+# ``branch``. The any-depth match below does not help, because it matches the
+# NAME ``gitBranch`` and this key is not called that.
+#
+# Found because the paths rule, which is value-based, rewrote the SIBLING
+# leaves ``git_state.root`` and ``git_state.cwd`` while the branch survived
+# beside them, with the sidecar reporting ``residual_scan: clean``. That
+# combination is the severity: the user is told the file is safe to publish.
+#
+# ``default_branch`` is included although every observed occurrence is null.
+# It is a branch name by its key name and takes the identical placeholder.
+#
+# Listed as EXACT ROOTED PATHS, never as the bare name ``branch``. ``branch``
+# is a common tool parameter and ``scrub_git_branch`` defaults to True, so a
+# name-match would overwrite a real argument under a default config. This
+# patch deliberately leaves the existing ``gitBranch`` any-depth behavior
+# alone; narrowing that is a behavior change, not a security fix.
+GIT_STATE_BRANCH_PATHS: frozenset[JsonPath] = frozenset({
+    ("serverClassifierContext", "context", "git_state", "branch"),
+    ("serverClassifierContext", "context", "git_state", "default_branch"),
+})
+
+
 def build_identifier_transform(
     rules: Sequence[Rule],
     table: SubstitutionTable,
@@ -137,7 +162,9 @@ def build_identifier_transform(
             # malformed but harmless. Either way, don't fabricate a value
             # and don't record a ('' -> placeholder) row the sidecar
             # cannot interpret.
-            if scrub_git_branch and last == "gitBranch":
+            if scrub_git_branch and (
+                last == "gitBranch" or path in GIT_STATE_BRANCH_PATHS
+            ):
                 if not leaf:
                     return leaf
                 return table.record(

@@ -192,6 +192,96 @@ def test_git_branch_scrubbed_when_option_on(tmp_path: Path) -> None:
     assert entries[0].replacement == GIT_BRANCH_PLACEHOLDER
 
 
+def test_git_state_branch_is_scrubbed(tmp_path: Path) -> None:
+    """#251 regression. The branch name rides a second structure,
+    ``serverClassifierContext.context.git_state.branch``, whose leaf is
+    spelled ``branch`` rather than ``gitBranch``, so the name-match never
+    reached it.
+
+    The paths rule, being value-based, DOES rewrite the sibling leaves in
+    the same object, so the output looks scrubbed and the sidecar reports
+    ``residual_scan: clean``. A user is told the file is safe to publish
+    while a branch name that may carry a customer or an unreleased feature
+    is still in it."""
+    config = _config(tmp_path, "version: 1\n")
+    line = serialize_line(
+        {
+            "type": "user",
+            "gitBranch": "feature/acme-corp-migration",
+            "serverClassifierContext": {
+                "context": {
+                    "git_state": {
+                        "cwd": "/tmp/p",
+                        "root": "/tmp/p",
+                        "branch": "feature/acme-corp-migration",
+                        "default_branch": "release/unannounced-product",
+                    }
+                }
+            },
+        }
+    )
+    out, _, _ = _run(config.identifiers, [line], scrub_git_branch=True)
+    assert "acme-corp-migration" not in out[0]
+    assert "unannounced-product" not in out[0]
+    assert f'"branch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
+    assert f'"default_branch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
+    # Control: the line-level field still scrubs, so this cannot pass by
+    # way of a transform that does nothing.
+    assert f'"gitBranch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
+
+
+def test_git_state_branch_respects_the_opt_out(tmp_path: Path) -> None:
+    """``scrub_git_branch: false`` opts out of the placeholder at every
+    anchored position, not just the line-level one."""
+    config = _config(tmp_path, "version: 1\n")
+    line = serialize_line(
+        {
+            "type": "user",
+            "gitBranch": "feature/keep-me",
+            "serverClassifierContext": {
+                "context": {"git_state": {"branch": "feature/keep-me"}}
+            },
+        }
+    )
+    out, _, _ = _run(config.identifiers, [line], scrub_git_branch=False)
+    assert '"gitBranch":"feature/keep-me"' in out[0]
+    assert '"branch":"feature/keep-me"' in out[0]
+
+
+def test_branch_named_tool_input_is_not_rewritten(tmp_path: Path) -> None:
+    """The reason #251's positions are EXACT ROOTED PATHS and not the bare
+    name ``branch``.
+
+    ``branch`` is a common tool parameter and ``scrub_git_branch`` defaults
+    to True, so a name-match would overwrite a real argument under a
+    default config. That corrupts rather than leaks, so no residual scan
+    would ever flag it."""
+    config = _config(tmp_path, "version: 1\n")
+    line = serialize_line(
+        {
+            "type": "assistant",
+            "gitBranch": "feature/real-branch",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "input": {
+                            "branch": "release/2026-q3-payments",
+                            "default_branch": "main",
+                            "git_state": {"branch": "release/2026-q3-payments"},
+                        },
+                    }
+                ],
+            },
+        }
+    )
+    out, _, _ = _run(config.identifiers, [line], scrub_git_branch=True)
+    assert out[0].count('"branch":"release/2026-q3-payments"') == 2
+    assert '"default_branch":"main"' in out[0]
+    assert f'"gitBranch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
+
+
 def test_git_branch_left_alone_when_option_off(tmp_path: Path) -> None:
     """When ``scrub_git_branch: false`` the field is not rewritten by the
     field-anchored placeholder and (in the absence of identifier rules
