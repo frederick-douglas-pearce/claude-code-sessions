@@ -68,7 +68,9 @@ One caveat on the rates. My corpus is hook-dense, though this repo ships only tw
 
 ## What a Stop hook actually writes
 
-Here is one, from a session built to fire it. The hook ran, produced no output, and allowed the turn to end:
+Everything below comes from one `Stop` hook I wrote to take a different action on each consecutive turn, so a single session shows the same hook allowing, blocking, and injecting context. A second `Stop` hook that fails on purpose covers the fourth case. Four outcomes, one field family.
+
+Here is the full record for the simplest of them. The hook ran, produced no output, and let the turn end:
 
 ```json
 {
@@ -86,35 +88,30 @@ Here is one, from a session built to fire it. The hook ran, produced no output, 
 }
 ```
 
+The other three outcomes are that same record with a handful of fields changed. This is everything that moves:
+
+| Field                    | allowed | blocked          | injected context  | hook failed          |
+| ------------------------ | ------- | ---------------- | ----------------- | -------------------- |
+| `hookErrors`             | `[]`    | the block reason | `[]`              | prefix + the message |
+| `hookAdditionalContext`  | `[]`    | `[]`             | the injected text | `[]`                 |
+| `hasOutput`              | `false` | `true`           | `true`            | `true`               |
+| `hookInfos[].durationMs` | `149`   | **absent**       | `146`             | `148`, `155`         |
+| `preventedContinuation`  | `false` | `false`          | `false`           | `false`              |
+| `stopReason`             | `""`    | `""`             | `""`              | `""`                 |
+
+Two notes on reading that. The failure column comes from a second session, where I added `fail_on_stop.py` alongside the first hook, so its `hookCount` is 2 and `hookInfos` holds two entries rather than one. And `durationMs` vanishes from `hookInfos` on the blocking turn while being present on every other turn in the same session. I have no explanation for that, and one session is not enough to call it a pattern, so it is recorded rather than interpreted.
+
 Four of those fields are worth reading closely, because in each case the key name and the key count together give you the wrong idea.
 
 **`hookInfos` names the hook.** A key-count scan can tell you this field exists and how often, which is what makes it look like a dead end. Each entry carries the `command` as configured, plus `durationMs`. For a shell hook that is the script path, which is usually enough to identify it. A second hook on the same event adds a second entry, so `hookCount: 2` comes with two named commands.
 
-**`hookErrors` is not only errors.** When the same hook blocks, its reason lands here:
+**`hookErrors` is not only errors.** A hook that blocks puts its reason in that array, in the same shape as a hook that broke. What separates them is a prefix: a genuine failure arrives as `"Failed with non-blocking status code: "` followed by the message, and a block arrives as the reason alone. If you are monitoring `hookErrors` for failures, a hook that blocks on purpose reads as an error unless you split on that prefix.
 
-```json
-{
-  "hookErrors": ["fixture hook: one-time block. Reply with the single word CONTINUING and nothing else."],
-  "hasOutput": true,
-  "preventedContinuation": false
-}
-```
+**`hookAdditionalContext` is an array, not a string.** The reference doc describes it as the string a hook injected. It is a list of them, empty in the common case, and it is the one place a hook's own words reach the transcript intact, because that text became part of the conversation.
 
-And when a hook genuinely fails, the message is prefixed:
+**`preventedContinuation` was `false` in all four outcomes, including the block.** The semantics explain it for `Stop` hooks, where blocking means "do not stop yet" and continuation is therefore not what got prevented. But it means the field is not the signal you want if you are asking "did a hook interfere here", and across four deliberate outcomes I never observed it `true`.
 
-```json
-{
-  "hookErrors": ["Failed with non-blocking status code: fixture hook: deliberate Stop-hook failure, no decision returned"]
-}
-```
-
-That prefix is the only thing separating "this hook decided something" from "this hook broke". If you are monitoring `hookErrors` for failures, a hook that blocks on purpose will read as an error unless you split on the prefix.
-
-**`hookAdditionalContext` is an array, not a string.** The reference doc described it as the string a hook injected. It is a list of them, empty in the common case, and it is the one place a hook's own words reach the transcript intact, because that text became part of the conversation.
-
-**`preventedContinuation` was `false` in every outcome I produced, including the block.** All four: a plain allow, a block, an injected-context pass, and a deliberate failure. The semantics explain it for `Stop` hooks, where blocking means "do not stop yet" and continuation is therefore not what got prevented. But it means the field is not the signal you want if you are asking "did a hook interfere here", and I never managed to observe it `true`. The synthetic fixture in this repo sets it `true` on a blocked tool call, and that value is a guess, labelled as one.
-
-`stopReason` was the empty string in all four. And there is a fifth key I have not mentioned: `level`, which reads `"suggestion"` on these lines and `"warning"` on the ones two sections down.
+`level` is a fifth key I have not mentioned: it reads `"suggestion"` on all four of these, and `"warning"` on the lines two sections down.
 
 ## Where a denial actually lands
 
