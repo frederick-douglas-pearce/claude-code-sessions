@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 1. **Posts** (`posts/`) — an ongoing blog series for human readers, synced from this repo to a Jekyll-based GitHub Pages site.
 2. **Reference** (`reference/`) — authoritative format documentation; the data dictionary, schema notes, and format-version history that sibling projects link to.
-3. **Tooling** (`tooling/`) — the sanitizer that scrubs raw session data for safe publication, the format-scan scanner that watches for format drift, the publish/OG helpers that sync posts to the Pages site, and the fixture validator (planned) that gates fixtures.
+3. **Tooling** (`tooling/`) — the sanitizer that scrubs raw session data for safe publication, the format-scan scanner that watches for format drift, the publish/OG helpers that sync posts to the Pages site, the fixture-hooks that produce hook-trace fixtures, and the fixture validator (planned) that gates fixtures.
 
 This repo is **upstream** of [AgentFluent](https://github.com/frederick-douglas-pearce/agentfluent) and [CodeFluent](https://github.com/frederick-douglas-pearce/codefluent). Both link to this repo's reference docs rather than duplicating format documentation.
 
@@ -62,6 +62,8 @@ Mechanical enforcement is in place via `.claude/hooks/block_secret_reads.py` (Pr
 - `synthetic/` — fabricated for illustration; document the generator alongside in `<filename>.generator.md`
 - Filename convention: `<scenario>-<short-description>.jsonl` (e.g., `subagent-trace-pm-invocation.jsonl`)
 - Synthetic is the **safe default**. Use sanitized only when realistic data shape can't be reproduced synthetically.
+- A synthetic fixture may fabricate values, never **shapes**. Every key set it asserts should match one a sanitized fixture observes; see the parity check in [`anatomy-hook-trace.jsonl.generator.md`](fixtures/synthetic/anatomy-hook-trace.jsonl.generator.md) (issue #257 is what happens otherwise).
+- Hook-trace fixtures come from the hooks in [`tooling/fixture-hooks/`](tooling/fixture-hooks/), with the collection procedure in its `RUNBOOK.md`. **Those hooks are never registered in this repo** — they exist to fail and to block.
 
 ### Format-watch skill
 
@@ -133,7 +135,7 @@ If you're working on AgentFluent or CodeFluent and find new format details, they
 
 - **Posts:** Markdown (Jekyll-compatible frontmatter), Prettier-gated
 - **Reference:** Markdown
-- **Tooling:** Python — the sanitizer (`tooling/sanitizer/`, shipped with a `pytest` suite), the format-scan drift scanner (`tooling/format-scan/`), and the publish/OG helpers (`tooling/*.py`). The fixture-validator is still planned.
+- **Tooling:** Python — the sanitizer (`tooling/sanitizer/`, shipped with a `pytest` suite), the format-scan drift scanner (`tooling/format-scan/`), the publish/OG helpers (`tooling/*.py`), and the fixture-hooks (`tooling/fixture-hooks/`, hook scripts for generating fixtures, never registered in this repo). The fixture-validator is still planned.
 - **CI:** GitHub Actions — Prettier, OG card guard, Humanizer guard, Pages sync, and Sanitizer CI (test matrix + packaging checks) are live; fixture validation is planned.
 
 ## Status

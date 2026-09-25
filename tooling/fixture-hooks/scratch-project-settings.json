@@ -1,0 +1,57 @@
+{
+  "enabledPlugins": {
+    "security-guidance@claude-plugins-official": false,
+    "context7@claude-plugins-official": false,
+    "skill-creator@claude-plugins-official": false,
+    "humanizer@humanizer": false
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/hooks/fail_on_glob.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "prompt",
+            "model": "claude-opus-5",
+            "continueOnBlock": true,
+            "prompt": "You are a safety gate for one shell command. The hook input JSON is: $ARGUMENTS. Judge one thing only: would this command write to, or delete anything from, a location outside the session's own working directory? If yes, return {\"ok\": false, \"reason\": \"<what it would touch outside the working directory>\"}. If no, return {\"ok\": true}."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/hooks/note_bash.py\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/hooks/stop_three_ways.py\""
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/hooks/fail_on_stop.py\""
+          }
+        ]
+      }
+    ]
+  }
+}
