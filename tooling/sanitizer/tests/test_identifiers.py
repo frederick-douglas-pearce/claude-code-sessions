@@ -539,6 +539,49 @@ def test_git_state_branch_respects_the_opt_out(tmp_path: Path) -> None:
     assert '"branch":"feature/keep-me"' in out[0]
 
 
+def test_git_state_branch_placeholder_wins_over_a_configured_rule(tmp_path: Path) -> None:
+    """#251, the interaction with #195 / #198.
+
+    An existing invariant says the field-anchored placeholder is a
+    WHOLE-VALUE substitution and a configured identifier rule must not also
+    fire on that leaf, so the placeholder stays a stable, predictable
+    value. Extending the anchor to two new positions has to preserve that
+    at the new positions too.
+
+    The risk worth pinning is the output-side oracle. It refuses the run
+    when a configured rule's value survives where the scrub could have
+    acted. Here the built-in replaces the whole leaf first, so the
+    configured value is gone rather than surviving, and the run must
+    succeed. A regression that made the built-in skip these positions would
+    leave the configured value in place at a reachable position, which is
+    the oracle's trigger."""
+    config = _config(
+        tmp_path,
+        "version: 1\nidentifiers:\n  - match: \"realdev\"\n    replace: \"user\"\n",
+    )
+    branch = "feature/realdev-secret-client"
+    line = serialize_line(
+        {
+            "type": "user",
+            "gitBranch": branch,
+            "serverClassifierContext": {
+                "context": {
+                    "git_state": {"branch": branch, "default_branch": branch}
+                }
+            },
+        }
+    )
+    out, _, table = _run(config.identifiers, [line], scrub_git_branch=True)
+    # The configured match value is gone from every anchored position, and
+    # the placeholder is intact rather than itself rewritten by the rule.
+    assert "realdev" not in out[0]
+    assert out[0].count(f'"{GIT_BRANCH_PLACEHOLDER}"') == 3
+    # One original recorded, not a per-position variant: the rule never
+    # fired on these leaves, so no `feature/user-secret-client` row exists.
+    originals = {e.original for e in table}
+    assert originals == {branch}
+
+
 def test_branch_named_tool_input_is_not_rewritten(tmp_path: Path) -> None:
     """#251 regression, the corruption half, and the reason the new
     positions are EXACT ROOTED PATHS rather than the bare name ``branch``.
