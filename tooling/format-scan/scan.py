@@ -390,8 +390,9 @@ def default_root() -> Path:
 # real field ever held the string `<other>`, an emitted-verbatim allowlist
 # member would be indistinguishable from a fold result, and every count derived
 # from the fold would be ambiguous. That is not hypothetical shape-wise:
-# fixtures/synthetic/anatomy-hook-trace.jsonl carries `"subtype": "<unread>"`,
-# fabricated in exactly this namespace. Nothing observed collides today; this
+# fixtures/synthetic/anatomy-hook-trace.jsonl used to carry
+# `"subtype": "<unread>"`, fabricated in exactly this namespace, until #257
+# replaced it with the observed value. Nothing observed collides today; this
 # assertion is what keeps that true as the allowlists grow.
 BUCKET_LABELS = frozenset({OTHER_BUCKET, MCP_BUCKET, "<absent>", "<null>"})
 assert not (
