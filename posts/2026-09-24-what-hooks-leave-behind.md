@@ -20,7 +20,7 @@ The guarantee is narrower than it sounds. A hook guarantees that it runs, not wh
 
 Hooks also execute outside the main model loop. The model does not call them and does not know they ran. Claude Code's harness fires them and acts on what comes back, an exit code or a JSON verdict. That raises a question the previous five posts kept deferring: once a hook has fired, is there anything in the session file to show for it?
 
-[Part 5](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-09-10-the-tool-call-completely.md) ended by promising this post would go looking. I went looking, twice. The first pass answered the question with a structural scan of my session files and got several things wrong in ways the scan could not detect. The second pass built four hooks on purpose, ran them, and sanitized the result.
+[Part 5](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-09-10-the-tool-call-completely.md) ended by promising this post would go looking. I went looking, twice. The first pass answered the question with a structural scan of my session files and got several things wrong in ways the scan could not detect. The second pass built five hooks on purpose, ran them across three sessions, and sanitized the result.
 
 This post rests on two pieces of evidence. The first is a structural scan of every session file on my disk: 3,680 files, 465,452 lines, zero parse errors, spanning 131 Claude Code versions from v2.1.4 to v2.1.280. The second is three [sanitized fixtures](https://github.com/frederick-douglas-pearce/claude-code-sessions/tree/main/fixtures/sanitized) collected from sessions built to make specific hooks fire, which is where every field value in this post comes from. The [scanner](https://github.com/frederick-douglas-pearce/claude-code-sessions/tree/main/tooling/format-scan) and the [scan output](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/format-scan/scan-2026-09-23.json) are both in the repo, so every count below can be re-derived.
 
@@ -159,7 +159,7 @@ Note the spelling. `preventContinuation`, no "ed", a different key from the `pre
 
 Note also what is present. `content` carries the hook's reasoning verbatim, which is the second place a hook's own words reach disk.
 
-Those three lines are the only occurrences of `preventContinuation` in 465,452 lines, and all three are mine, from the session I built to produce them. The scan I ran four days earlier, over 436,010 lines, had zero. This is the honest version of a negative result: the field exists, I have never seen it arise from ordinary use, and the only evidence I have that it is real is evidence I manufactured.
+Those three lines are the only occurrences of `preventContinuation` in 465,452 lines, and all three are mine. They are not even a deliberate product. The prompt hook that wrote them was misconfigured: its prompt gave the evaluating model no condition it could actually judge, so the model read the prompt as an injected instruction and refused three turns at submit time. The scan I ran four days earlier, over 436,010 lines, had zero. This is the honest version of a negative result: the field exists, I have never seen it arise from ordinary use, and the only evidence I have that it is real is evidence I produced by accident.
 
 The practical consequence is the important part. A hook record has at least two shapes, and which one you get depends on which event fired. Anything parsing for `hookCount` will see Stop hooks and miss prompt hooks entirely.
 
@@ -224,7 +224,7 @@ It is worth being specific about that, because the scan is not a weak instrument
 - That you could not tell which hook ran. The scan reads key names, never values, so `hookInfos` looks empty from the outside.
 - That no event name reaches disk. None reaches a _field_. One is written into the text of an error message, where a field-oriented probe does not look.
 
-The common shape: a structural scan tells you what is present, and every one of those was a question about what the present thing means. Four hooks, three runs and a sanitizer is what answered them.
+The common shape: a structural scan tells you what is present, and every one of those was a question about what the present thing means. Five hooks, three runs and a sanitizer is what answered them.
 
 ## Why the blind spots moved
 
@@ -234,7 +234,7 @@ That constraint is still there, and it still matters: this repo's whole premise 
 
 Folding. A value can be counted without being emitted, by matching it against a fixed allowlist the scanner declares and bucketing everything else as `<other>`. The scanner already did this for `stop_reason`. It now does it for `subtype` and `toolDenialKind`, which is how this post can tell you that 4,159 of 4,159 family lines are `stop_hook_summary`, and that `toolDenialKind` splits 147 to 86, without either number requiring that a corpus byte reach the output.
 
-Fixtures. Everything a fold cannot reach, a purpose-built session can. Four hooks, three runs, and a sanitizer produced three committed fixtures with real values in them, and those fixtures are where every field example above comes from. They also corrected this repo's synthetic hook fixture, which had been marking its unknown values honestly while inventing the structure around them.
+Fixtures. Everything a fold cannot reach, a purpose-built session can. Five hooks, three runs, and a sanitizer produced three committed fixtures with real values in them, and those fixtures are where every field example above comes from. They also corrected this repo's synthetic hook fixture, which had been marking its unknown values honestly while inventing the structure around them.
 
 What is still unread: the 86 `toolDenialKind` values that are not `permission-rule`. The fold tells you they exist and refuses to say what they are. If you have sessions with denials in them, that is one line of `jq`, and I would like to know.
 
@@ -249,7 +249,8 @@ The sources behind this post:
 - **Sanitized fixtures**, the source of every field value above: [`hook-trace-stop-hook-error.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/sanitized/hook-trace-stop-hook-error.jsonl), [`hook-trace-denial-and-stop-ladder.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/sanitized/hook-trace-denial-and-stop-ladder.jsonl), and [`hook-trace-prompt-hook-refusal.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/sanitized/hook-trace-prompt-hook-refusal.jsonl), each with a `.scrubbed` sidecar.
 - **Synthetic fixture:** [`anatomy-hook-trace.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-hook-trace.jsonl), with its [generator notes](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-hook-trace.jsonl.generator.md). Rebuilt against the sanitized fixtures in [issue #257](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/257), so every shape it shows is one they observe.
 - **Verification scan:** [`scan-2026-09-23.json`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/format-scan/scan-2026-09-23.json), a structural pass over 3,680 session files (465,452 lines, v2.1.4 through v2.1.280), key names, counts, and folded enum values only, no message content read. Produced by [`tooling/format-scan/`](https://github.com/frederick-douglas-pearce/claude-code-sessions/tree/main/tooling/format-scan).
-- **Hooks themselves:** Claude Code's [hooks documentation](https://code.claude.com/docs/en/hooks), and this repo's own two guards in [`.claude/hooks/`](https://github.com/frederick-douglas-pearce/claude-code-sessions/tree/main/.claude/hooks).
+- **Hooks themselves:** Claude Code's [hooks documentation](https://code.claude.com/docs/en/hooks), and this repo's own two guards in [`.claude/hooks/`](https://github.com/frederick-douglas-pearce/claude-code-sessions/tree/main/.claude/hooks), one of which produced the denial above.
+- **The fixture hooks**, and the procedure that ran them: [`tooling/fixture-hooks/`](https://github.com/frederick-douglas-pearce/claude-code-sessions/tree/main/tooling/fixture-hooks), with its [runbook](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/fixture-hooks/RUNBOOK.md). The three runs did not share a configuration; the README records which produced which fixture.
 
 ---
 
