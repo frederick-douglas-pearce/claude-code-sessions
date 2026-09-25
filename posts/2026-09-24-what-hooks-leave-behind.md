@@ -60,9 +60,11 @@ The fields on those lines:
 
 Six sit on all 4,159 lines. `hookAdditionalContext` is on 3,176 of them and absent from the other 983, which makes it optional rather than part of the family.
 
-Be careful not to overinterpret that table. Matching totals are not shared lines. One key counted 4,159 times against another counted 4,159 times is equally consistent with a single family on a single set of lines and with two disjoint sets of the same size, and nothing in a key-count scan tells those apart. The scanner computes per-line co-occurrence for the keys it treats as hook markers, which is how I can say that `hookCount`, `hookInfos`, `hookErrors`, `preventedContinuation` and `hookAdditionalContext` share lines and mean it. For `hasOutput` and `stopReason` I have matching totals and three fixtures showing them alongside the rest. That is strong evidence. It is not the corpus-wide measurement the other five have.
+Be careful not to overinterpret that table. Matching totals are not shared lines. One key counted 4,159 times against another counted 4,159 times is equally consistent with a single family on a single set of lines and with two disjoint sets of the same size, and nothing in a key-count scan tells those apart. The scanner computes per-line co-occurrence for the keys it treats as hook markers, which is how I can say that `hookCount`, `hookInfos`, `hookErrors`, `preventedContinuation` and `hookAdditionalContext` share lines and mean it. For `hasOutput`, `stopReason` and `toolUseID` I have matching totals and three fixtures showing them alongside the rest. That is strong evidence. It is not the corpus-wide measurement the other five have.
 
-`toolUseID` sits on these lines too, but it is not a member of the family. It is on 6,906 lines, more than the family has, so it is a general key that happens to co-occur. On a Stop-hook line it holds a UUID matching no `tool_use.id` anywhere in the file, which follows from a `Stop` hook having no triggering tool call. It is a per-firing identifier, not a join key.
+`toolUseID` sits on these lines too, on exactly 4,159 of them. The same key also appears on 2,747 `progress` lines, which are a different line type; add the two together and you get a number that looks like a mismatch with the family.
+
+What it holds is stranger than any count suggests. On a Stop-hook line it is a UUID that joins to nothing. No `tool_use.id` in the session, since those carry a `toolu_` prefix. No record `uuid`, and no `message.id` either. Six hook lines in the denial fixture carry six distinct values and not one of them resolves. That fixture was scrubbed with UUID remapping switched off, so the dangling identifier is Claude Code's own output rather than something the sanitizer broke. It reads as a per-firing identifier, not a join key.
 
 One caveat on the rates. My corpus is hook-dense, though this repo ships only two hooks of its own: a `PreToolUse` and a `PostToolUse` guard. They leave **no `system` line at all** and contribute nothing to the 4,159. The density comes from `Stop` hooks supplied by plugins, which run a review at the end of every turn. So read the presence and absence findings here as general, and do not read 4,159 out of 10,878 as a typical ratio.
 
@@ -200,23 +202,24 @@ The related `progress` type is a different story: 2,747 lines, carrying `toolUse
 
 **`hasOutput` is a boolean about whether output happened, not what it was.** A real limit, and a smaller one than it looks, because `hookInfos`, `hookErrors`, `hookAdditionalContext` and `content` between them carry a great deal of what a hook actually said.
 
-## Four corrections to my own reference doc
+## Five corrections to my own reference doc
 
-Part 5 found three places the reference doc was wrong. This pass found four more.
+Part 5 found three places the reference doc was wrong. This pass found five more.
 
 - `hookAdditionalContext` is not "Rare." It is on 3,176 lines. It is also an array, not a string.
 - `toolDenialKind` has no row at all. It needs one, with `permission-rule` named and the remaining values marked unknown.
-- The hook-execution section describes its fields as "present as a family on the same lines." Five are, measured. `hookAdditionalContext` is optional and `toolUseID` is not a member.
+- The hook-execution section describes its fields as "present as a family on the same lines." Five are, measured. `hookAdditionalContext` is optional, on 3,176 of the 4,159.
+- `toolUseID` is documented as "linking the hook run to the tool call that triggered it." On a Stop-hook line it links to nothing at all.
 - The hook coverage assumes shell scripts on stdin. Five implementation types exist. That is [issue #250](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/250).
 
-All four have the same cause as Part 5's three: a claim written against what a structural scan could see, never checked against a session built to test it.
+All five have the same cause as Part 5's three: a claim written against what a structural scan could see, never checked against a session built to test it.
 
 ## What the scan could not have told me
 
 It is worth being specific about that, because the scan is not a weak instrument. It reads 3,680 files and 465,452 lines in 26 seconds, it has never miscounted anything I have caught it on, and every number in this post comes from it. It is also the reason I believed five wrong propositions at once.
 
 - That the hook-execution family was seven fields on the same lines. Matching key totals are not shared lines, and a key-count scan cannot tell the two apart.
-- That `toolUseID` belonged to the family. Its total is larger than the family's, which is visible in the counts and easy to skim past.
+- That `toolUseID` joins a hook line back to the tool call that triggered it. It sits on exactly the family's 4,159 lines, which makes that reading close to irresistible. A key-count scan cannot dereference an identifier, and this one points at nothing.
 - That a blocked tool call was recorded twice. That came from a synthetic fixture built on the same assumption, which is a scan's error laundered through an example.
 - That you could not tell which hook ran. The scan reads key names, never values, so `hookInfos` looks empty from the outside.
 - That no event name reaches disk. None reaches a _field_. One is written into the text of an error message, where a field-oriented probe does not look.
@@ -231,7 +234,7 @@ That constraint is still there, and it still matters: this repo's whole premise 
 
 Folding. A value can be counted without being emitted, by matching it against a fixed allowlist the scanner declares and bucketing everything else as `<other>`. The scanner already did this for `stop_reason`. It now does it for `subtype` and `toolDenialKind`, which is how this post can tell you that 4,159 of 4,159 family lines are `stop_hook_summary`, and that `toolDenialKind` splits 147 to 86, without either number requiring that a corpus byte reach the output.
 
-Fixtures. Everything a fold cannot reach, a purpose-built session can. Four hooks, three runs, and a sanitizer produced three committed fixtures with real values in them, and those fixtures are where every field example above comes from. The synthetic fixture this post used to rely on wrote `"<unread>"` wherever it did not know, which was honest and not very useful.
+Fixtures. Everything a fold cannot reach, a purpose-built session can. Four hooks, three runs, and a sanitizer produced three committed fixtures with real values in them, and those fixtures are where every field example above comes from. They also corrected this repo's synthetic hook fixture, which had been marking its unknown values honestly while inventing the structure around them.
 
 What is still unread: the 86 `toolDenialKind` values that are not `permission-rule`. The fold tells you they exist and refuses to say what they are. If you have sessions with denials in them, that is one line of `jq`, and I would like to know.
 
@@ -241,10 +244,10 @@ Six posts in, every one has treated a session as a self-contained artifact: one 
 
 The sources behind this post:
 
-- **Reference grounding:** [`reference/data-dictionary.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md), specifically the [`system` hook-execution fields](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#hook-execution-fields) and the [outbound hook event contract](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#hook-event-fields). The corrections above are tracked in [issue #243](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/243) and [issue #250](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/250).
+- **Reference grounding:** [`reference/data-dictionary.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md), specifically the [`system` hook-execution fields](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#hook-execution-fields) and the [outbound hook event contract](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#hook-event-fields). The corrections above are tracked in [issue #243](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/243), [issue #250](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/250) and [issue #259](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/259).
 - **Series planning:** [`series-outline.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/.claude/specs/series-outline.md)
 - **Sanitized fixtures**, the source of every field value above: [`hook-trace-stop-hook-error.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/sanitized/hook-trace-stop-hook-error.jsonl), [`hook-trace-denial-and-stop-ladder.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/sanitized/hook-trace-denial-and-stop-ladder.jsonl), and [`hook-trace-prompt-hook-refusal.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/sanitized/hook-trace-prompt-hook-refusal.jsonl), each with a `.scrubbed` sidecar.
-- **Synthetic fixture:** [`anatomy-hook-trace.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-hook-trace.jsonl), with its [generator notes](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-hook-trace.jsonl.generator.md). Written before the sanitized fixtures existed, so its unknown values carry the literal token `"<unread>"`.
+- **Synthetic fixture:** [`anatomy-hook-trace.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-hook-trace.jsonl), with its [generator notes](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-hook-trace.jsonl.generator.md). Rebuilt against the sanitized fixtures in [issue #257](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/257), so every shape it shows is one they observe.
 - **Verification scan:** [`scan-2026-09-23.json`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/format-scan/scan-2026-09-23.json), a structural pass over 3,680 session files (465,452 lines, v2.1.4 through v2.1.280), key names, counts, and folded enum values only, no message content read. Produced by [`tooling/format-scan/`](https://github.com/frederick-douglas-pearce/claude-code-sessions/tree/main/tooling/format-scan).
 - **Hooks themselves:** Claude Code's [hooks documentation](https://code.claude.com/docs/en/hooks), and this repo's own two guards in [`.claude/hooks/`](https://github.com/frederick-douglas-pearce/claude-code-sessions/tree/main/.claude/hooks).
 
