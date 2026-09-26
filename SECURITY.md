@@ -62,12 +62,22 @@ you prefer otherwise. Please hold public details until a fixed version is availa
 ## Supported versions
 
 `ccs-sanitize` is pre-1.0 and `Development Status :: 3 - Alpha`. Security fixes go to the
-newest released version. There are no backports to older `0.x` releases.
+**newest published release**, as a patch on that release's line. There are no backports to
+any older `0.x` line.
 
 | Version | Supported |
 |---|---|
-| Newest published release (currently `0.3.0`) | Yes, security fixes |
+| Newest published release (currently `0.3.1`) | Yes, security fixes |
 | Any earlier release | No. Upgrade to the newest release |
+
+"Newest published release" means the newest version on PyPI, which is not always the newest
+version on `main`. When the development line has already moved on, a security fix is cut
+from the *released* tag and ships as a PATCH on that line, so upgrading carries the fix and
+nothing else. `0.3.1` was cut that way: the fix landed on `main` in the then-unreleased
+minor line and shipped separately from the `sanitizer-v0.3.0` tag, so a 0.3.0 user did not
+have to accept unrelated behavior changes in order to get a security fix. That topology is
+the runbook's business, not this file's — see
+[`RELEASING.md`](tooling/sanitizer/RELEASING.md).
 
 Upgrading is not a no-op for previously scrubbed data: a scrubbed artifact stays pinned to
 the version that produced it, and byte-level determinism holds only within a version. See
