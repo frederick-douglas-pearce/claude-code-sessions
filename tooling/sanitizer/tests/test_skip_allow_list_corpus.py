@@ -51,6 +51,7 @@ from pathlib import Path
 import pytest
 
 from ccs_sanitize.orchestrator import sanitize_session
+from ccs_sanitize.rules.identifiers import GIT_BRANCH_PATHS
 from ccs_sanitize.pipeline import (  # noqa: PLC2701 — pinning the contract is the point
     _ENUM_PATHS,
     _FORMAT_PATHS,
@@ -377,4 +378,31 @@ def test_allow_list_contents_are_pinned() -> None:
         "the change is intended, then update this pin and the CHANGELOG.\n"
         f"  added:   {sorted('.'.join(p) for p in _ALLOW_LIST - _EXPECTED_ALLOW_LIST)}\n"
         f"  removed: {sorted('.'.join(p) for p in _EXPECTED_ALLOW_LIST - _ALLOW_LIST)}"
+    )
+
+
+def test_every_git_branch_anchor_exists_in_the_corpus(
+    corpus_paths: set[JsonPath],
+) -> None:
+    """#251. ``GIT_BRANCH_PATHS`` is corpus-derived, not read off a published
+    schema, and it is the only path set in the package that had neither a
+    literal pin nor a corpus check.
+
+    Both other anchored sets have one: ``UUID_PATHS`` is pinned equal to the
+    pipeline's by ``test_uuid_transform_positions_match_pipeline_allow_list``,
+    and the skip allow-list is checked above. So a typo in a branch anchor's
+    spelling, or a silent drop of the ``git_state.branch`` entry in a refactor,
+    would go red on nothing that connects it to real data -- only on the
+    bespoke tests in ``test_identifiers.py``, which plant the path themselves
+    and would agree with the typo.
+
+    The direction of failure matters and is the same as the allow-list's: a
+    DEAD entry means the anchor is not doing the job it claims to, and for this
+    set that means a branch name shipping unscrubbed. #251 is what that looks
+    like in the field."""
+    missing = sorted(p for p in GIT_BRANCH_PATHS if p not in corpus_paths)
+    assert not missing, (
+        "GIT_BRANCH_PATHS entries that match no string leaf in fixtures/ — a "
+        "typo, or a position the format moved. Either way the branch name at "
+        f"that position is no longer being scrubbed: {missing}"
     )

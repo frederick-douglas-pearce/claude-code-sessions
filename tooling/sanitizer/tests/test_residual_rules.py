@@ -374,6 +374,80 @@ def test_gitbranch_placeholder_does_not_trip_the_scan(tmp_path: Path) -> None:
     assert "feature/example" in out[0]
 
 
+def test_git_state_branch_placeholder_does_not_trip_the_scan(tmp_path: Path) -> None:
+    """#251, through the orchestrator rather than the transform.
+
+    The new anchored position is ``serverClassifierContext.context.git_state
+    .branch``. The built-in replaces the whole leaf, so a configured rule's
+    match value that happened to be inside the branch name is gone rather than
+    surviving, and the oracle must let the run through.
+
+    What this does NOT prove, stated because the transform-level test in
+    ``test_identifiers.py`` used to claim it did: the oracle cannot tell the
+    anchored case from the unanchored one here, because when the built-in does
+    not fire the configured rule catches the same substring anyway. What it
+    pins is that adding the anchor did not introduce an abort at the new
+    position, which given the substitution-conflict class is the risk actually
+    worth a gate."""
+    config = _config(tmp_path, _BASE_CONFIG)
+    lines = [
+        _line(
+            {
+                "type": "user",
+                "gitBranch": "feature/realuser-work",
+                "serverClassifierContext": {
+                    "context": {"git_state": {"branch": "feature/realuser-work"}}
+                },
+                "toolUseResult": {"stdout": "ok"},
+            }
+        )
+    ]
+    out, _, _, _ = sanitize_session(lines, config)
+    assert out[0].count("feature/example") == 2
+    assert "realuser" not in out[0]
+
+
+def test_a_rule_matching_the_trunk_name_does_not_abort(tmp_path: Path) -> None:
+    """#251. The regression that made ``git_state.default_branch`` stay
+    unanchored, pinned end to end because the transform alone cannot show it.
+
+    ``SubstitutionTable.record`` keys on the ORIGINAL value and raises when a
+    second call gives it a different replacement. Anchoring ``default_branch``
+    would make the built-in claim the trunk name on every session that has one,
+    so any configured rule resolving to that string elsewhere in the file aborts
+    the run -- ``sanitize_session`` writes nothing and the caller gets the
+    conflict, which also carries the original value in its message.
+
+    Here the trunk name is ``mainline`` rather than a literal ``main``, so the
+    config rule is an ordinary identifier rule rather than a contrivance: a team
+    whose default branch carries a product or customer name is exactly who needs
+    it scrubbed."""
+    config = _config(
+        tmp_path,
+        _BASE_CONFIG + '  - match: "mainline"\n    replace: "trunk"\n',
+    )
+    lines = [
+        _line(
+            {
+                "type": "user",
+                "gitBranch": "feature/x",
+                "serverClassifierContext": {
+                    "context": {
+                        "git_state": {"branch": "feature/x", "default_branch": "mainline"}
+                    }
+                },
+                "toolUseResult": {"stdout": "merged into mainline"},
+            }
+        )
+    ]
+    out, _, _, _ = sanitize_session(lines, config)
+    # No abort, and the configured rule handled the unanchored leaf
+    # consistently at both of its occurrences.
+    assert "mainline" not in out[0]
+    assert out[0].count("trunk") == 2
+    assert f'"branch":"feature/example"' in out[0]
+
+
 # ----- integration: the two known traversal gaps now abort ----------------
 
 

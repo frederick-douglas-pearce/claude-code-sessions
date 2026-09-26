@@ -32,9 +32,13 @@ substitutions, and running identifier regex rules on top of them would
 double-record or produce nonsense (e.g., a UUID-shaped placeholder being
 partially re-substituted by an unrelated catch-all regex).
 
-  1. ``gitBranch`` -- when ``scrub_git_branch`` is on AND the rooted path
+  1. Branch names -- when ``scrub_git_branch`` is on AND the rooted path
      is in :data:`GIT_BRANCH_PATHS`, the whole leaf becomes
-     ``"feature/example"`` (PRD section 8 example).
+     ``"feature/example"`` (PRD section 8 example). Two positions: the
+     line-level ``gitBranch``, and ``branch`` under
+     ``serverClassifierContext.context.git_state`` (#251). A leaf already
+     holding the placeholder is returned untouched, so a second pass records
+     no substitution.
 
      This was a bare-name match at any depth, justified as defensive
      ("a nested ``gitBranch`` would still be a branch name shape").
@@ -42,7 +46,10 @@ partially re-substituted by an unrelated catch-all regex).
      is arbitrary tool-defined JSON, so a tool parameter named ``gitBranch``
      was silently overwritten -- and because ``scrub_git_branch`` defaults
      to True, that happened under a DEFAULT config. Anchoring costs nothing:
-     ``gitBranch`` occurs at exactly one path in the corpus.
+     ``gitBranch`` occurs at exactly one path in the corpus. The #251
+     positions were added as rooted paths for the same reason, more
+     urgently -- ``branch`` is a likelier tool parameter than ``gitBranch``
+     ever was.
 
   2. UUID-graph fields -- when ``remap_uuids`` is on AND the rooted path is
      in :data:`UUID_PATHS`, the leaf is remapped via
@@ -135,8 +142,79 @@ UUID_PATHS: frozenset[JsonPath] = frozenset({
 # Unlike the UUID remap this is not gated behind an opt-in flag --
 # ``scrub_git_branch`` defaults to True -- so the any-depth version corrupted
 # a colliding tool parameter under a DEFAULT config.
+#
+# Issue #251. The branch name also rides a SECOND structure the camelCase
+# anchor never reached: ``serverClassifierContext.context.git_state``, whose
+# leaf is spelled ``branch``. The pre-#199 any-depth rule missed it too, for
+# the same reason -- it matched the NAME ``gitBranch``, and this key is not
+# called that. So the leak predates #199 rather than being caused by it.
+#
+# It shipped in 0.3.0 and was found because the paths rule, which is
+# value-based, rewrote the SIBLING leaves ``git_state.root`` and
+# ``git_state.cwd`` while the branch survived beside them -- with the sidecar
+# reporting ``residual_scan: clean``. That combination is the whole severity:
+# a user is told the file is safe.
+#
+# ``default_branch`` is NOT anchored, and the first draft of this fix had it
+# wrong. The argument for covering it was "a branch name by its key name, same
+# placeholder, costs nothing". It costs something, and the cost is an ABORT.
+#
+# ``SubstitutionTable.record`` keys on the ORIGINAL value and raises when a
+# second call supplies a different replacement for it. Anchoring
+# ``default_branch`` makes the built-in claim the trunk name -- ``main`` or
+# ``master`` -- in the table on every session that has one. Any configured rule
+# whose match resolves to that same string anywhere else in the file then
+# raises ``SubstitutionConflictError`` and the run exits with nothing written.
+#
+# That failure already exists for a session sitting ON its trunk, where
+# ``gitBranch`` itself is ``main``. Anchoring ``default_branch`` widens it from
+# that minority to nearly every session, because ``default_branch`` is ``main``
+# whatever branch the work is on. Trading a real abort for coverage of a leaf
+# that was null in all four records it has ever been seen at is the wrong way
+# round.
+#
+# Unanchored does not mean unscrubbed: the leaf falls through to the configured
+# ``identifiers`` rules like any other value, which is the correct treatment
+# for a position whose value shape has never been observed. #267 adds the
+# nested-key scan that would settle the shape; anchoring can be revisited then,
+# and would need an answer to the conflict class first.
+#
+# Listed as EXACT ROOTED PATHS, never as a subtree or a bare name, for #199's
+# reason: a tool parameter called ``branch`` is common, and corrupting one
+# under a default config is the failure that anchoring exists to prevent.
+#
+# NOT covered here, deliberately. The first two are UNOBSERVED rather than
+# judged harmless: both were null in all four records, so anything said about
+# their value shape would be invention. #267 adds the nested-key scan that
+# would settle them over the corpus instead of over four records.
+#
+# * The whole ``git_state.visibility`` object. Observed as
+#   ``{"origin": null, "push_remote": "origin", "remotes": [],
+#   "visibility_cache": []}``, so three of its four leaves are unobserved:
+#   ``origin``, ``remotes`` and ``visibility_cache``. ``origin`` is the one
+#   worth naming, because an earlier draft of this comment called it "a remote
+#   URL" on zero non-null observations -- the parent key is ``visibility`` and
+#   the other sibling is a remote NAME, so a public/private classification of
+#   that remote reads at least as well. Covering any of the three means
+#   choosing a placeholder for a shape nobody here has seen populated, which is
+#   the #257 mistake.
+# * ``git_state.status.porcelain``. ``git status --porcelain`` emits
+#   repo-RELATIVE paths and the paths rule matches configured ABSOLUTE roots,
+#   so the paths rule does NOT reach it. If it is ever populated, directory and
+#   file names ship verbatim under ``residual_scan: clean`` -- #251's shape at
+#   a different key.
+#
+# The third is not unobserved. It is populated and it already leaks:
+#
+# * The branch name in FREE TEXT. Claude Code injects a ``gitStatus`` block
+#   into the first user message, where ``Current branch: <name>`` is prose, not
+#   a leaf at a path. ``fixtures/sanitized/sanitizer-development.jsonl``
+#   publishes one that way, under a clean sidecar, today. No field anchor can
+#   reach it by construction; closing it needs a value-based rule seeded from
+#   the anchored leaves, which is a different design and a separate change.
 GIT_BRANCH_PATHS: frozenset[JsonPath] = frozenset({
     ("gitBranch",),
+    ("serverClassifierContext", "context", "git_state", "branch"),
 })
 
 
@@ -158,8 +236,11 @@ def build_identifier_transform(
         table: shared substitution table the transform records into.
             Cross-line consistency falls out of reusing one table across
             every leaf in the pipeline run.
-        scrub_git_branch: when True, ``gitBranch`` field values are
-            replaced with ``GIT_BRANCH_PLACEHOLDER``. Matches
+        scrub_git_branch: when True, every leaf at a path in
+            :data:`GIT_BRANCH_PATHS` is replaced with
+            ``GIT_BRANCH_PLACEHOLDER``. That is the line-level ``gitBranch``
+            field and ``serverClassifierContext.context.git_state.branch``
+            (#251), not ``gitBranch`` alone. Matches
             ``ConfigOptions.scrub_git_branch`` (default True).
         remap_uuids: when True, UUID-graph fields get deterministically
             remapped. Requires the pipeline to use
@@ -197,6 +278,15 @@ def build_identifier_transform(
             # cannot interpret.
             if scrub_git_branch and path in GIT_BRANCH_PATHS:
                 if not leaf:
+                    return leaf
+                # Already-scrubbed passthrough. Without it a second pass over
+                # clean output records ``feature/example -> feature/example``,
+                # so the re-scrub's sidecar claims substitutions on input that
+                # needed none -- at exactly the positions a re-scrub is run to
+                # prove clean. The bytes were always stable; the sidecar was
+                # not. PRD section 14 and the planned fixture-validator, which
+                # re-derives rather than trusting the field, both read it.
+                if leaf == GIT_BRANCH_PLACEHOLDER:
                     return leaf
                 return table.record(
                     leaf, GIT_BRANCH_PLACEHOLDER, label="identifiers:gitBranch"

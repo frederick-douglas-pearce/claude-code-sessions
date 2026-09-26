@@ -44,12 +44,33 @@ Releases are tagged `sanitizer-v<version>` (component-scoped, not a bare `v*`:
 this is a monorepo and a bare tag filter would fire the publish workflow on
 unrelated tags).
 
-## [0.4.0] — unreleased
+## [0.5.0] — unreleased
 
 **MINOR.** Existing configs keep working, no sidecar field is removed,
 renamed or retyped (`sidecar_schema_version` stays `1`), and no built-in
 pattern is removed, so this is not MAJOR; it changes which inputs the tool
 refuses and which leaves it scrubs, so it is not PATCH.
+
+**Why this is 0.5.0 and 0.4.0 is skipped.** This block carried `0.4.0` while it
+was unreleased, and **three** committed sidecars record
+`sanitizer_version: 0.4.0`:
+`fixtures/sanitized/hook-trace-denial-and-stop-ladder.jsonl.scrubbed`,
+`hook-trace-stop-hook-error.jsonl.scrubbed` and
+`hook-trace-prompt-hook-refusal.jsonl.scrubbed`. Then #251 landed here, and
+#251 changes the bytes the first two inputs produce — they still carry
+`"branch":"main"` at the position the fix now scrubs. (The third carries no
+`git_state`, so its bytes are unaffected, but it was scrubbed against 0.4.0
+just the same.) Keeping the number would mean one version string denoting two
+different outputs for one input, which is the determinism contract broken
+inside a single version rather than across one. Renumbering leaves all three
+sidecars pointing at the pre-#251 behavior that produced them.
+
+The cost, stated rather than left to be discovered: `0.4.0` is never published,
+there is no `## [0.4.0]` heading in this file, and those three sidecars now name
+a version with no changelog entry and no released artifact — while this file's
+own header says the recorded version "references this file" and consumers gate
+on it. Re-scrubbing the three under 0.5.0 is what closes that, and it needs the
+raw sessions and the live config.
 
 This release moves in **two** directions and the summary has to carry both,
 because "refuses more" alone would misdescribe it after #194:
@@ -60,7 +81,7 @@ because "refuses more" alone would misdescribe it after #194:
   positions**, under a position gate rather than the literal rules'
   unconditional one. A regex config whose value survives where the scrub could
   have acted now **exits 2 and writes nothing**, where 0.3.x and the pre-#198
-  0.4.0 wrote the file and reported `residual_scan: clean`.
+  development line wrote the file and reported `residual_scan: clean`.
 
   **Dict keys are NOT covered for `re:` rules, deliberately**, and this is the
   scope an upgrader should read carefully: gating keys on the skip allow-list
@@ -111,13 +132,13 @@ because "refuses more" alone would misdescribe it after #194:
 **Read #199's direction carefully — it is not "scrubs more".** At an anchored
 position it scrubs **less**. Under 0.3.x a tool parameter at
 `tool_use.input.gitBranch` was matched by bare name and blanket-replaced with
-`feature/example`; under 0.4.0 it falls through to the ordinary identifier
+`feature/example`; under 0.5.0 it falls through to the ordinary identifier
 rules and, if none match it, is emitted **verbatim**. Same for
 `tool_use.input.sessionId` under `remap_uuids: true`, which used to be
 rewritten as a synthesized UUID. That replacement was **corruption of user
 data**, not protection — it destroyed a value the config never asked to touch
 — so removing it is correct. But an upgrader whose tool inputs carry a
-parameter with one of those names will see a value in 0.4.0 output that 0.3.x
+parameter with one of those names will see a value in 0.5.0 output that 0.3.x
 had overwritten. **If such a value is sensitive, it needs a config rule; it was
 never being scrubbed on purpose.**
 
@@ -171,7 +192,7 @@ value at that position. What nothing here catches is a genuinely new format
 position with an unfamiliar name.
 
 **Publish is deliberately held, and #190 changed what the hold is waiting
-for.** `__version__` is 0.4.0 as of this change. The hold was originally
+for.** `__version__` is 0.5.0 as of this release. The hold was originally
 written as "wait for both known traversal gaps to carry *coverage* rather than
 only *refusal*", with **#194 landed** (this release) and #190 outstanding.
 
@@ -181,7 +202,7 @@ until **#208** makes it scrubbable. So the hold's original wording can no
 longer be met by anything in this release. Two readings are open and the
 maintainer decides which:
 
-- **Release 0.4.0 now**, accepting that one of the two traversal gaps ships
+- **Release 0.5.0 now**, accepting that one of the two traversal gaps ships
   refusal-only. Everything the hold was protecting against, a `pip` user
   meeting a *silent* leak, is already closed for literal rules by #195; the
   residual is a *refusal*, which is loud.
@@ -272,6 +293,92 @@ by construction.
   appearing at non-allow-listed paths is pinned, so a new collision has to be
   classified rather than silently absorbed.
 
+### Fixed (issue #251 — the branch name survived at `git_state.branch`, a 0.3.0 leak)
+
+**Security.** The branch name was replaced at the line-level `gitBranch`
+field and left intact at
+`serverClassifierContext.context.git_state.branch`. A session on a branch
+whose name carries a customer, a ticket, or an unreleased feature published
+that name.
+
+Present in **0.3.0**, the published release. This is not a #199 regression:
+both the current rooted anchor and the pre-#199 any-depth rule matched the
+*name* `gitBranch`, and this key is spelled `branch`, so neither ever reached
+it. Fixed here and released separately as **0.3.1** for users of the 0.3.x
+line, who should upgrade.
+
+What makes it a security fix rather than a missed field: the paths rule is
+value-based, so it *did* rewrite the sibling leaves `git_state.root` and
+`git_state.cwd` in the same object. The output therefore looked scrubbed, and
+the sidecar reported `residual_scan: clean`. The user is told the file is safe
+to publish. Neither the residual scan nor the 0.5.0 output-side oracle would
+have caught it, because the oracle covers *configured* path and identifier
+rules and `scrub_git_branch` is a built-in with no output-side check.
+
+`git_state.default_branch` is **not** covered, and an earlier draft of this
+entry had it wrong. The argument for covering it was "a branch name by its key
+name, same placeholder, costs nothing." It costs an **abort**.
+
+The substitution table keys on the original value and refuses a second mapping
+for it. Anchoring `default_branch` makes the built-in claim the trunk name —
+`main`, or whatever a team calls it — in the table on every session that has
+one. Any configured rule resolving to that same string anywhere else in the
+file then raises `SubstitutionConflictError`, and the run exits with nothing
+written. That failure already exists for a session sitting **on** its trunk,
+where `gitBranch` is itself the trunk name; anchoring `default_branch` would
+widen it from that minority to nearly every session, because `default_branch`
+holds the trunk name whatever branch the work is on.
+
+Unanchored is not unscrubbed. The leaf falls through to the configured
+`identifiers` rules like any other value, which is the right treatment for a
+position whose value shape has never been observed: it was null in all **four**
+records in this repo's corpus that carry `git_state`, and four records is the
+entire observation base. The format scanner inventories top-level keys only, so
+the 1,812 `serverClassifierContext` lines it counts say nothing about the
+nested leaves. #267 adds the scan that would settle the shape, and anchoring
+can be revisited then — with an answer to the conflict class first.
+
+The new position is added as an **exact rooted path**, never as the bare name
+`branch`, for #199's reason and more urgently: `branch` is a far more
+plausible tool parameter than `gitBranch`, and `scrub_git_branch` defaults to
+True, so a bare-name match would corrupt a real argument under a default
+config.
+
+A leaf that already holds the placeholder is now returned untouched. Without
+that guard a second pass over clean output recorded
+`feature/example → feature/example`, so a re-scrub's sidecar claimed
+substitutions on input that needed none, at exactly the positions a re-scrub is
+run to prove clean. The bytes were always stable; the sidecar was not.
+
+Also deliberately **not** covered, on top of `default_branch` above. The first
+two are **unobserved** rather than judged harmless — null or empty in all four
+records, so anything said about their value shape would be invention. #267 adds
+the nested-key scan that would settle them over the corpus instead of over four
+records:
+
+- The whole `git_state.visibility` object, observed as
+  `{"origin": null, "push_remote": "origin", "remotes": [], "visibility_cache": []}`
+  — so three of its four leaves are unobserved: `origin`, `remotes` and
+  `visibility_cache`. `origin` is the one worth naming, because an earlier draft
+  of this entry called it "a remote URL" on zero non-null observations. The
+  parent key is `visibility` and the other sibling is a remote *name*, so a
+  public/private classification of that remote reads at least as well. Picking a
+  placeholder for a shape nobody here has seen populated is the #257 mistake.
+- `git_state.status.porcelain`. `git status --porcelain` emits repo-**relative**
+  paths and the paths rule matches configured **absolute** roots, so the paths
+  rule does **not** reach it. If it is ever populated, directory and file names
+  ship verbatim under `residual_scan: clean` — this issue's shape at another
+  key.
+
+The third is not unobserved. It is populated and it already leaks:
+
+- The branch name in **free text**. Claude Code injects a `gitStatus` block into
+  the first user message, where `Current branch: <name>` is prose rather than a
+  leaf at a path. `fixtures/sanitized/sanitizer-development.jsonl` publishes one
+  that way, under a clean sidecar, today. No field anchor reaches it by
+  construction; closing it needs a value-based rule seeded from the anchored
+  leaves, which is a different design and a separate change.
+
 ### Fixed (issue #199 — `gitBranch` was replaced at any depth)
 - **`gitBranch` and the UUID remap are anchored by path too.** The identifier
   layer decides what to do with a leaf *when it is visited*, and it also
@@ -304,7 +411,7 @@ by construction.
   README's human review step into a rubber stamp.
 - **It closes the class, not the instances.** #190 (dict keys are never
   visited) and #194 (the skip-list exempted user data at any depth, fixed in
-  this same 0.4.0 release) were two ways to end up outside the traversal's
+  this same release) were two ways to end up outside the traversal's
   reach; the position space is
   tool-defined and open-ended, so enumerating positions cannot close it —
   `test_adversarial_placement.py` was built to map positional coverage and

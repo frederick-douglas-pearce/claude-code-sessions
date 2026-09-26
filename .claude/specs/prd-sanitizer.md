@@ -132,10 +132,10 @@ into a rubber stamp.
 
 Two instances were found by two different methods — [#190](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/190)
 (dict keys are never visited by the walk) and [#194](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/194)
-(the skip-list exempted user data at any depth; its bare-name mechanism was fixed in 0.4.0, with a
+(the skip-list exempted user data at any depth; its bare-name mechanism was fixed in 0.5.0, with a
 deliberate residual noted in §6b B) — but enumerating positions
 cannot close the class: tool inputs are tool-defined and MCP servers define their own schemas, so the position
-space grows without this project's involvement. As of 0.4.0 the configured `paths` and
+space grows without this project's involvement. As of 0.5.0 the configured `paths` and
 `identifiers` rules are re-run over the **decoded** output — every string leaf *and every dict
 key* — and a survivor aborts the run. That describes the traversal *domain*, not the coverage:
 **literal** rules are checked position-agnostically over all of it, keys included, while **regex**
@@ -498,8 +498,17 @@ necessary — which is one reason jitter is deferred (see [§9](#9-layer-4-jitte
 
 ## 8. Layer 2: identifiers
 
-**What it does.** Replaces configured emails, usernames, and (optionally) `gitBranch` values
+**What it does.** Replaces configured emails, usernames, and (optionally) branch-name values
 with placeholders. Like paths, deterministic and consistent.
+
+`scrub_git_branch` covers **two** rooted positions as of #251, not the one this section
+described until then: the line-level `gitBranch`, and
+`serverClassifierContext.context.git_state.branch`, whose leaf is spelled `branch` and so was
+never reached by a `gitBranch` name match. It shipped leaking in 0.3.0.
+`git_state.default_branch` is deliberately **not** covered — anchoring it makes the built-in
+claim the trunk name in the substitution table on every session, so a configured rule
+resolving to that string elsewhere in the file aborts the run. It falls through to the
+configured `identifiers` rules instead.
 
 ```yaml
 identifiers:
@@ -508,7 +517,7 @@ identifiers:
   - match: "re:[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"   # catch-all email
     replace: "user@example.com"
 options:
-  scrub_git_branch: true      # gitBranch -> "feature/example" (branch names leak ticket IDs)
+  scrub_git_branch: true      # gitBranch + git_state.branch -> "feature/example"
   remap_uuids: false          # see below
 ```
 
@@ -675,7 +684,7 @@ Notes:
   not clean, the file would not have been written. **Be precise about what it attests to**, since
   this line is the human review gate before publishing and an overclaim here is exactly the
   rubber-stamp failure [§5](#5-design-principles--the-role-of-the-post-scrub-residual-scan)
-  describes. As of 0.4.0 it attests to: the secret patterns (position-agnostic over the
+  describes. As of 0.5.0 it attests to: the secret patterns (position-agnostic over the
   serialized output), **the LITERAL `paths`/`identifiers` rules** (decoded output, leaves and
   dict keys, position-agnostic — #195), **and the REGEX `paths`/`identifiers` rules at reachable
   VALUE positions** (decoded output, string leaves only, excluding dict keys, skip-listed positions
@@ -746,7 +755,7 @@ Notes:
     dashes. Both still match in serialized form, but the reason is per-pattern rather than
     structural — so a newly-added pattern is **not** covered by this audit and must be re-checked.
 
-  Before 0.4.0 this field attested to secrets alone, so it could appear on a file that still held a
+  Before 0.5.0 this field attested to secrets alone, so it could appear on a file that still held a
   configured path or identifier. The planned fixture-validator
   ([§13](#13-fixture-validator-integration)) re-derives rather than trusting this field, and must
   apply the same literal/regex split so the two tools do not diverge on what `clean` means.
