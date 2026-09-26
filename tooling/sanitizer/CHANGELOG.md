@@ -109,9 +109,10 @@ surviving value was neither — it was the real branch name, which only the
 field-anchored built-in was ever going to catch, and that built-in has no
 output-side verification.
 
-Not covered, and none of the three is a claim about a value shape — all three
-were null or empty in all four records, which is why they are tracked rather
-than guessed at:
+Not covered. The first two are **unobserved** rather than judged harmless —
+both were null in all four records, so anything said about their value shape
+would be invention. #267 adds the nested-key scan that would settle them over
+the corpus instead of over four records:
 
 - `git_state.visibility.origin`, with its sibling `visibility.remotes`. The
   parent key is `visibility` and the other sibling is `push_remote: "origin"`,
@@ -123,9 +124,13 @@ than guessed at:
   rule does **not** reach it. If it is ever populated, directory and file names
   ship verbatim under `residual_scan: clean` — this issue's shape at another
   key.
+The third is not unobserved. It is populated and it leaks today:
+
 - The branch name in **free text**. Claude Code injects a `gitStatus` block into
   the first user message, where `Current branch: <name>` is prose rather than a
-  leaf at a path. No field anchor reaches it by construction.
+  leaf at a path. No field anchor reaches it by construction; closing it needs a
+  value-based rule seeded from the anchored leaves, which is a different design
+  and not a patch.
 
 **Sidecar impact.** `sidecar_schema_version` stays `1`. The new positions reuse
 the existing `identifiers:gitBranch` label and its `<git-branch>` placeholder,
