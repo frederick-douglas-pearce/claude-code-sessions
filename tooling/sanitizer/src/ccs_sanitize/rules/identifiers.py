@@ -32,9 +32,11 @@ substitutions, and running identifier regex rules on top of them would
 double-record or produce nonsense (e.g., a UUID-shaped placeholder being
 partially re-substituted by an unrelated catch-all regex).
 
-  1. ``gitBranch`` -- when ``scrub_git_branch`` is on AND the rooted path
+  1. Branch names -- when ``scrub_git_branch`` is on AND the rooted path
      is in :data:`GIT_BRANCH_PATHS`, the whole leaf becomes
-     ``"feature/example"`` (PRD section 8 example).
+     ``"feature/example"`` (PRD section 8 example). Three positions: the
+     line-level ``gitBranch``, plus ``branch`` and ``default_branch`` under
+     ``serverClassifierContext.context.git_state`` (#251).
 
      This was a bare-name match at any depth, justified as defensive
      ("a nested ``gitBranch`` would still be a branch name shape").
@@ -42,7 +44,10 @@ partially re-substituted by an unrelated catch-all regex).
      is arbitrary tool-defined JSON, so a tool parameter named ``gitBranch``
      was silently overwritten -- and because ``scrub_git_branch`` defaults
      to True, that happened under a DEFAULT config. Anchoring costs nothing:
-     ``gitBranch`` occurs at exactly one path in the corpus.
+     ``gitBranch`` occurs at exactly one path in the corpus. The #251
+     positions were added as rooted paths for the same reason, more
+     urgently -- ``branch`` is a likelier tool parameter than ``gitBranch``
+     ever was.
 
   2. UUID-graph fields -- when ``remap_uuids`` is on AND the rooted path is
      in :data:`UUID_PATHS`, the leaf is remapped via
@@ -148,20 +153,55 @@ UUID_PATHS: frozenset[JsonPath] = frozenset({
 # reporting ``residual_scan: clean``. That combination is the whole severity:
 # a user is told the file is safe.
 #
-# ``default_branch`` is included although every observed occurrence is null.
-# It is a branch name by its key name and takes the identical placeholder, so
-# covering it costs nothing and closes the case where a repo has one set.
+# ``default_branch`` is covered too, on its key name rather than on an
+# observed value: it was null in all FOUR records carrying ``git_state``, and
+# four records is the whole observation base. The format scanner inventories
+# TOP-LEVEL keys only, so the 1,812 ``serverClassifierContext`` lines it counts
+# say nothing about what the nested leaves hold. Read every value claim in this
+# comment against that base, not against the corpus.
+#
+# Both new positions share GIT_BRANCH_PLACEHOLDER **and** the
+# ``identifiers:gitBranch`` label, and that is forced rather than tidy.
+# ``SubstitutionTable.record`` keys on the ORIGINAL value and raises on a
+# second call supplying a different replacement -- or a different label -- for
+# it. A session sitting on its own default branch has
+# ``branch == default_branch``, the commonest case there is, so giving
+# ``default_branch`` its own placeholder or its own label would abort the run
+# with ``SubstitutionConflictError`` on the majority of real input. See
+# ``test_git_state_default_branch_on_the_trunk``.
+#
+# The cost is that the output cannot express whether a session ran on its
+# trunk: both leaves read ``feature/example`` whatever the originals were. No
+# fixed pair of placeholders recovers that relation, because the substitution
+# is per-leaf and value-keyed -- two different real branches in one file
+# already collapse onto one placeholder. Consumers must treat both leaves as
+# opaque and must not compare them.
 #
 # Listed as EXACT ROOTED PATHS, never as a subtree or a bare name, for #199's
 # reason: a tool parameter called ``branch`` is common, and corrupting one
 # under a default config is the failure that anchoring exists to prevent.
 #
-# NOT covered here, deliberately: ``git_state.visibility.origin`` is a remote
-# URL and would carry an org and repo name, but it was null in every observed
-# record and a URL is not a branch, so GIT_BRANCH_PLACEHOLDER is the wrong
-# value for it. ``git_state.status.porcelain`` is ``git status`` output and
-# would carry file paths, which the value-based paths rule already reaches for
-# configured roots. Both are tracked separately rather than guessed at.
+# NOT covered here, deliberately. None of the three is a claim about a VALUE
+# shape -- all three were null or empty in all four records, which is exactly
+# why they are tracked rather than guessed at:
+#
+# * ``git_state.visibility.origin`` (and its sibling ``visibility.remotes``).
+#   The parent key is ``visibility`` and the other sibling is
+#   ``push_remote: "origin"``, a remote NAME, so ``origin`` here is at least as
+#   likely a public/private classification of that remote as a URL carrying an
+#   org and repo. Covering it means choosing a placeholder for a shape nobody
+#   here has seen populated, which is the #257 mistake.
+# * ``git_state.status.porcelain``. ``git status --porcelain`` emits
+#   repo-RELATIVE paths and the paths rule matches configured ABSOLUTE roots,
+#   so the paths rule does NOT reach it. If it is ever populated, directory and
+#   file names ship verbatim under ``residual_scan: clean`` -- #251's shape at
+#   a different key.
+# * The branch name in FREE TEXT. Claude Code injects a ``gitStatus`` block
+#   into the first user message, where ``Current branch: <name>`` is prose, not
+#   a leaf at a path. ``fixtures/sanitized/sanitizer-development.jsonl``
+#   already publishes one that way under a clean sidecar. No field anchor can
+#   reach it by construction; it needs a value-based rule seeded from the
+#   anchored leaves, which is a different design.
 GIT_BRANCH_PATHS: frozenset[JsonPath] = frozenset({
     ("gitBranch",),
     ("serverClassifierContext", "context", "git_state", "branch"),

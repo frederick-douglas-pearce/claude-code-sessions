@@ -490,7 +490,13 @@ def test_git_state_branch_is_scrubbed(tmp_path: Path) -> None:
     output looks scrubbed and the sidecar reports ``residual_scan:
     clean``. A user is told the file is safe to publish while a branch
     name that may carry a customer or an unreleased feature is still in
-    it. Nothing else in the tool would catch it."""
+    it. Nothing else in the tool would catch it.
+
+    The rooted path asserted here is CORPUS-DERIVED, not read off a
+    published schema: it comes from the four fixture records that carry
+    ``serverClassifierContext.context.git_state``. If Claude Code moves or
+    renames the structure this test keeps passing while the leak reopens,
+    so it pins the fix and not the format."""
     config = _config(tmp_path, "version: 1\n")
     line = serialize_line(
         {
@@ -517,6 +523,42 @@ def test_git_state_branch_is_scrubbed(tmp_path: Path) -> None:
     # Control: the line-level field still scrubs, so this cannot pass by
     # way of a transform that does nothing.
     assert f'"gitBranch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
+
+
+def test_git_state_default_branch_on_the_trunk(tmp_path: Path) -> None:
+    """#251. A session running ON its own default branch has
+    ``branch == default_branch``, which is the commonest case there is.
+
+    This pins why all three anchored positions must share one placeholder
+    AND one label. ``SubstitutionTable.record`` keys on the ORIGINAL value
+    and raises ``SubstitutionConflictError`` when a later call supplies a
+    different replacement, or a different label, for a value already
+    mapped. Giving ``default_branch`` its own placeholder (to keep the
+    branch-vs-trunk distinction readable) or its own label (to make the
+    sidecar name the field it came from) aborts the run on the majority of
+    real sessions. Both look like improvements right up to the point they
+    run, which is why the constraint is a test and not a comment."""
+    config = _config(tmp_path, "version: 1\n")
+    line = serialize_line(
+        {
+            "type": "user",
+            "gitBranch": "main",
+            "serverClassifierContext": {
+                "context": {"git_state": {"branch": "main", "default_branch": "main"}}
+            },
+        }
+    )
+    out, _, table = _run(config.identifiers, [line], scrub_git_branch=True)
+    assert f'"gitBranch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
+    assert f'"branch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
+    assert f'"default_branch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
+    # One row, three occurrences: the table collapses the positions because
+    # the original is the same string at each of them.
+    entries = list(table)
+    assert len(entries) == 1
+    assert entries[0].original == "main"
+    assert entries[0].occurrences == 3
+    assert entries[0].label == "identifiers:gitBranch"
 
 
 def test_git_state_branch_respects_the_opt_out(tmp_path: Path) -> None:
