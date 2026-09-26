@@ -181,9 +181,10 @@ UUID_PATHS: frozenset[JsonPath] = frozenset({
 # reason: a tool parameter called ``branch`` is common, and corrupting one
 # under a default config is the failure that anchoring exists to prevent.
 #
-# NOT covered here, deliberately. None of the three is a claim about a VALUE
-# shape -- all three were null or empty in all four records, which is exactly
-# why they are tracked rather than guessed at:
+# NOT covered here, deliberately. The first two are UNOBSERVED rather than
+# judged harmless: both were null in all four records, so anything said about
+# their value shape would be invention. #267 adds the nested-key scan that
+# would settle them over the corpus instead of over four records.
 #
 # * ``git_state.visibility.origin`` (and its sibling ``visibility.remotes``).
 #   The parent key is ``visibility`` and the other sibling is
@@ -196,12 +197,15 @@ UUID_PATHS: frozenset[JsonPath] = frozenset({
 #   so the paths rule does NOT reach it. If it is ever populated, directory and
 #   file names ship verbatim under ``residual_scan: clean`` -- #251's shape at
 #   a different key.
+#
+# The third is not unobserved. It is populated and it already leaks:
+#
 # * The branch name in FREE TEXT. Claude Code injects a ``gitStatus`` block
 #   into the first user message, where ``Current branch: <name>`` is prose, not
 #   a leaf at a path. ``fixtures/sanitized/sanitizer-development.jsonl``
-#   already publishes one that way under a clean sidecar. No field anchor can
-#   reach it by construction; it needs a value-based rule seeded from the
-#   anchored leaves, which is a different design.
+#   publishes one that way, under a clean sidecar, today. No field anchor can
+#   reach it by construction; closing it needs a value-based rule seeded from
+#   the anchored leaves, which is a different design and a separate change.
 GIT_BRANCH_PATHS: frozenset[JsonPath] = frozenset({
     ("gitBranch",),
     ("serverClassifierContext", "context", "git_state", "branch"),

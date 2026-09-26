@@ -330,9 +330,10 @@ plausible tool parameter than `gitBranch`, and `scrub_git_branch` defaults to
 True, so a bare-name match would corrupt a real argument under a default
 config.
 
-Deliberately **not** covered, and none of the three is a claim about a value
-shape — all three were null or empty in all four records, which is why they are
-tracked rather than guessed at:
+Deliberately **not** covered. The first two are **unobserved** rather than
+judged harmless — both were null in all four records, so anything said about
+their value shape would be invention. #267 adds the nested-key scan that would
+settle them over the corpus instead of over four records:
 
 - `git_state.visibility.origin`, with its sibling `visibility.remotes`. The
   parent key is `visibility` and the other sibling is `push_remote: "origin"`,
@@ -344,11 +345,14 @@ tracked rather than guessed at:
   rule does **not** reach it. If it is ever populated, directory and file names
   ship verbatim under `residual_scan: clean` — this issue's shape at another
   key.
+The third is not unobserved. It is populated and it already leaks:
+
 - The branch name in **free text**. Claude Code injects a `gitStatus` block into
   the first user message, where `Current branch: <name>` is prose rather than a
-  leaf at a path. `fixtures/sanitized/sanitizer-development.jsonl` already
-  publishes one that way under a clean sidecar. No field anchor reaches it by
-  construction.
+  leaf at a path. `fixtures/sanitized/sanitizer-development.jsonl` publishes one
+  that way, under a clean sidecar, today. No field anchor reaches it by
+  construction; closing it needs a value-based rule seeded from the anchored
+  leaves, which is a different design and a separate change.
 
 ### Fixed (issue #199 — `gitBranch` was replaced at any depth)
 - **`gitBranch` and the UUID remap are anchored by path too.** The identifier
