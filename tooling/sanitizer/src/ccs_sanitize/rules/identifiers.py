@@ -16,12 +16,22 @@ substitutions, and running identifier regex rules on top of them would
 double-record or produce nonsense (e.g., a UUID-shaped placeholder being
 partially re-substituted by an unrelated catch-all regex).
 
-  1. ``gitBranch`` field -- when ``scrub_git_branch`` is on AND
-     ``path[-1] == "gitBranch"``, the whole leaf becomes
-     ``"feature/example"`` (PRD section 8 example). Bare-name match across
-     any depth: in the JSONL format ``gitBranch`` only appears at the
-     session-line top level, but a nested ``gitBranch`` would still be a
-     branch name shape and benefits from the placeholder defensively.
+  1. Branch names -- when ``scrub_git_branch`` is on AND either
+     ``path[-1] == "gitBranch"`` or the rooted path is in
+     :data:`GIT_STATE_BRANCH_PATHS`, the whole leaf becomes
+     ``"feature/example"`` (PRD section 8 example).
+
+     ``gitBranch`` is a bare-name match across any depth: in the JSONL
+     format it only appears at the session-line top level, but a nested
+     ``gitBranch`` would still be a branch name shape and benefits from the
+     placeholder defensively. (On the main line #199 replaced that
+     reasoning -- the any-depth match corrupts a colliding tool parameter --
+     but narrowing it is a behavior change, not a security fix, so 0.3.1
+     leaves it alone.)
+
+     The :data:`GIT_STATE_BRANCH_PATHS` positions added by #251 are EXACT
+     ROOTED PATHS instead, because their leaf is spelled ``branch``, which
+     is a common tool parameter.
 
   2. ``uuid`` / ``parentUuid`` / ``sessionId`` / ``agentId`` fields --
      when ``remap_uuids`` is on AND ``path[-1]`` is one of those names,
@@ -92,8 +102,25 @@ UUID_FIELDS: frozenset[str] = frozenset({
 # beside them, with the sidecar reporting ``residual_scan: clean``. That
 # combination is the severity: the user is told the file is safe to publish.
 #
-# ``default_branch`` is included although every observed occurrence is null.
-# It is a branch name by its key name and takes the identical placeholder.
+# ``default_branch`` is included on its key name rather than on an observed
+# value: it was null in all FOUR records carrying ``git_state``, and four
+# records is the whole observation base. The format scanner inventories
+# TOP-LEVEL keys only, so its ``serverClassifierContext`` line count says
+# nothing about what these nested leaves hold.
+#
+# Both positions share GIT_BRANCH_PLACEHOLDER **and** the existing
+# ``identifiers:gitBranch`` label, and that is forced rather than tidy.
+# ``SubstitutionTable.record`` keys on the ORIGINAL value and raises on a
+# second call supplying a different replacement -- or a different label -- for
+# it. A session sitting on its own default branch has
+# ``branch == default_branch``, the commonest case there is, so giving
+# ``default_branch`` its own placeholder or its own label would abort the run
+# with ``SubstitutionConflictError`` on the majority of real input. See
+# ``test_git_state_default_branch_on_the_trunk``.
+#
+# The cost is that the output cannot express whether a session ran on its
+# trunk: both leaves read ``feature/example`` whatever the originals were.
+# Consumers must treat them as opaque and must not compare them.
 #
 # Listed as EXACT ROOTED PATHS, never as the bare name ``branch``. ``branch``
 # is a common tool parameter and ``scrub_git_branch`` defaults to True, so a
@@ -219,6 +246,7 @@ def _remap_uuid(seed_bytes: bytes, original: str) -> str:
 
 __all__ = [
     "GIT_BRANCH_PLACEHOLDER",
+    "GIT_STATE_BRANCH_PATHS",
     "UUID_FIELDS",
     "build_identifier_transform",
 ]
