@@ -52,16 +52,25 @@ pattern is removed, so this is not MAJOR; it changes which inputs the tool
 refuses and which leaves it scrubs, so it is not PATCH.
 
 **Why this is 0.5.0 and 0.4.0 is skipped.** This block carried `0.4.0` while it
-was unreleased, and two committed fixtures were scrubbed against it:
-`fixtures/sanitized/hook-trace-denial-and-stop-ladder.jsonl.scrubbed` and
-`hook-trace-stop-hook-error.jsonl.scrubbed` both record
-`sanitizer_version: 0.4.0`. Then #251 landed here, and #251 changes the bytes
-those two inputs produce — they still carry `"branch":"main"` at the position
-the fix now scrubs. Keeping the number would mean one version string denoting
-two different outputs for one input, which is the determinism contract broken
-inside a single version rather than across one. Renumbering leaves those
-sidecars pointing at the pre-#251 behavior they were actually produced by.
-`0.4.0` is therefore never published; no released version claims it.
+was unreleased, and **three** committed sidecars record
+`sanitizer_version: 0.4.0`:
+`fixtures/sanitized/hook-trace-denial-and-stop-ladder.jsonl.scrubbed`,
+`hook-trace-stop-hook-error.jsonl.scrubbed` and
+`hook-trace-prompt-hook-refusal.jsonl.scrubbed`. Then #251 landed here, and
+#251 changes the bytes the first two inputs produce — they still carry
+`"branch":"main"` at the position the fix now scrubs. (The third carries no
+`git_state`, so its bytes are unaffected, but it was scrubbed against 0.4.0
+just the same.) Keeping the number would mean one version string denoting two
+different outputs for one input, which is the determinism contract broken
+inside a single version rather than across one. Renumbering leaves all three
+sidecars pointing at the pre-#251 behavior that produced them.
+
+The cost, stated rather than left to be discovered: `0.4.0` is never published,
+there is no `## [0.4.0]` heading in this file, and those three sidecars now name
+a version with no changelog entry and no released artifact — while this file's
+own header says the recorded version "references this file" and consumers gate
+on it. Re-scrubbing the three under 0.5.0 is what closes that, and it needs the
+raw sessions and the live config.
 
 This release moves in **two** directions and the summary has to carry both,
 because "refuses more" alone would misdescribe it after #194:
@@ -306,45 +315,61 @@ to publish. Neither the residual scan nor the 0.5.0 output-side oracle would
 have caught it, because the oracle covers *configured* path and identifier
 rules and `scrub_git_branch` is a built-in with no output-side check.
 
-`git_state.default_branch` is covered too, on its key name rather than on an
-observed value: it was null in all **four** records in this repo's corpus that
-carry `git_state`, and four records is the entire observation base. The format
-scanner inventories top-level keys only, so the 1,812 `serverClassifierContext`
-lines it counts say nothing about the nested leaves.
+`git_state.default_branch` is **not** covered, and an earlier draft of this
+entry had it wrong. The argument for covering it was "a branch name by its key
+name, same placeholder, costs nothing." It costs an **abort**.
 
-All three anchored positions share one placeholder **and** one substitution
-label, which is forced rather than tidy. The substitution table keys on the
-original value and refuses a second mapping for it, so a session on its own
-default branch — where `branch == default_branch`, the commonest case there is
-— would abort with `SubstitutionConflictError` if `default_branch` had its own
-placeholder or its own label. The consequence is that scrubbed output cannot
-express whether a session ran on its trunk: both leaves read `feature/example`
-whatever the originals were. **Treat them as opaque and do not compare them.**
-No fixed pair of placeholders recovers that relation, because the substitution
-is per-leaf and value-keyed; two different real branches in one file already
-collapse onto one placeholder.
+The substitution table keys on the original value and refuses a second mapping
+for it. Anchoring `default_branch` makes the built-in claim the trunk name —
+`main`, or whatever a team calls it — in the table on every session that has
+one. Any configured rule resolving to that same string anywhere else in the
+file then raises `SubstitutionConflictError`, and the run exits with nothing
+written. That failure already exists for a session sitting **on** its trunk,
+where `gitBranch` is itself the trunk name; anchoring `default_branch` would
+widen it from that minority to nearly every session, because `default_branch`
+holds the trunk name whatever branch the work is on.
 
-The two positions are added as **exact rooted paths**, never as the bare name
+Unanchored is not unscrubbed. The leaf falls through to the configured
+`identifiers` rules like any other value, which is the right treatment for a
+position whose value shape has never been observed: it was null in all **four**
+records in this repo's corpus that carry `git_state`, and four records is the
+entire observation base. The format scanner inventories top-level keys only, so
+the 1,812 `serverClassifierContext` lines it counts say nothing about the
+nested leaves. #267 adds the scan that would settle the shape, and anchoring
+can be revisited then — with an answer to the conflict class first.
+
+The new position is added as an **exact rooted path**, never as the bare name
 `branch`, for #199's reason and more urgently: `branch` is a far more
 plausible tool parameter than `gitBranch`, and `scrub_git_branch` defaults to
 True, so a bare-name match would corrupt a real argument under a default
 config.
 
-Deliberately **not** covered. The first two are **unobserved** rather than
-judged harmless — both were null in all four records, so anything said about
-their value shape would be invention. #267 adds the nested-key scan that would
-settle them over the corpus instead of over four records:
+A leaf that already holds the placeholder is now returned untouched. Without
+that guard a second pass over clean output recorded
+`feature/example → feature/example`, so a re-scrub's sidecar claimed
+substitutions on input that needed none, at exactly the positions a re-scrub is
+run to prove clean. The bytes were always stable; the sidecar was not.
 
-- `git_state.visibility.origin`, with its sibling `visibility.remotes`. The
-  parent key is `visibility` and the other sibling is `push_remote: "origin"`,
-  a remote *name*, so `origin` here is at least as likely a public/private
-  classification of that remote as a URL carrying an org and repo. Picking a
+Also deliberately **not** covered, on top of `default_branch` above. The first
+two are **unobserved** rather than judged harmless — null or empty in all four
+records, so anything said about their value shape would be invention. #267 adds
+the nested-key scan that would settle them over the corpus instead of over four
+records:
+
+- The whole `git_state.visibility` object, observed as
+  `{"origin": null, "push_remote": "origin", "remotes": [], "visibility_cache": []}`
+  — so three of its four leaves are unobserved: `origin`, `remotes` and
+  `visibility_cache`. `origin` is the one worth naming, because an earlier draft
+  of this entry called it "a remote URL" on zero non-null observations. The
+  parent key is `visibility` and the other sibling is a remote *name*, so a
+  public/private classification of that remote reads at least as well. Picking a
   placeholder for a shape nobody here has seen populated is the #257 mistake.
 - `git_state.status.porcelain`. `git status --porcelain` emits repo-**relative**
   paths and the paths rule matches configured **absolute** roots, so the paths
   rule does **not** reach it. If it is ever populated, directory and file names
   ship verbatim under `residual_scan: clean` — this issue's shape at another
   key.
+
 The third is not unobserved. It is populated and it already leaks:
 
 - The branch name in **free text**. Claude Code injects a `gitStatus` block into

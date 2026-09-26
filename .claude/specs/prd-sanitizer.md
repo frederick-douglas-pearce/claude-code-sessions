@@ -498,8 +498,17 @@ necessary — which is one reason jitter is deferred (see [§9](#9-layer-4-jitte
 
 ## 8. Layer 2: identifiers
 
-**What it does.** Replaces configured emails, usernames, and (optionally) `gitBranch` values
+**What it does.** Replaces configured emails, usernames, and (optionally) branch-name values
 with placeholders. Like paths, deterministic and consistent.
+
+`scrub_git_branch` covers **two** rooted positions as of #251, not the one this section
+described until then: the line-level `gitBranch`, and
+`serverClassifierContext.context.git_state.branch`, whose leaf is spelled `branch` and so was
+never reached by a `gitBranch` name match. It shipped leaking in 0.3.0.
+`git_state.default_branch` is deliberately **not** covered — anchoring it makes the built-in
+claim the trunk name in the substitution table on every session, so a configured rule
+resolving to that string elsewhere in the file aborts the run. It falls through to the
+configured `identifiers` rules instead.
 
 ```yaml
 identifiers:
@@ -508,7 +517,7 @@ identifiers:
   - match: "re:[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"   # catch-all email
     replace: "user@example.com"
 options:
-  scrub_git_branch: true      # gitBranch -> "feature/example" (branch names leak ticket IDs)
+  scrub_git_branch: true      # gitBranch + git_state.branch -> "feature/example"
   remap_uuids: false          # see below
 ```
 

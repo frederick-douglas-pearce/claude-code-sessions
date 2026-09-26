@@ -515,50 +515,89 @@ def test_git_state_branch_is_scrubbed(tmp_path: Path) -> None:
         }
     )
     out, _, _ = _run(config.identifiers, [line], scrub_git_branch=True)
-    # Neither branch-bearing leaf survives anywhere in the line.
     assert "acme-corp-migration" not in out[0]
-    assert "unannounced-product" not in out[0]
     assert f'"branch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
-    assert f'"default_branch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
+    # ``default_branch`` is deliberately NOT anchored -- see
+    # ``test_default_branch_is_not_anchored_so_a_trunk_rule_still_runs`` for
+    # why -- so with no configured rule to catch it, it survives here. That is
+    # the documented trade, asserted rather than left implicit.
+    assert '"default_branch":"release/unannounced-product"' in out[0]
     # Control: the line-level field still scrubs, so this cannot pass by
     # way of a transform that does nothing.
     assert f'"gitBranch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
 
 
-def test_git_state_default_branch_on_the_trunk(tmp_path: Path) -> None:
-    """#251. A session running ON its own default branch has
-    ``branch == default_branch``, which is the commonest case there is.
+def test_default_branch_is_not_anchored_so_a_trunk_rule_still_runs(
+    tmp_path: Path,
+) -> None:
+    """#251. The first draft of this fix anchored
+    ``git_state.default_branch`` too, on the reasoning that a branch name by
+    key name takes the same placeholder and so costs nothing.
 
-    This pins why all three anchored positions must share one placeholder
-    AND one label. ``SubstitutionTable.record`` keys on the ORIGINAL value
-    and raises ``SubstitutionConflictError`` when a later call supplies a
-    different replacement, or a different label, for a value already
-    mapped. Giving ``default_branch`` its own placeholder (to keep the
-    branch-vs-trunk distinction readable) or its own label (to make the
-    sidecar name the field it came from) aborts the run on the majority of
-    real sessions. Both look like improvements right up to the point they
-    run, which is why the constraint is a test and not a comment."""
+    It costs an ABORT. ``SubstitutionTable.record`` keys on the ORIGINAL value
+    and raises when a second call gives it a different replacement. Anchoring
+    ``default_branch`` makes the built-in claim the trunk name -- ``main`` --
+    on every session that has one, so any configured rule resolving to that
+    same string anywhere else in the file raises
+    ``SubstitutionConflictError`` and the run writes nothing.
+
+    That abort already exists for a session sitting ON its trunk, where
+    ``gitBranch`` is itself ``main``. Anchoring ``default_branch`` would widen
+    it from that minority to nearly every session, since ``default_branch`` is
+    ``main`` whatever branch the work is on.
+
+    So this pins the absence of the anchor by the consequence, not by reading
+    the set: the run must succeed, and the configured rule must be what
+    handles the leaf."""
+    config = _config(
+        tmp_path,
+        'version: 1\nidentifiers:\n  - match: "main"\n    replace: "trunk"\n',
+    )
+    line = serialize_line(
+        {
+            "type": "user",
+            "gitBranch": "feature/x",
+            "serverClassifierContext": {
+                "context": {"git_state": {"branch": "feature/x", "default_branch": "main"}}
+            },
+            "message": {"role": "user", "content": "we merged into main yesterday"},
+        }
+    )
+    # The assertion is that this does not raise.
+    out, _, table = _run(config.identifiers, [line], scrub_git_branch=True)
+    assert f'"branch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
+    # The configured rule handled the unanchored leaf, consistently with its
+    # other occurrence in the same file.
+    assert '"default_branch":"trunk"' in out[0]
+    assert "we merged into trunk yesterday" in out[0]
+    rows = {(e.original, e.replacement) for e in table}
+    assert ("main", "trunk") in rows
+    assert ("feature/x", GIT_BRANCH_PLACEHOLDER) in rows
+
+
+def test_second_pass_over_clean_output_records_nothing(tmp_path: Path) -> None:
+    """The anchored branch returns an already-placeholder leaf untouched.
+
+    Without that guard a re-scrub records ``feature/example ->
+    feature/example`` and the sidecar claims substitutions on input that needed
+    none, at exactly the positions a re-scrub is run to prove clean. The bytes
+    were always stable; the sidecar was not.
+    ``test_idempotency_second_pass_no_substitutions`` asserts an empty table on
+    pass two and stayed green only because its fixture carries no branch
+    field."""
     config = _config(tmp_path, "version: 1\n")
     line = serialize_line(
         {
             "type": "user",
-            "gitBranch": "main",
-            "serverClassifierContext": {
-                "context": {"git_state": {"branch": "main", "default_branch": "main"}}
-            },
+            "gitBranch": "feature/x",
+            "serverClassifierContext": {"context": {"git_state": {"branch": "feature/x"}}},
         }
     )
-    out, _, table = _run(config.identifiers, [line], scrub_git_branch=True)
-    assert f'"gitBranch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
-    assert f'"branch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
-    assert f'"default_branch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
-    # One row, three occurrences: the table collapses the positions because
-    # the original is the same string at each of them.
-    entries = list(table)
-    assert len(entries) == 1
-    assert entries[0].original == "main"
-    assert entries[0].occurrences == 3
-    assert entries[0].label == "identifiers:gitBranch"
+    out1, _, table1 = _run(config.identifiers, [line], scrub_git_branch=True)
+    out2, _, table2 = _run(config.identifiers, out1, scrub_git_branch=True)
+    assert out2 == out1
+    assert [(e.original, e.occurrences) for e in table1] == [("feature/x", 2)]
+    assert list(table2) == []
 
 
 def test_git_state_branch_respects_the_opt_out(tmp_path: Path) -> None:
@@ -582,21 +621,17 @@ def test_git_state_branch_respects_the_opt_out(tmp_path: Path) -> None:
 
 
 def test_git_state_branch_placeholder_wins_over_a_configured_rule(tmp_path: Path) -> None:
-    """#251, the interaction with #195 / #198.
+    """#251. The field-anchored placeholder is a WHOLE-VALUE substitution, and
+    a configured identifier rule must not also fire on that leaf, so the
+    placeholder stays a stable predictable value. Extending the anchor to a new
+    position has to preserve that at the new position too.
 
-    An existing invariant says the field-anchored placeholder is a
-    WHOLE-VALUE substitution and a configured identifier rule must not also
-    fire on that leaf, so the placeholder stays a stable, predictable
-    value. Extending the anchor to two new positions has to preserve that
-    at the new positions too.
-
-    The risk worth pinning is the output-side oracle. It refuses the run
-    when a configured rule's value survives where the scrub could have
-    acted. Here the built-in replaces the whole leaf first, so the
-    configured value is gone rather than surviving, and the run must
-    succeed. A regression that made the built-in skip these positions would
-    leave the configured value in place at a reachable position, which is
-    the oracle's trigger."""
+    Scope, because an earlier version of this docstring overclaimed it: this is
+    a TRANSFORM-level test. ``_run`` drives ``run_pipeline`` directly and never
+    calls ``sanitize_session``, so the output-side oracle is not exercised here
+    whatever this docstring says about it. The oracle's behaviour at these
+    positions is pinned in ``test_residual_rules.py``, which goes through the
+    orchestrator."""
     config = _config(
         tmp_path,
         "version: 1\nidentifiers:\n  - match: \"realdev\"\n    replace: \"user\"\n",
@@ -607,9 +642,7 @@ def test_git_state_branch_placeholder_wins_over_a_configured_rule(tmp_path: Path
             "type": "user",
             "gitBranch": branch,
             "serverClassifierContext": {
-                "context": {
-                    "git_state": {"branch": branch, "default_branch": branch}
-                }
+                "context": {"git_state": {"branch": branch}}
             },
         }
     )
@@ -617,7 +650,7 @@ def test_git_state_branch_placeholder_wins_over_a_configured_rule(tmp_path: Path
     # The configured match value is gone from every anchored position, and
     # the placeholder is intact rather than itself rewritten by the rule.
     assert "realdev" not in out[0]
-    assert out[0].count(f'"{GIT_BRANCH_PLACEHOLDER}"') == 3
+    assert out[0].count(f'"{GIT_BRANCH_PLACEHOLDER}"') == 2
     # One original recorded, not a per-position variant: the rule never
     # fired on these leaves, so no `feature/user-secret-client` row exists.
     originals = {e.original for e in table}

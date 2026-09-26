@@ -34,9 +34,11 @@ partially re-substituted by an unrelated catch-all regex).
 
   1. Branch names -- when ``scrub_git_branch`` is on AND the rooted path
      is in :data:`GIT_BRANCH_PATHS`, the whole leaf becomes
-     ``"feature/example"`` (PRD section 8 example). Three positions: the
-     line-level ``gitBranch``, plus ``branch`` and ``default_branch`` under
-     ``serverClassifierContext.context.git_state`` (#251).
+     ``"feature/example"`` (PRD section 8 example). Two positions: the
+     line-level ``gitBranch``, and ``branch`` under
+     ``serverClassifierContext.context.git_state`` (#251). A leaf already
+     holding the placeholder is returned untouched, so a second pass records
+     no substitution.
 
      This was a bare-name match at any depth, justified as defensive
      ("a nested ``gitBranch`` would still be a branch name shape").
@@ -153,29 +155,29 @@ UUID_PATHS: frozenset[JsonPath] = frozenset({
 # reporting ``residual_scan: clean``. That combination is the whole severity:
 # a user is told the file is safe.
 #
-# ``default_branch`` is covered too, on its key name rather than on an
-# observed value: it was null in all FOUR records carrying ``git_state``, and
-# four records is the whole observation base. The format scanner inventories
-# TOP-LEVEL keys only, so the 1,812 ``serverClassifierContext`` lines it counts
-# say nothing about what the nested leaves hold. Read every value claim in this
-# comment against that base, not against the corpus.
+# ``default_branch`` is NOT anchored, and the first draft of this fix had it
+# wrong. The argument for covering it was "a branch name by its key name, same
+# placeholder, costs nothing". It costs something, and the cost is an ABORT.
 #
-# Both new positions share GIT_BRANCH_PLACEHOLDER **and** the
-# ``identifiers:gitBranch`` label, and that is forced rather than tidy.
-# ``SubstitutionTable.record`` keys on the ORIGINAL value and raises on a
-# second call supplying a different replacement -- or a different label -- for
-# it. A session sitting on its own default branch has
-# ``branch == default_branch``, the commonest case there is, so giving
-# ``default_branch`` its own placeholder or its own label would abort the run
-# with ``SubstitutionConflictError`` on the majority of real input. See
-# ``test_git_state_default_branch_on_the_trunk``.
+# ``SubstitutionTable.record`` keys on the ORIGINAL value and raises when a
+# second call supplies a different replacement for it. Anchoring
+# ``default_branch`` makes the built-in claim the trunk name -- ``main`` or
+# ``master`` -- in the table on every session that has one. Any configured rule
+# whose match resolves to that same string anywhere else in the file then
+# raises ``SubstitutionConflictError`` and the run exits with nothing written.
 #
-# The cost is that the output cannot express whether a session ran on its
-# trunk: both leaves read ``feature/example`` whatever the originals were. No
-# fixed pair of placeholders recovers that relation, because the substitution
-# is per-leaf and value-keyed -- two different real branches in one file
-# already collapse onto one placeholder. Consumers must treat both leaves as
-# opaque and must not compare them.
+# That failure already exists for a session sitting ON its trunk, where
+# ``gitBranch`` itself is ``main``. Anchoring ``default_branch`` widens it from
+# that minority to nearly every session, because ``default_branch`` is ``main``
+# whatever branch the work is on. Trading a real abort for coverage of a leaf
+# that was null in all four records it has ever been seen at is the wrong way
+# round.
+#
+# Unanchored does not mean unscrubbed: the leaf falls through to the configured
+# ``identifiers`` rules like any other value, which is the correct treatment
+# for a position whose value shape has never been observed. #267 adds the
+# nested-key scan that would settle the shape; anchoring can be revisited then,
+# and would need an answer to the conflict class first.
 #
 # Listed as EXACT ROOTED PATHS, never as a subtree or a bare name, for #199's
 # reason: a tool parameter called ``branch`` is common, and corrupting one
@@ -186,12 +188,16 @@ UUID_PATHS: frozenset[JsonPath] = frozenset({
 # their value shape would be invention. #267 adds the nested-key scan that
 # would settle them over the corpus instead of over four records.
 #
-# * ``git_state.visibility.origin`` (and its sibling ``visibility.remotes``).
-#   The parent key is ``visibility`` and the other sibling is
-#   ``push_remote: "origin"``, a remote NAME, so ``origin`` here is at least as
-#   likely a public/private classification of that remote as a URL carrying an
-#   org and repo. Covering it means choosing a placeholder for a shape nobody
-#   here has seen populated, which is the #257 mistake.
+# * The whole ``git_state.visibility`` object. Observed as
+#   ``{"origin": null, "push_remote": "origin", "remotes": [],
+#   "visibility_cache": []}``, so three of its four leaves are unobserved:
+#   ``origin``, ``remotes`` and ``visibility_cache``. ``origin`` is the one
+#   worth naming, because an earlier draft of this comment called it "a remote
+#   URL" on zero non-null observations -- the parent key is ``visibility`` and
+#   the other sibling is a remote NAME, so a public/private classification of
+#   that remote reads at least as well. Covering any of the three means
+#   choosing a placeholder for a shape nobody here has seen populated, which is
+#   the #257 mistake.
 # * ``git_state.status.porcelain``. ``git status --porcelain`` emits
 #   repo-RELATIVE paths and the paths rule matches configured ABSOLUTE roots,
 #   so the paths rule does NOT reach it. If it is ever populated, directory and
@@ -209,7 +215,6 @@ UUID_PATHS: frozenset[JsonPath] = frozenset({
 GIT_BRANCH_PATHS: frozenset[JsonPath] = frozenset({
     ("gitBranch",),
     ("serverClassifierContext", "context", "git_state", "branch"),
-    ("serverClassifierContext", "context", "git_state", "default_branch"),
 })
 
 
@@ -231,8 +236,11 @@ def build_identifier_transform(
         table: shared substitution table the transform records into.
             Cross-line consistency falls out of reusing one table across
             every leaf in the pipeline run.
-        scrub_git_branch: when True, ``gitBranch`` field values are
-            replaced with ``GIT_BRANCH_PLACEHOLDER``. Matches
+        scrub_git_branch: when True, every leaf at a path in
+            :data:`GIT_BRANCH_PATHS` is replaced with
+            ``GIT_BRANCH_PLACEHOLDER``. That is the line-level ``gitBranch``
+            field and ``serverClassifierContext.context.git_state.branch``
+            (#251), not ``gitBranch`` alone. Matches
             ``ConfigOptions.scrub_git_branch`` (default True).
         remap_uuids: when True, UUID-graph fields get deterministically
             remapped. Requires the pipeline to use
@@ -270,6 +278,15 @@ def build_identifier_transform(
             # cannot interpret.
             if scrub_git_branch and path in GIT_BRANCH_PATHS:
                 if not leaf:
+                    return leaf
+                # Already-scrubbed passthrough. Without it a second pass over
+                # clean output records ``feature/example -> feature/example``,
+                # so the re-scrub's sidecar claims substitutions on input that
+                # needed none -- at exactly the positions a re-scrub is run to
+                # prove clean. The bytes were always stable; the sidecar was
+                # not. PRD section 14 and the planned fixture-validator, which
+                # re-derives rather than trusting the field, both read it.
+                if leaf == GIT_BRANCH_PLACEHOLDER:
                     return leaf
                 return table.record(
                     leaf, GIT_BRANCH_PLACEHOLDER, label="identifiers:gitBranch"

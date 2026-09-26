@@ -55,8 +55,12 @@ identifiers:
     replace: "Example Author"
 
 # options defaults are usually correct:
-#   scrub_git_branch: true   -- replace `gitBranch` field values with
-#                               `feature/example` placeholder
+#   scrub_git_branch: true   -- replace branch names with the
+#                               `feature/example` placeholder, at two rooted
+#                               positions: the line-level `gitBranch` and
+#                               `serverClassifierContext.context.git_state.branch`.
+#                               `git_state.default_branch` is NOT covered; it
+#                               falls through to the `identifiers` rules below.
 #   remap_uuids: false       -- leave session/agent/parent UUIDs as-is so
 #                               the parent-subagent graph stays readable
 #                               in committed fixtures
