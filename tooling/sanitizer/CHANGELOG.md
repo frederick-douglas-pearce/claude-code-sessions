@@ -76,27 +76,41 @@ The value is verbatim, so `grep` for the branch you were on.
 The `gitBranch` match is a name match, and this key is spelled `branch`, so it
 was never reached. Two exact rooted positions are now covered:
 
+One exact rooted position is now covered:
+
 - `serverClassifierContext.context.git_state.branch`
-- `serverClassifierContext.context.git_state.default_branch`
 
-`default_branch` is covered on its key name rather than on an observed value:
-it was null in all **four** records in this repo's corpus that carry
-`git_state`, and four records is the entire observation base. The format
-scanner inventories top-level keys only, so its `serverClassifierContext` line
-count says nothing about what these nested leaves hold.
+**`default_branch` is not covered, and the first cut of this patch had it
+wrong.** The argument for covering it was "a branch name by its key name, same
+placeholder, costs nothing." It costs an **abort**.
 
-Both positions reuse the existing placeholder **and** the existing label, which
-is forced rather than tidy. The substitution table keys on the original value
-and refuses a second mapping for it, so a session on its own default branch —
-where `branch == default_branch`, the commonest case there is — would abort
-with `SubstitutionConflictError` if `default_branch` had a placeholder or a
-label of its own. The consequence is that scrubbed output cannot express
-whether a session ran on its trunk: both leaves read `feature/example` whatever
-the originals were. **Treat them as opaque and do not compare them.**
+The substitution table keys on the original value and refuses a second mapping
+for it. Anchoring `default_branch` makes the built-in claim the trunk name —
+`main`, or whatever a team calls it — in the table on every session that has
+one. Any configured rule resolving to that same string anywhere else in the
+file then raises `SubstitutionConflictError`, and the run exits with nothing
+written. That failure already exists for a session sitting **on** its trunk,
+where `gitBranch` is itself the trunk name; anchoring `default_branch` would
+widen it from that minority to nearly every session, because `default_branch`
+holds the trunk name whatever branch the work is on. A security patch that can
+abort the run on the common case is not a security patch.
 
-Added as **exact rooted paths**, never the bare name `branch`. `branch` is a
+Unanchored is not unscrubbed: the leaf falls through to the configured
+`identifiers` rules like any other value, which is the right treatment for a
+position whose value shape has never been observed — null in all **four**
+records in this repo's corpus that carry `git_state`, which is the entire
+observation base. The format scanner inventories top-level keys only, so its
+`serverClassifierContext` line count says nothing about the nested leaves.
+
+Added as an **exact rooted path**, never the bare name `branch`. `branch` is a
 common tool parameter and `scrub_git_branch` defaults to True, so a name match
-would overwrite a real argument under a default config. This patch does not
+would overwrite a real argument under a default config.
+
+A leaf that already holds the placeholder is now returned untouched. Without
+that guard a second pass over clean output recorded
+`feature/example → feature/example`, so a re-scrub's sidecar claimed
+substitutions on input that needed none, at exactly the positions a re-scrub is
+run to prove clean. The bytes were always stable; the sidecar was not. This patch does not
 touch the existing any-depth `gitBranch` behavior; narrowing that is a
 behavior change rather than a security fix, and it landed separately on the
 main line as #199.
@@ -124,6 +138,7 @@ the corpus instead of over four records:
   rule does **not** reach it. If it is ever populated, directory and file names
   ship verbatim under `residual_scan: clean` — this issue's shape at another
   key.
+
 The third is not unobserved. It is populated and it leaks today:
 
 - The branch name in **free text**. Claude Code injects a `gitStatus` block into
@@ -132,7 +147,7 @@ The third is not unobserved. It is populated and it leaks today:
   value-based rule seeded from the anchored leaves, which is a different design
   and not a patch.
 
-**Sidecar impact.** `sidecar_schema_version` stays `1`. The new positions reuse
+**Sidecar impact.** `sidecar_schema_version` stays `1`. The new position reuses
 the existing `identifiers:gitBranch` label and its `<git-branch>` placeholder,
 so only the occurrence count changes. Output bytes change for any input
 carrying this structure, which is the point of the fix.

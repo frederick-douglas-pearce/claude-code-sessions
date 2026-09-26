@@ -228,48 +228,80 @@ def test_git_state_branch_is_scrubbed(tmp_path: Path) -> None:
     )
     out, _, _ = _run(config.identifiers, [line], scrub_git_branch=True)
     assert "acme-corp-migration" not in out[0]
-    assert "unannounced-product" not in out[0]
     assert f'"branch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
-    assert f'"default_branch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
+    # ``default_branch`` is deliberately NOT anchored; see
+    # ``test_default_branch_is_not_anchored_so_a_trunk_rule_still_runs``.
+    assert '"default_branch":"release/unannounced-product"' in out[0]
     # Control: the line-level field still scrubs, so this cannot pass by
     # way of a transform that does nothing.
     assert f'"gitBranch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
 
 
-def test_git_state_default_branch_on_the_trunk(tmp_path: Path) -> None:
-    """#251. A session running ON its own default branch has
-    ``branch == default_branch``, which is the commonest case there is.
+def test_default_branch_is_not_anchored_so_a_trunk_rule_still_runs(
+    tmp_path: Path,
+) -> None:
+    """#251. The first cut of this patch anchored
+    ``git_state.default_branch`` too, on the reasoning that a branch name by
+    key name takes the same placeholder and so costs nothing.
 
-    This pins why both new positions must share the existing placeholder AND
-    the existing label. ``SubstitutionTable.record`` keys on the ORIGINAL
-    value and raises ``SubstitutionConflictError`` when a later call supplies
-    a different replacement, or a different label, for a value already
-    mapped. Giving ``default_branch`` its own placeholder (to keep the
-    branch-vs-trunk distinction readable) or its own label (to make the
-    sidecar name the field it came from) aborts the run on the majority of
-    real sessions. Both look like improvements right up to the point they
-    run, which is why the constraint is a test and not a comment."""
+    It costs an ABORT. ``SubstitutionTable.record`` keys on the ORIGINAL value
+    and raises when a second call gives it a different replacement. Anchoring
+    ``default_branch`` makes the built-in claim the trunk name on every session
+    that has one, so any configured rule resolving to that same string
+    elsewhere in the file raises ``SubstitutionConflictError`` and the run
+    writes nothing.
+
+    That abort already exists for a session sitting ON its trunk, where
+    ``gitBranch`` is itself the trunk name. Anchoring ``default_branch`` would
+    widen it from that minority to nearly every session. A security patch that
+    can abort the run on the common case is not a security patch.
+
+    Pinned by the consequence rather than by reading the path set: the run must
+    succeed, and the configured rule must be what handles the leaf."""
+    config = _config(
+        tmp_path,
+        'version: 1\nidentifiers:\n  - match: "main"\n    replace: "trunk"\n',
+    )
+    line = serialize_line(
+        {
+            "type": "user",
+            "gitBranch": "feature/x",
+            "serverClassifierContext": {
+                "context": {"git_state": {"branch": "feature/x", "default_branch": "main"}}
+            },
+            "message": {"role": "user", "content": "we merged into main yesterday"},
+        }
+    )
+    # The assertion is that this does not raise.
+    out, _, table = _run(config.identifiers, [line], scrub_git_branch=True)
+    assert f'"branch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
+    assert '"default_branch":"trunk"' in out[0]
+    assert "we merged into trunk yesterday" in out[0]
+    rows = {(e.original, e.replacement) for e in table}
+    assert ("main", "trunk") in rows
+    assert ("feature/x", GIT_BRANCH_PLACEHOLDER) in rows
+
+
+def test_second_pass_over_clean_output_records_nothing(tmp_path: Path) -> None:
+    """The anchored branch returns an already-placeholder leaf untouched.
+
+    Without that guard a re-scrub records ``feature/example ->
+    feature/example`` and the sidecar claims substitutions on input that needed
+    none, at exactly the positions a re-scrub is run to prove clean. The bytes
+    were always stable; the sidecar was not."""
     config = _config(tmp_path, "version: 1\n")
     line = serialize_line(
         {
             "type": "user",
-            "gitBranch": "main",
-            "serverClassifierContext": {
-                "context": {"git_state": {"branch": "main", "default_branch": "main"}}
-            },
+            "gitBranch": "feature/x",
+            "serverClassifierContext": {"context": {"git_state": {"branch": "feature/x"}}},
         }
     )
-    out, _, table = _run(config.identifiers, [line], scrub_git_branch=True)
-    assert f'"gitBranch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
-    assert f'"branch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
-    assert f'"default_branch":"{GIT_BRANCH_PLACEHOLDER}"' in out[0]
-    # One row, three occurrences: the table collapses the positions because
-    # the original is the same string at each of them.
-    entries = list(table)
-    assert len(entries) == 1
-    assert entries[0].original == "main"
-    assert entries[0].occurrences == 3
-    assert entries[0].label == "identifiers:gitBranch"
+    out1, _, table1 = _run(config.identifiers, [line], scrub_git_branch=True)
+    out2, _, table2 = _run(config.identifiers, out1, scrub_git_branch=True)
+    assert out2 == out1
+    assert [(e.original, e.occurrences) for e in table1] == [("feature/x", 2)]
+    assert list(table2) == []
 
 
 def test_git_state_branch_respects_the_opt_out(tmp_path: Path) -> None:

@@ -29,9 +29,10 @@ partially re-substituted by an unrelated catch-all regex).
      but narrowing it is a behavior change, not a security fix, so 0.3.1
      leaves it alone.)
 
-     The :data:`GIT_STATE_BRANCH_PATHS` positions added by #251 are EXACT
-     ROOTED PATHS instead, because their leaf is spelled ``branch``, which
-     is a common tool parameter.
+     The :data:`GIT_STATE_BRANCH_PATHS` position added by #251 is an EXACT
+     ROOTED PATH instead, because its leaf is spelled ``branch``, which is a
+     common tool parameter. A leaf already holding the placeholder is returned
+     untouched, so a second pass records no substitution.
 
   2. ``uuid`` / ``parentUuid`` / ``sessionId`` / ``agentId`` fields --
      when ``remap_uuids`` is on AND ``path[-1]`` is one of those names,
@@ -102,25 +103,27 @@ UUID_FIELDS: frozenset[str] = frozenset({
 # beside them, with the sidecar reporting ``residual_scan: clean``. That
 # combination is the severity: the user is told the file is safe to publish.
 #
-# ``default_branch`` is included on its key name rather than on an observed
-# value: it was null in all FOUR records carrying ``git_state``, and four
-# records is the whole observation base. The format scanner inventories
-# TOP-LEVEL keys only, so its ``serverClassifierContext`` line count says
-# nothing about what these nested leaves hold.
+# ``default_branch`` is NOT included, and the first cut of this patch had it
+# wrong. The argument for covering it was "a branch name by its key name, same
+# placeholder, costs nothing". It costs an ABORT.
 #
-# Both positions share GIT_BRANCH_PLACEHOLDER **and** the existing
-# ``identifiers:gitBranch`` label, and that is forced rather than tidy.
-# ``SubstitutionTable.record`` keys on the ORIGINAL value and raises on a
-# second call supplying a different replacement -- or a different label -- for
-# it. A session sitting on its own default branch has
-# ``branch == default_branch``, the commonest case there is, so giving
-# ``default_branch`` its own placeholder or its own label would abort the run
-# with ``SubstitutionConflictError`` on the majority of real input. See
-# ``test_git_state_default_branch_on_the_trunk``.
+# ``SubstitutionTable.record`` keys on the ORIGINAL value and raises when a
+# second call supplies a different replacement for it. Anchoring
+# ``default_branch`` makes the built-in claim the trunk name -- ``main`` or
+# whatever a team calls it -- in the table on every session that has one. Any
+# configured rule resolving to that same string elsewhere in the file then
+# raises ``SubstitutionConflictError`` and the run exits with nothing written.
 #
-# The cost is that the output cannot express whether a session ran on its
-# trunk: both leaves read ``feature/example`` whatever the originals were.
-# Consumers must treat them as opaque and must not compare them.
+# That failure already exists for a session sitting ON its trunk, where
+# ``gitBranch`` is itself the trunk name. Anchoring ``default_branch`` widens it
+# from that minority to nearly every session, because ``default_branch`` holds
+# the trunk name whatever branch the work is on. A security PATCH that can abort
+# the run on the common case is not a security patch.
+#
+# Unanchored does not mean unscrubbed: the leaf falls through to the configured
+# ``identifiers`` rules like any other value, which is the right treatment for a
+# position whose value shape has never been observed -- null in all FOUR records
+# it has ever been seen at, which is the whole observation base.
 #
 # Listed as EXACT ROOTED PATHS, never as the bare name ``branch``. ``branch``
 # is a common tool parameter and ``scrub_git_branch`` defaults to True, so a
@@ -129,7 +132,6 @@ UUID_FIELDS: frozenset[str] = frozenset({
 # alone; narrowing that is a behavior change, not a security fix.
 GIT_STATE_BRANCH_PATHS: frozenset[JsonPath] = frozenset({
     ("serverClassifierContext", "context", "git_state", "branch"),
-    ("serverClassifierContext", "context", "git_state", "default_branch"),
 })
 
 
@@ -151,7 +153,8 @@ def build_identifier_transform(
         table: shared substitution table the transform records into.
             Cross-line consistency falls out of reusing one table across
             every leaf in the pipeline run.
-        scrub_git_branch: when True, ``gitBranch`` field values are
+        scrub_git_branch: when True, the line-level ``gitBranch`` field and
+            every leaf at a path in :data:`GIT_STATE_BRANCH_PATHS` are
             replaced with ``GIT_BRANCH_PLACEHOLDER``. Matches
             ``ConfigOptions.scrub_git_branch`` (default True).
         remap_uuids: when True, UUID-graph fields get deterministically
@@ -193,6 +196,14 @@ def build_identifier_transform(
                 last == "gitBranch" or path in GIT_STATE_BRANCH_PATHS
             ):
                 if not leaf:
+                    return leaf
+                # Already-scrubbed passthrough. Without it a second pass over
+                # clean output records ``feature/example -> feature/example``,
+                # so the re-scrub's sidecar claims substitutions on input that
+                # needed none -- at exactly the positions a re-scrub is run to
+                # prove clean. The bytes were always stable; the sidecar was
+                # not.
+                if leaf == GIT_BRANCH_PLACEHOLDER:
                     return leaf
                 return table.record(
                     leaf, GIT_BRANCH_PLACEHOLDER, label="identifiers:gitBranch"
