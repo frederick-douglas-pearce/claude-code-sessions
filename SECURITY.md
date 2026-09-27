@@ -102,6 +102,24 @@ which owns that policy.
 Yanking is reserved for security. A version is never yanked merely because a newer one
 exists.
 
+## Published advisories
+
+| Advisory | Affected | Fixed in | Summary |
+|---|---|---|---|
+| [GHSA-6c7q-jvmj-96cv](https://github.com/frederick-douglas-pearce/claude-code-sessions/security/advisories/GHSA-6c7q-jvmj-96cv) | `0.3.0` | `0.3.1` | The git branch name survived at `serverClassifierContext.context.git_state.branch` while the sidecar reported `residual_scan: clean` |
+
+**Re-scrub obligation for GHSA-6c7q-jvmj-96cv.** Any artifact whose sidecar records
+`sanitizer_version: 0.3.0` may contain the branch name it was scrubbed on. The surviving
+value is verbatim, so it is directly greppable — the advisory carries the command. A
+scrubbed artifact stays pinned to the version that produced it, so re-scrubbing under
+`0.3.1` is what fixes an artifact you intend to keep publishing.
+
+Note the advisory's scope: `scrub_git_branch` is field-anchored and has never scanned free
+text, so a branch name appearing inside a command string or prose is not covered by the
+option, before or after that fix. Catching those needs a configured `identifiers` rule, and
+[#273](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/273) tracks
+an interaction to be aware of when adding one.
+
 ## Data handling in this repository
 
 No raw session JSONL is ever committed here. Committed session data is either synthetic,
