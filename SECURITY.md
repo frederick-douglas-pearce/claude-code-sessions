@@ -108,6 +108,12 @@ exists.
 |---|---|---|---|
 | [GHSA-6c7q-jvmj-96cv](https://github.com/frederick-douglas-pearce/claude-code-sessions/security/advisories/GHSA-6c7q-jvmj-96cv) | `0.3.0` | `0.3.1` | The git branch name survived at `serverClassifierContext.context.git_state.branch` while the sidecar reported `residual_scan: clean` |
 
+**`0.3.0` is yanked on PyPI.** Per the play above it was yanked rather than deleted, so it
+drops out of dependency resolution while staying installable by exact pin: an unpinned
+`pip install` resolves to `0.3.1`, and `==0.3.0` still installs while pip prints the yank
+reason and the advisory id. That is deliberate. Anyone who scrubbed under `0.3.0` needs to
+be able to reinstall it and reproduce exactly what their published artifacts contain.
+
 **Re-scrub obligation for GHSA-6c7q-jvmj-96cv.** Any artifact whose sidecar records
 `sanitizer_version: 0.3.0` may contain the branch name it was scrubbed on. The surviving
 value is verbatim, so it is directly greppable — the advisory carries the command. A
