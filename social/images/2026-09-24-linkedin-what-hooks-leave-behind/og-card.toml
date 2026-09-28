@@ -2,52 +2,80 @@ slug = "2026-09-24-linkedin-what-hooks-leave-behind"
 
 title = ["What hooks leave behind"]
 
-subhead = "Thirty events out. Seven fields back."
+subhead = "Thirty-three events out. Three shapes back."
 
 json_sample = """
 {
   "type": "system",
-  "subtype": "<unread>",
-  "toolUseID": "toolu_synthetic_004",
-  "hookCount": 1,
-  "hookInfos": ["<unread>"],
-  "hookErrors": [],
+  "subtype": "stop_hook_summary",
+  "toolUseID": "55555555-…-4008",
+  "hookInfos": [
+    { "command": "on_stop.py", "durationMs": 148 }
+  ],
+  "hookAdditionalContext": ["tests have not run yet."],
   "hasOutput": true,
-  "preventedContinuation": true,
-  "stopReason": "<unread>"
+  "preventedContinuation": false,
+  "stopReason": ""
 }
 {
   "type": "permission-mode",
-  "sessionId": "00000000-…-0004",
-  "permissionMode": "plan"
+  "permissionMode": "auto"
 }
 """
 
 notes = """
-The hero is the hook-execution field family as it actually lands on a `system`
-line, taken from fixtures/synthetic/anatomy-hook-trace.jsonl. It carries the
-post's two findings in one object:
+Rewritten for #274. The first version of this card was authored from the same
+key-count scan as the first version of fixtures/synthetic/anatomy-hook-trace.jsonl,
+and inherited the same six errors. #257 corrected the fixture. This corrects the
+card, against the sanitized hook-trace fixtures that settled the question.
 
-1. `preventedContinuation: true` plus `toolUseID` is the whole audit trail for a
-   blocked tool call. That is the "seven fields back" half of the subhead.
-2. Three values render as the literal `<unread>` marker, which is the post's
-   other argument: the scanner verifies key names and never reads values, so the
-   value vocabulary of `subtype`, `stopReason`, and `hookInfos` is genuinely
-   unknown. Showing invented enum values on the card would contradict the post.
+What the previous card asserted, and what the fixtures show:
 
-The second object is the `permission-mode` line, shown whole. Putting the
-format's thinnest line directly under its fattest hook line is the visual
-argument: both record something a hook did, and one of them cannot even be
-placed in time. It also fills the window, which 11 lines alone did not.
+- `"toolUseID": "toolu_synthetic_004"` — a Stop-hook `toolUseID` is a bare UUID
+  that resolves to nothing. The post's point is that it is NOT a `tool_use.id`,
+  "since those carry a `toolu_` prefix". Rendering one with that prefix asserted
+  the exact join the post disproves. Now `55555555-…-4008`, the synthetic
+  fixture's family, chosen there precisely because it is disjoint from every
+  `uuid` in the file.
+- `"preventedContinuation": true` — `false` on all 8 observed `stop_hook_summary`
+  lines, including the one where the Stop hook returned a block. Nothing in
+  465,452 lines has ever been observed setting it true, which is #260.
+- `"hookInfos": ["<unread>"]` — an array of objects, `{command, durationMs}`.
+- `"subtype": "<unread>"` — `stop_hook_summary`, on 4,159 of 4,159 family lines
+  once scan 0.4.0 folded the value (#254).
+- `"stopReason": "<unread>"` — `""`, including on the blocking turn.
+- `"hasOutput": true` beside `hookErrors: []` and no `hookAdditionalContext` —
+  output with nothing to have output. Here `hasOutput: true` sits with a
+  populated `hookAdditionalContext`, which is the turn that produced it.
 
-Title fits one line at 23 characters, well under the 34-char wrap threshold, so
-no comma break is needed.
+The hero is the inject-context outcome rather than the plain allow: it is the
+one turn where a hook's own words reach the transcript intact, so the record
+shows both the field family and the one place a hook speaks for itself.
 
-Subhead is 37 characters. The asymmetry (30 documented outbound hook events
-against a 7-field on-disk record) is the post's opening claim and the most
-compressible thing about it.
+`hookCount` and `hookErrors` are dropped for room, not because anything is wrong
+with them. The 16-line budget is exact: 13 lines of hook record plus the
+3-line `permission-mode` object. Longest line is 55 characters against the
+56-character limit (`x_end = 280 + len*12` must stay under 956).
 
-Data is synthetic throughout: `toolu_synthetic_004` follows the series' existing
-fixture convention and is deliberately distinguishable from a real Claude Code
-tool-use id. No session UUIDs, paths, or prompts appear.
+The `permission-mode` object stays, and stays whole. Putting the format's
+thinnest line directly under its fattest hook line is the visual argument:
+both record something a hook did, and one of them cannot even be placed in
+time. `permissionMode` now reads `auto`, which is what the sanitized fixtures
+and the post's quoted line both show; the previous card said `plan`.
+
+Subhead. The previous one read "Thirty events out. Seven fields back." Both
+halves had gone stale. The event count is thirty in the reference and
+thirty-three in Claude Code's own documentation, which the post now
+distinguishes. The field tally moved twice: the published post corrects the
+seven-field family to six plus an optional one, and the editorial pass in #256
+reframes it again to five measured by co-occurrence. A subhead that counts
+fields would need re-rendering every time that framing moves. "Three shapes
+back" is the post's structural finding, the on-disk hook record takes three
+forms, and that sentence is unchanged in both the published text and the
+branch. 43 characters.
+
+Data is synthetic throughout. `55555555-…-4008` and the `permission-mode` line
+follow fixtures/synthetic/anatomy-hook-trace.jsonl; the hook command and the
+injected-context string are shortened to fit the window. Every key shown is one
+the sanitized fixtures observe. No session UUIDs, paths, or prompts appear.
 """
