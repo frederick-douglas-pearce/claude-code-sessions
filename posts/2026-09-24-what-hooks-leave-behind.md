@@ -2,7 +2,7 @@
 layout: post
 title: "What hooks leave behind"
 date: 2026-09-24 00:00:00-0800
-description: "Part 6 of the anatomy series. Claude Code documents thirty outbound hook events; a corpus scan of 465,452 lines finds the on-disk record is a Stop-hook summary, a single field on a denied tool result, and a permission-mode line so thin it cannot be placed in time."
+description: "Part 6 of the anatomy series. Claude Code's hooks documentation names thirty-three outbound events; a corpus scan of 465,452 lines finds the on-disk record is a Stop-hook summary, a single field on a denied tool result, and a permission-mode line so thin it cannot be placed in time."
 categories: ["claude-code-sessions"]
 tags: ["claude-code", "jsonl", "sessions", "hooks", "foundation"]
 og_image: https://frederick-douglas-pearce.github.io/assets/img/what-hooks-leave-behind-og.png
@@ -14,21 +14,21 @@ humanizer_pass: v3.0.0
 
 A hook is an action Claude Code is required to take at a fixed moment in its lifecycle: before a tool call, after one, when you submit a prompt, when a subagent finishes. Most often that action is a shell command, which is what this repo runs and what most examples show. It can also be an HTTP POST to a service you run (v2.1.63), a call to an MCP tool (v2.1.118), a prompt evaluated by a fast model (v2.0.30), or a subagent that inspects the situation and returns a verdict. Hooks are how you stop Claude from reading your environment files, or run a formatter after every edit, or log what your team's agents are doing. This repo runs two of them, and they are the reason the posts you are reading never quote a raw session file.
 
-Anthropic's guidance for when to reach for one is clear. If you want Claude to do something most of the time, put it in a prompt or in CLAUDE.md. If you want it to happen every time, make it a hook. The docs call this deterministic control: "certain actions always happen rather than relying on the LLM to choose to run them." An instruction in a prompt or in CLAUDE.md is context the model weighs. A hook is the one part of the system that fires whether the model agrees or not.
+The guidance for when to reach for one fits in a sentence. If you want Claude to do something most of the time, put it in a prompt or in CLAUDE.md. If you want it to happen every time, make it a hook. The [hooks guide](https://code.claude.com/docs/en/hooks-guide) calls this deterministic control: "certain actions always happen rather than relying on the LLM to choose to run them." An instruction in a prompt or in CLAUDE.md is context the model weighs. A hook is the one part of the system that fires whether the model agrees or not.
 
 The guarantee is narrower than it sounds. A hook guarantees that it runs, not what it concludes. A prompt-type hook fires on schedule and then asks a model, so its verdict is as negotiable as any other model output. Only the firing is certain.
 
 Hooks also execute outside the main model loop. The model does not call them and does not know they ran. Claude Code's harness fires them and acts on what comes back, an exit code or a JSON verdict. That raises a question the previous five posts kept deferring: once a hook has fired, is there anything in the session file to show for it?
 
-[Part 5](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-09-10-the-tool-call-completely.md) ended by promising this post would go looking. I went looking, twice. The first pass answered the question with a structural scan of my session files and got several things wrong in ways the scan could not detect. The second pass built five hooks on purpose, ran them across three sessions, and sanitized the result.
+[Part 5](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-09-10-the-tool-call-completely.md) ended by promising this post would go looking. I went looking, twice. The first pass answered the question with a structural scan of my session files and got several things wrong in ways the scan could not detect. The second pass built six hooks across three sessions and sanitized the result. Five did what I designed them to do. The sixth was misconfigured, and it is the one that turned up a record shape I did not know existed.
 
 This post rests on two pieces of evidence. The first is a structural scan of every session file on my disk: 3,680 files, 465,452 lines, zero parse errors, spanning 131 Claude Code versions from v2.1.4 to v2.1.280. The second is three [sanitized fixtures](https://github.com/frederick-douglas-pearce/claude-code-sessions/tree/main/fixtures/sanitized) collected from sessions built to make specific hooks fire, which is where every field value in this post comes from. The [scanner](https://github.com/frederick-douglas-pearce/claude-code-sessions/tree/main/tooling/format-scan) and the [scan output](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/format-scan/scan-2026-09-23.json) are both in the repo, so every count below can be re-derived.
 
 ## The asymmetry
 
-Claude Code's hooks documentation describes an outbound contract. When a configured event fires, Claude Code hands the hook a JSON payload: on stdin for a shell command, as a request body for an HTTP hook, as an interpolated argument for a prompt. The [reference](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#hook-event-fields) catalogues thirty of those events, from `SessionStart` and `PreToolUse` through `WorktreeCreate`, `ElicitationResult`, and `post-session`. Each carries the session id, the transcript path, the working directory, the event name, and usually a payload specific to the event.
+Claude Code's hooks documentation describes an outbound contract. When a configured event fires, Claude Code hands the hook a JSON payload: on stdin for a shell command, as a request body for an HTTP hook, as an interpolated argument for a prompt. That documentation names thirty-three events, plus `post-session`, which is recorded in the changelog rather than the table. The [reference](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#hook-event-fields) catalogues thirty, from `SessionStart` and `PreToolUse` through `WorktreeCreate`, `ElicitationResult`, and `post-session`. The four it is missing are `MessageDisplay`, `DirectoryAdded`, `PreModelSwitch` and `PostModelSwitch`, and the last of those landed at v2.1.251, inside the version range the scan below covers. Each carries the session id, the transcript path, the working directory, the event name, and usually a payload specific to the event.
 
-That is what goes out. What comes back to disk is smaller by an order of magnitude, and it is not evenly distributed across those thirty events. Across the whole scan the on-disk hook record takes three forms:
+That is what goes out. What comes back to disk is smaller by an order of magnitude, and it is not evenly distributed across them. Across the whole scan the on-disk hook record takes three forms:
 
 1. A `system` line with `subtype: "stop_hook_summary"`, carrying a family of hook-execution fields
 2. One field on the `user` line carrying a denied tool result
@@ -36,7 +36,7 @@ That is what goes out. What comes back to disk is smaller by an order of magnitu
 
 The first of those is the bulk of it, and the subtype is the part to notice. What looks like a general record of hook execution is a summary written by one class of hook.
 
-None of the thirty event names appears in any _field_. One of them reaches disk anyway, inside the text of an error message. That is the first of several places where what you need is written down as prose inside a message rather than as a field you can parse, and it is the pattern worth carrying through the rest of this post. Everything else you can learn about a hook firing comes from the harness's own bookkeeping about it.
+None of those event names appears in any _field_. One of them reaches disk anyway, inside the text of an error message. That is the first of several places where what you need is written down as prose inside a message rather than as a field you can parse, and it is the pattern worth carrying through the rest of this post. Everything else you can learn about a hook firing comes from the harness's own bookkeeping about it.
 
 ## The record is a Stop-hook summary
 
@@ -72,7 +72,7 @@ One caveat on the rates. My corpus is hook-dense, though this repo ships only tw
 
 Everything below comes from one `Stop` hook I wrote to take a different action on each consecutive turn, so a single session shows the same hook allowing, blocking, and injecting context. A second `Stop` hook that fails on purpose covers the fourth case. Four outcomes, one field family.
 
-Here is the full record for the simplest of them. The hook ran, produced no output, and let the turn end:
+Here is the simplest of them, with the common envelope stripped so the hook fields stand alone. The hook ran, produced no output, and let the turn end:
 
 ```json
 {
@@ -89,6 +89,8 @@ Here is the full record for the simplest of them. The hook ran, produced no outp
   "toolUseID": "ac6bb6b4-9582-44d3-bdb3-4505c128a6e9"
 }
 ```
+
+What came out is the ordinary envelope: `parentUuid`, `uuid`, `timestamp`, `cwd`, `version`, `gitBranch`, and the session id in both of its spellings. A `stop_hook_summary` line is a fully addressable record, which is worth holding on to for the comparison two sections down.
 
 The other three outcomes are that same record with a handful of fields changed. This is everything that moves:
 
@@ -111,7 +113,7 @@ Four of those fields are worth reading closely, because in each case the key nam
 
 **`hookAdditionalContext` is an array, not a string.** The reference doc describes it as the string a hook injected. It is a list of them, empty in the common case, and it is the one place a hook's own words reach the transcript intact, because that text became part of the conversation.
 
-**`preventedContinuation` was `false` in all four outcomes, including the block.** The semantics explain it for `Stop` hooks, where blocking means "do not stop yet" and continuation is therefore not what got prevented. But it means the field is not the signal you want if you are asking "did a hook interfere here", and across four deliberate outcomes I never observed it `true`.
+**`preventedContinuation` was `false` in all four outcomes, including the block.** The semantics explain it for `Stop` hooks, where blocking means "do not stop yet" and continuation is therefore not what got prevented. But it means the field is not the signal you want if you are asking "did a hook interfere here", and across four deliberate outcomes I never observed it `true`. Neither has anything else in 465,452 lines, which is [issue #260](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/260).
 
 `level` is a fifth key I have not mentioned: it reads `"suggestion"` on all four of these, and `"warning"` on the lines two sections down.
 
@@ -119,7 +121,7 @@ Four of those fields are worth reading closely, because in each case the key nam
 
 You would expect a denial to be written down twice: once by the hook that blocked the call, once by the tool cycle closing around it. That is what the `system` line exists for everywhere else. I built a session that denies a tool call to look at both halves, and the `system` half is not there.
 
-A denied tool call produces one record: the `user` line that closes the tool cycle, the way any tool result does, with `is_error: true` inside the block and one extra top-level key. Here it is from the fixture, with two long strings elided:
+A denied tool call produces one record: the `user` line that closes the tool cycle, the way any tool result does, with `is_error: true` inside the block and one extra top-level key. Here it is from the fixture, with two long strings elided and the tail of the envelope dropped:
 
 ```jsonl
 // from https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/sanitized/hook-trace-denial-and-stop-ladder.jsonl
@@ -130,13 +132,13 @@ That is the whole trace. No `hookCount`, no `hookInfos`, no `system` line at all
 
 Two things are worth pulling out of it. The first is that the hook **is** named, just not in a field you can type against. `toolDenialKind` says `permission-rule`, while the `content` string says `PreToolUse:Read hook error: Blocked by AgentFluent secrets-protection hook (.claude/hooks/block_secret_reads.py)`. The structured field cannot tell you a hook was involved. The prose the hook wrote can, and it names the script. If you are building a parser, that is the difference between a field you can rely on and a string you have to match against.
 
-The second is the prefix. `PreToolUse:Read hook error:` encodes the event and the tool, which is the only place in the entire record where the event name appears. Thirty documented events, and one of them reaches disk by being typed into an error message.
+The second is the prefix. `PreToolUse:Read hook error:` encodes the event and the tool, which is the only place in the entire record where the event name appears. Thirty-three documented events, and one of them reaches disk by being typed into an error message.
 
 Which brings us to `toolDenialKind` itself. The field is on 233 lines out of 101,553 `tool_result` blocks, roughly two in a thousand, and stating that honestly took two attempts. The obvious probe counts keys per `tool_result` block, so a line carrying two results contributes its keys twice, which makes a block-weighted figure an upper bound on lines rather than a count of them. The scanner now counts both ways over a stated population. They agree at 233, so no denial line carried a second result and the figure is exact.
 
 The values split 147 `permission-rule` to 86 something else. So the field does discriminate. It carries at least two values, which rules out its being a constant. What it does not do is separate a hook from a rule: the denial above came from a hook and is labelled `permission-rule`. Whatever the other 86 are, they are not "hook" as distinct from "rule".
 
-That field is also still absent from [`reference/data-dictionary.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md), which makes it the first thing this post sends back upstream.
+[`reference/data-dictionary.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md) gained a row for that field while this post was in edit, which is the first thing it sent back upstream. The row is already behind the numbers above. It was written before the scanner folded the values, so it still records the value as never read, and it counts 227 occurrences against a different population.
 
 ## The second shape
 
@@ -169,7 +171,7 @@ The practical consequence is the important part. A hook record has at least two 
 
 ```jsonl
 // from https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/sanitized/hook-trace-denial-and-stop-ladder.jsonl
-{"type":"permission-mode","sessionId":"00000000-0000-0000-0000-000000000004","permissionMode":"auto"}
+{"type":"permission-mode","permissionMode":"auto","sessionId":"c7d5aa0e-6032-49f3-85ad-69754f68748e"}
 ```
 
 Three keys, and none of the usual envelope: no `timestamp`, no `uuid`, no `parentUuid`, no `cwd`, no `version`, no `gitBranch`.
@@ -186,7 +188,7 @@ For most reading this is fine, since file order is real order. For anything that
 
 The reference doc has carried it since v2.1.150 as a streaming event type that "may still be emitted under specific conditions," documented but unverified. A larger corpus does not rescue it. Zero occurrences across 465,452 lines, 3,680 files, and 131 Claude Code versions. The scan saw 19 distinct top-level types and `hook_progress` was not among them.
 
-The related `progress` type is a different story: 2,747 lines, carrying `toolUseID`, `parentToolUseID`, and `agentId`. So progress streaming does reach disk in some form, while the hook-specific flavor never does. The cleanest reading is that hook progress streams to your terminal and is never persisted. I cannot prove a negative from one corpus, however large, so the claim stays scoped: not observed here, across this range.
+The related `progress` type is a different story: 2,747 lines, carrying `toolUseID`, `parentToolUseID`, and `agentId`. That is itself a correction, since the reference lists `progress` alongside `hook_progress` among the types it has not observed. So progress streaming does reach disk in some form, while the hook-specific flavor never does. The cleanest reading is that hook progress streams to your terminal and is never persisted. I cannot prove a negative from one corpus, however large, so the claim stays scoped: not observed here, across this range.
 
 ## What this means if you are building on it
 
@@ -194,7 +196,7 @@ The related `progress` type is a different story: 2,747 lines, carrying `toolUse
 
 **You cannot audit that structurally for any other event.** A `PreToolUse` hook that denies a call leaves one typed field on a user line, and that field says `permission-rule` whether a hook or a rule produced it. A `PostToolUse` hook that runs cleanly leaves nothing I have been able to find. This repo's two guards fire on most tool calls in most sessions and are structurally invisible.
 
-**What you can do instead is match strings, which is worse but not nothing.** The denial's `content` begins `PreToolUse:Read hook error:` and then names the script. That is the only place any of the thirty event names reaches disk, and it gets there by being part of a message rather than a field. A parser built on it is a parser built on wording the harness is free to change.
+**What you can do instead is match strings, which is worse but not nothing.** The denial's `content` begins `PreToolUse:Read hook error:` and then names the script. That is the only place any of those event names reaches disk, and it gets there by being part of a message rather than a field. A parser built on it is a parser built on wording the harness is free to change.
 
 **You can read what a blocking hook said**, in three places, none of them obvious. A Stop hook's block reason lands in `hookErrors`, mixed in with real failures and separated from them only by a `"Failed with non-blocking status code: "` prefix. A prompt hook's refusal lands in `content` on an `informational` line. A tool denial's reason lands in the `tool_result` content and again in `toolUseResult`. All readable. None where the reference doc would send you.
 
@@ -202,21 +204,22 @@ The related `progress` type is a different story: 2,747 lines, carrying `toolUse
 
 **`hasOutput` is a boolean about whether output happened, not what it was.** A real limit, and a smaller one than it looks, because `hookInfos`, `hookErrors`, `hookAdditionalContext` and `content` between them carry a great deal of what a hook actually said.
 
-## Five corrections to my own reference doc
+## Six corrections to my own reference doc
 
-Part 5 found three places the reference doc was wrong. This pass found five more.
+Part 5 found three places the reference doc was wrong. This pass found six more. Two of them were half-fixed while the post sat in edit, which is noted where it applies.
 
-- `hookAdditionalContext` is not "Rare." It is on 3,176 lines. It is also an array, not a string.
-- `toolDenialKind` has no row at all. It needs one, with `permission-rule` named and the remaining values marked unknown.
+- `hookAdditionalContext` was described as "Rare." It is on 3,176 lines. The "Rare" wording is gone from the doc now. The type there is still `string`, and it is an array.
+- `toolDenialKind` had no row at all. It has one now, written before the scanner folded the values, so it still records the value as never read and counts 227 rather than 233.
 - The hook-execution section describes its fields as "present as a family on the same lines." Five are, measured. `hookAdditionalContext` is optional, on 3,176 of the 4,159.
 - `toolUseID` is documented as "linking the hook run to the tool call that triggered it." On a Stop-hook line it links to nothing at all.
-- The hook coverage assumes shell scripts on stdin. Five implementation types exist. That is [issue #250](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/250).
+- `progress` is listed among the types the doc has not observed. It is on 2,747 lines. Only `hook_progress` still holds up.
+- The hook event table stops at thirty, and the coverage around it assumes shell scripts on stdin. There are thirty-three documented events and five implementation types. That is [issue #250](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/250).
 
-All five have the same cause as Part 5's three: a claim written against what a structural scan could see, never checked against a session built to test it.
+All six have the same cause as Part 5's three: a claim written against what a structural scan could see, never checked against a session built to test it.
 
 ## What the scan could not have told me
 
-It is worth being specific about that, because the scan is not a weak instrument. It reads 3,680 files and 465,452 lines in 26 seconds, it has never miscounted anything I have caught it on, and every number in this post comes from it. It is also the reason I believed five wrong propositions at once.
+It is worth being specific about that, because the scan is not a weak instrument. It reads 3,680 files and 465,452 lines in one pass, it has never miscounted anything I have caught it on, and every number in this post comes from it. It is also the reason I believed five wrong propositions at once.
 
 - That the hook-execution family was seven fields on the same lines. Matching key totals are not shared lines, and a key-count scan cannot tell the two apart.
 - That `toolUseID` joins a hook line back to the tool call that triggered it. It sits on exactly the family's 4,159 lines, which makes that reading close to irresistible. A key-count scan cannot dereference an identifier, and this one points at nothing.
@@ -224,7 +227,7 @@ It is worth being specific about that, because the scan is not a weak instrument
 - That you could not tell which hook ran. The scan reads key names, never values, so `hookInfos` looks empty from the outside.
 - That no event name reaches disk. None reaches a _field_. One is written into the text of an error message, where a field-oriented probe does not look.
 
-The common shape: a structural scan tells you what is present, and every one of those was a question about what the present thing means. Five hooks, three runs and a sanitizer is what answered them.
+The common shape: a structural scan tells you what is present, and every one of those was a question about what the present thing means. Six hooks, three runs and a sanitizer is what answered them.
 
 ## Why the blind spots moved
 
@@ -234,7 +237,7 @@ That constraint is still there, and it still matters: this repo's whole premise 
 
 Folding. A value can be counted without being emitted, by matching it against a fixed allowlist the scanner declares and bucketing everything else as `<other>`. The scanner already did this for `stop_reason`. It now does it for `subtype` and `toolDenialKind`, which is how this post can tell you that 4,159 of 4,159 family lines are `stop_hook_summary`, and that `toolDenialKind` splits 147 to 86, without either number requiring that a corpus byte reach the output.
 
-Fixtures. Everything a fold cannot reach, a purpose-built session can. Five hooks, three runs, and a sanitizer produced three committed fixtures with real values in them, and those fixtures are where every field example above comes from. They also corrected this repo's synthetic hook fixture, which had been marking its unknown values honestly while inventing the structure around them.
+Fixtures. Everything a fold cannot reach, a purpose-built session can. Six hooks, three runs, and a sanitizer produced three committed fixtures with real values in them, and those fixtures are where every field example above comes from. They also corrected this repo's synthetic hook fixture, which had been marking its unknown values honestly while inventing the structure around them.
 
 What is still unread: the 86 `toolDenialKind` values that are not `permission-rule`. The fold tells you they exist and refuses to say what they are. If you have sessions with denials in them, that is one line of `jq`, and I would like to know.
 
@@ -244,12 +247,12 @@ Six posts in, every one has treated a session as a self-contained artifact: one 
 
 The sources behind this post:
 
-- **Reference grounding:** [`reference/data-dictionary.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md), specifically the [`system` hook-execution fields](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#hook-execution-fields) and the [outbound hook event contract](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#hook-event-fields). The corrections above are tracked in [issue #243](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/243), [issue #250](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/250) and [issue #259](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/259).
+- **Reference grounding:** [`reference/data-dictionary.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md), specifically the [`system` hook-execution fields](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#hook-execution-fields) and the [outbound hook event contract](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#hook-event-fields). The corrections above are tracked in [issue #259](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/259) and [issue #250](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/250); [issue #243](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/243) took the first two as far as they have gone and is closed. The unexplained `preventedContinuation` is [issue #260](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/260).
 - **Series planning:** [`series-outline.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/.claude/specs/series-outline.md)
 - **Sanitized fixtures**, the source of every field value above: [`hook-trace-stop-hook-error.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/sanitized/hook-trace-stop-hook-error.jsonl), [`hook-trace-denial-and-stop-ladder.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/sanitized/hook-trace-denial-and-stop-ladder.jsonl), and [`hook-trace-prompt-hook-refusal.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/sanitized/hook-trace-prompt-hook-refusal.jsonl), each with a `.scrubbed` sidecar.
 - **Synthetic fixture:** [`anatomy-hook-trace.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-hook-trace.jsonl), with its [generator notes](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-hook-trace.jsonl.generator.md). Rebuilt against the sanitized fixtures in [issue #257](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/257), so every shape it shows is one they observe.
 - **Verification scan:** [`scan-2026-09-23.json`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/format-scan/scan-2026-09-23.json), a structural pass over 3,680 session files (465,452 lines, v2.1.4 through v2.1.280), key names, counts, and folded enum values only, no message content read. Produced by [`tooling/format-scan/`](https://github.com/frederick-douglas-pearce/claude-code-sessions/tree/main/tooling/format-scan).
-- **Hooks themselves:** Claude Code's [hooks documentation](https://code.claude.com/docs/en/hooks), and this repo's own two guards in [`.claude/hooks/`](https://github.com/frederick-douglas-pearce/claude-code-sessions/tree/main/.claude/hooks), one of which produced the denial above.
+- **Hooks themselves:** Claude Code's [hooks reference](https://code.claude.com/docs/en/hooks) and its [hooks guide](https://code.claude.com/docs/en/hooks-guide), which is where the deterministic-control line at the top of this post comes from, and this repo's own two guards in [`.claude/hooks/`](https://github.com/frederick-douglas-pearce/claude-code-sessions/tree/main/.claude/hooks), one of which produced the denial above.
 - **The fixture hooks**, and the procedure that ran them: [`tooling/fixture-hooks/`](https://github.com/frederick-douglas-pearce/claude-code-sessions/tree/main/tooling/fixture-hooks), with its [runbook](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/fixture-hooks/RUNBOOK.md). The three runs did not share a configuration; the README records which produced which fixture.
 
 ---
