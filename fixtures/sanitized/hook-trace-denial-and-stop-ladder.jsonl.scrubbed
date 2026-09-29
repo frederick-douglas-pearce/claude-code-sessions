@@ -1,6 +1,6 @@
 sidecar_schema_version: 1
-sanitizer_version: 0.4.0
-scrubbed_at: '2026-09-22T21:05:28Z'
+sanitizer_version: 0.5.0
+scrubbed_at: '2026-09-29T08:25:00Z'
 input_filename: c7d5aa0e-6032-49f3-85ad-69754f68748e.jsonl
 input_sha256: 0bd92ff9b119d7904bdc51845a59e7b0db2b3586b490228b914301b6b4b00571
 config_version: 1
@@ -14,7 +14,7 @@ rules_applied:
     substitutions: 54
     distinct: 1
   identifiers:
-    substitutions: 45
+    substitutions: 48
     distinct: 2
   secrets:
     matches: 0
@@ -27,7 +27,7 @@ substitutions:
 - rule: identifiers
   placeholder: <git-branch>
   replacement: feature/example
-  occurrences: 41
+  occurrences: 44
 - rule: identifiers
   placeholder: <identifier-1>
   replacement: user

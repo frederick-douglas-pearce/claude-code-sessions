@@ -52,25 +52,32 @@ pattern is removed, so this is not MAJOR; it changes which inputs the tool
 refuses and which leaves it scrubs, so it is not PATCH.
 
 **Why this is 0.5.0 and 0.4.0 is skipped.** This block carried `0.4.0` while it
-was unreleased, and **three** committed sidecars record
+was unreleased, and at that point **three** committed sidecars recorded
 `sanitizer_version: 0.4.0`:
 `fixtures/sanitized/hook-trace-denial-and-stop-ladder.jsonl.scrubbed`,
 `hook-trace-stop-hook-error.jsonl.scrubbed` and
 `hook-trace-prompt-hook-refusal.jsonl.scrubbed`. Then #251 landed here, and
-#251 changes the bytes the first two inputs produce — they still carry
+#251 changes the bytes the first two inputs produce — they still carried
 `"branch":"main"` at the position the fix now scrubs. (The third carries no
-`git_state`, so its bytes are unaffected, but it was scrubbed against 0.4.0
+`git_state`, so its bytes were unaffected, but it was scrubbed against 0.4.0
 just the same.) Keeping the number would mean one version string denoting two
 different outputs for one input, which is the determinism contract broken
-inside a single version rather than across one. Renumbering leaves all three
+inside a single version rather than across one. Renumbering left all three
 sidecars pointing at the pre-#251 behavior that produced them.
 
-The cost, stated rather than left to be discovered: `0.4.0` is never published,
-there is no `## [0.4.0]` heading in this file, and those three sidecars now name
-a version with no changelog entry and no released artifact — while this file's
-own header says the recorded version "references this file" and consumers gate
-on it. Re-scrubbing the three under 0.5.0 is what closes that, and it needs the
-raw sessions and the live config.
+The cost, stated rather than left to be discovered: `0.4.0` is never published
+and there is no `## [0.4.0]` heading in this file, so for as long as those
+sidecars named it they named a version with no changelog entry and no released
+artifact — while this file's own header says the recorded version "references
+this file" and consumers gate on it.
+
+**Closed by #271**, which re-scrubbed all three under 0.5.0 against the live
+config. They now record `0.5.0`, the two `git_state`-bearing fixtures carry
+`"branch":"feature/example"`, and the diff was confined to the four branch
+positions the #251 fix reaches: three in the ladder, one in the stop-hook
+error, none in the refusal. Every `input_sha256` is unchanged, so those are the
+same inputs. `0.4.0` remains a number this project never published and never
+will.
 
 This release moves in **two** directions and the summary has to carry both,
 because "refuses more" alone would misdescribe it after #194:
