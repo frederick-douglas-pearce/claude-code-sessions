@@ -38,7 +38,7 @@ The event name every payload carries never reaches disk as a _field_. One event 
 
 Hook activity rides on `system` lines. There is no hook-specific top-level type. What there is, and it is easy to read past, is a `subtype` that names the event.
 
-Of the 10,878 `system` lines in the scan, 4,162 record hook activity, and **4,159 of them carry `subtype: "stop_hook_summary"`.** Three lines out of 4,162 are anything else, and I had to build a session to produce those three.
+Of the 10,878 `system` lines in the scan, 4,162 record hook activity, and **4,159 of them carry `subtype: "stop_hook_summary"`.** Three lines out of 4,162 are anything else, and I had to build a synthetic session to produce those three.
 
 So this family is the trace a `Stop` or `SubagentStop` hook leaves, and anything generalised from it is a generalisation from one class of hook.
 
@@ -58,11 +58,9 @@ Six sit on all 4,159 lines. `hookAdditionalContext` is on 3,176 of them and abse
 
 Be careful not to overinterpret that table. Matching totals are not shared lines. One key counted 4,159 times against another counted 4,159 times is equally consistent with a single family on a single set of lines and with two disjoint sets of the same size, and nothing in a key-count scan tells those apart. The scanner computes per-line co-occurrence for the keys it treats as hook markers, which is how I can say that `hookCount`, `hookInfos`, `hookErrors`, `preventedContinuation` and `hookAdditionalContext` share lines and mean it. For `hasOutput`, `stopReason` and `toolUseID` I have matching totals and three fixtures showing them alongside the rest. That is strong evidence. It is not the corpus-wide measurement the other five have.
 
-`toolUseID` sits on these lines too, on exactly 4,159 of them. The same key also appears on 2,747 `progress` lines, which are a different line type; add the two together and you get a number that looks like a mismatch with the family.
+`toolUseID` sits on these lines too, on exactly 4,159 of them. The same key also appears on 2,747 `progress` lines, which are a different line type; add the two together and you get a number that looks like a mismatch with the family. Despite its name, on a Stop-hook line it links to no tool call. Its value is a UUID that matches no `tool_use.id`, record `uuid` or `message.id` in the session, and none of the six in the denial fixture resolves to anything. It identifies the hook firing and nothing else.
 
-What it holds is stranger than any count suggests. On a Stop-hook line it is a UUID that joins to nothing. No `tool_use.id` in the session, since those carry a `toolu_` prefix. No record `uuid`, and no `message.id` either. Six hook lines in the denial fixture carry six distinct values and not one of them resolves. That fixture was scrubbed with UUID remapping switched off, so the dangling identifier is Claude Code's own output rather than something the sanitizer broke. It reads as a per-firing identifier, not a join key.
-
-One caveat on the rates. My corpus is hook-dense, though this repo ships only two hooks of its own: a `PreToolUse` and a `PostToolUse` guard. They leave **no `system` line at all** and contribute nothing to the 4,159. The density comes from `Stop` hooks supplied by plugins, which run a review at the end of every turn. So read the presence and absence findings here as general, and do not read 4,159 out of 10,878 as a typical ratio.
+One caveat on the rates. My corpus is hook-dense, though this repo ships only two hooks of its own: a `PreToolUse` and a `PostToolUse` guard. They leave **no `system` line at all** and contribute nothing to the 4,159. The density comes from `Stop` hooks supplied by plugins, which run a review at the end of every turn. Which fields appear on these lines is a property of the format and should hold on any machine. How many lines carry them is a property of my setup, so treat 4,159 out of 10,878 as one data point and expect your own counts to differ.
 
 ## What a Stop hook actually writes
 
