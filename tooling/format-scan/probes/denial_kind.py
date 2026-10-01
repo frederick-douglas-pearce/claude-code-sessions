@@ -14,20 +14,35 @@ scan.py prints a value only if a committed fixture attests it, and folds
 everything else to `<other>`. This probe exists to name the values the fold
 would not, so it uses a weaker bar:
 
-  - A `toolDenialKind` value is printed if it matches ENUM_RE: lowercase,
-    [a-z0-9_-], at most 40 characters. Anything else is printed as
-    `<non-enum len=N>` or `<TYPE>`, never as itself. The bet is that a
+  - A `toolDenialKind` string is printed if it fully matches ENUM_RE: a
+    lowercase ASCII letter, then [a-z0-9_-], at most 40 characters in all.
+    Any other string is printed as `<non-enum len=N>`, a JSON null as `<null>`,
+    and any other type as `<other>`, never as itself. The bet is that a
     harness-supplied label is enum-shaped and user content almost never is.
     It is a bet about shape, not an attestation: a short lowercase string
     written into this field would be printed.
   - The `tool_result` text is NEVER printed. Its first TEXT_WINDOW characters
     are tested against MARKERS, and only the matching marker's NAME is counted.
-  - `version` is printed only if it matches VERSION_RE (dotted digits).
+  - `is_error` is printed only as `true`, `false`, `<null>`, `<absent>` or
+    `<other>`.
+  - `version` is printed only if it fully matches VERSION_RE (dotted ASCII
+    digits).
+  - Error messages never name a session file.
   - Nothing else from a line is read.
 
+Bucket labels (`<null>`, `<other>`, `<absent>`, `<no-tool-result>`,
+`<non-enum len=N>`) all start with `<`, which ENUM_RE cannot match, so a
+printed value can never be mistaken for a bucket.
+
+`lines_scanned` and `parse_errors` follow scan.py's rules, so `lines_scanned`
+means what it means in a scan-*.json artifact: non-blank lines that parsed to a
+JSON object. The default root, version ordering and `<other>` bucket label are
+loaded from scan.py itself, next door.
+
 tests/test_denial_kind_probe.py plants sentinels in every surface this probe
-reads and asserts none reaches stdout, in both output modes. It also pins the
-one place the bar is weaker on purpose: an enum-shaped value is printed.
+reads and asserts none reaches stdout or stderr in either output mode. It also
+pins the one place the bar is weaker on purpose: an enum-shaped value is
+printed.
 
 Usage:
   python3 denial_kind.py [ROOT] [--json]
@@ -39,19 +54,32 @@ Stdlib only, like scan.py.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
-import os
 import re
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
-ENUM_RE = re.compile(r"^[a-z][a-z0-9_-]{0,39}$")
-VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
+
+def _load_scan():
+    """Import the sibling scan.py by path (it is a script, not a package)."""
+    path = Path(__file__).resolve().parent.parent / "scan.py"
+    spec = importlib.util.spec_from_file_location("ccs_format_scan", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+scan = _load_scan()
+
+ENUM_RE = re.compile(r"[a-z][a-z0-9_-]{0,39}", re.ASCII)
+VERSION_RE = re.compile(r"\d+\.\d+\.\d+", re.ASCII)
 TEXT_WINDOW = 300
 NO_MARKER = "no-marker"
+NO_TOOL_RESULT = "<no-tool-result>"
 
 # Tested in order against the first TEXT_WINDOW characters of the tool_result
 # text; first match wins. Only the NAME on the left is ever emitted. The order
@@ -67,29 +95,25 @@ MARKERS = (
 )
 
 
-def default_root() -> Path:
-    cfg = os.environ.get("CLAUDE_CONFIG_DIR")
-    return (Path(cfg) if cfg else Path.home() / ".claude") / "projects"
-
-
 def fold_kind(value) -> str:
+    if value is None:
+        return "<null>"
     if isinstance(value, str):
-        return value if ENUM_RE.match(value) else f"<non-enum len={len(value)}>"
-    return f"<{type(value).__name__}>"
+        return value if ENUM_RE.fullmatch(value) else f"<non-enum len={len(value)}>"
+    return scan.OTHER_BUCKET
 
 
-def first_tool_result(line: dict) -> dict | None:
-    content = (line.get("message") or {}).get("content")
-    if isinstance(content, list):
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "tool_result":
-                return block
-    return None
+def tool_result_blocks(line: dict) -> list[dict]:
+    message = line.get("message")
+    if not isinstance(message, dict):
+        return []
+    content = message.get("content")
+    if not isinstance(content, list):
+        return []
+    return [b for b in content if isinstance(b, dict) and b.get("type") == "tool_result"]
 
 
-def result_text(block: dict | None) -> str:
-    if block is None:
-        return ""
+def result_text(block: dict) -> str:
     c = block.get("content")
     if isinstance(c, str):
         return c[:TEXT_WINDOW]
@@ -107,42 +131,68 @@ def match_marker(text: str) -> str:
     return NO_MARKER
 
 
-def _vkey(v: str) -> tuple[int, ...]:
-    return tuple(int(p) for p in v.split("."))
+def is_error_label(block: dict) -> str:
+    if "is_error" not in block:
+        return "<absent>"
+    value = block["is_error"]
+    if value is None:
+        return "<null>"
+    if isinstance(value, bool):
+        return json.dumps(value)
+    return scan.OTHER_BUCKET
 
 
 def probe(root: Path) -> dict:
     kinds: Counter = Counter()
     markers: dict[str, Counter] = defaultdict(Counter)
     is_error: dict[str, Counter] = defaultdict(Counter)
+    multi_block: Counter = Counter()
     versions: dict[str, set] = defaultdict(set)
-    files = lines = parse_errors = 0
+    files = lines = parse_errors = dropped = 0
 
     for path in sorted(root.rglob("*.jsonl")):
         files += 1
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            for raw in fh:
-                lines += 1
-                try:
-                    line = json.loads(raw)
-                except ValueError:
-                    parse_errors += 1
-                    continue
-                if not isinstance(line, dict) or "toolDenialKind" not in line:
-                    continue
-                kind = fold_kind(line["toolDenialKind"])
-                kinds[kind] += 1
-                block = first_tool_result(line)
-                markers[kind][match_marker(result_text(block))] += 1
-                err = block.get("is_error") if block is not None else None
-                is_error[kind][json.dumps(err) if isinstance(err, (bool, type(None))) else "<other>"] += 1
-                v = line.get("version")
-                if isinstance(v, str) and VERSION_RE.match(v):
-                    versions[kind].add(v)
+        try:
+            with path.open("r", encoding="utf-8", errors="replace") as fh:
+                for raw in fh:
+                    raw = raw.strip()
+                    if not raw:
+                        continue
+                    try:
+                        line = json.loads(raw)
+                    except json.JSONDecodeError:
+                        parse_errors += 1
+                        continue
+                    if not isinstance(line, dict):
+                        continue
+                    lines += 1
+                    if "toolDenialKind" not in line:
+                        continue
+                    kind = fold_kind(line["toolDenialKind"])
+                    kinds[kind] += 1
+                    # Classify the first tool_result block. A line with more
+                    # than one is counted in multi_tool_result_lines, which is
+                    # what says whether "the first" was ever ambiguous.
+                    blocks = tool_result_blocks(line)
+                    if blocks:
+                        markers[kind][match_marker(result_text(blocks[0]))] += 1
+                        is_error[kind][is_error_label(blocks[0])] += 1
+                        if len(blocks) > 1:
+                            multi_block[kind] += 1
+                    else:
+                        markers[kind][NO_TOOL_RESULT] += 1
+                        is_error[kind][NO_TOOL_RESULT] += 1
+                    v = line.get("version")
+                    if isinstance(v, str) and VERSION_RE.fullmatch(v):
+                        versions[kind].add(v)
+        except OSError:
+            # Unreadable, vanished, or a directory named *.jsonl. Counted, and
+            # never named: a session path is not ours to print.
+            dropped += 1
 
     by_kind = {}
     for kind, n in kinds.most_common():
-        vs = sorted(versions[kind], key=_vkey)
+        vs = sorted(versions[kind], key=scan.version_sort_key)
         by_kind[kind] = {
             "lines": n,
             "first_version": vs[0] if vs else None,
@@ -150,12 +200,14 @@ def probe(root: Path) -> dict:
             "distinct_versions": len(vs),
             "is_error": dict(is_error[kind].most_common()),
             "markers": dict(markers[kind].most_common()),
+            "multi_tool_result_lines": multi_block[kind],
         }
     return {
         "tool": "ccs-denial-kind-probe",
         "probe_version": __version__,
         "summary": {
             "files_scanned": files,
+            "files_dropped": dropped,
             "lines_scanned": lines,
             "parse_errors": parse_errors,
             "tool_denial_lines": sum(kinds.values()),
@@ -167,7 +219,7 @@ def probe(root: Path) -> dict:
 def print_human(report: dict) -> None:
     s = report["summary"]
     print(
-        f"files={s['files_scanned']} lines={s['lines_scanned']} "
+        f"files={s['files_scanned']} dropped={s['files_dropped']} lines={s['lines_scanned']} "
         f"parse_errors={s['parse_errors']} toolDenialKind_lines={s['tool_denial_lines']}"
     )
     for kind, row in report["by_kind"].items():
@@ -179,17 +231,19 @@ def print_human(report: dict) -> None:
         print(f"\n{kind}: {row['lines']}  seen {span}")
         print(f"  is_error: {row['is_error']}")
         print(f"  markers:  {row['markers']}")
+        if row["multi_tool_result_lines"]:
+            print(f"  lines with >1 tool_result (first block classified): {row['multi_tool_result_lines']}")
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser = argparse.ArgumentParser(description="Name and classify toolDenialKind values (content-free).")
     parser.add_argument("root", nargs="?", type=Path, default=None, help="projects root (default: ~/.claude/projects)")
     parser.add_argument("--json", action="store_true", help="emit the report as JSON")
     args = parser.parse_args(argv)
 
-    root = args.root or default_root()
+    root = args.root or scan.default_root()
     if not root.is_dir():
-        print(f"not a directory: {root}", file=sys.stderr)
+        print("error: projects root is not a directory", file=sys.stderr)
         return 2
     report = probe(root)
     if args.json:

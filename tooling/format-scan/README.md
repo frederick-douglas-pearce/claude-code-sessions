@@ -210,13 +210,21 @@ python3 tooling/format-scan/probes/denial_kind.py ROOT --json
 
 **Its output contract is weaker than `scan.py`'s, which is why it is not a
 `scan.py` flag.** `scan.py` prints a value only when a committed fixture attests
-it. The probe prints any `toolDenialKind` value that is *enum-shaped*
-(lowercase, `[a-z0-9_-]`, at most 40 characters) and buckets everything else as
-`<non-enum len=N>`. That is a bet that harness labels look like enums and user
-content does not, not an attestation. The `tool_result` text is never printed,
-only the name of the phrase it matched. The full contract is in the probe's
-docstring, and `tests/test_denial_kind_probe.py` gates it with planted
-sentinels.
+it. The probe prints any `toolDenialKind` value that is *enum-shaped* (a
+lowercase ASCII letter, then `[a-z0-9_-]`, at most 40 characters in all, matched
+against the whole string) and buckets every other string as `<non-enum len=N>`,
+a null as `<null>` and any other type as `<other>`. That is a bet that harness
+labels look like enums and user content does not, not an attestation. The
+`tool_result` text is never printed, only the name of the phrase it matched; a
+denial line with no `tool_result` block is counted as `<no-tool-result>`
+instead. Unreadable files are counted in `files_dropped` and never named. The
+full contract is in the probe's docstring, and `tests/test_denial_kind_probe.py`
+gates it with planted sentinels.
+
+`lines_scanned` and `parse_errors` follow `scan.py`'s rules (blank lines
+skipped, only JSON objects counted), so the two reports' corpus sizes compare
+directly. The default root, version ordering and bucket labels are loaded from
+`scan.py` itself.
 
 Use it to find candidate values, then attest each one with a sanitized fixture
 and add it to `TOOL_DENIAL_KIND_ALLOWLIST` so the committed scan can report it
