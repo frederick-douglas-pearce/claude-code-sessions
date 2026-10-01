@@ -193,12 +193,42 @@ didn't contain it). `versions` is additive-only — it's an open, ever-growing s
 not a closed vocabulary. Bump `baseline-v<version>.json` when `reference/` catches
 up to a newer Claude Code version, so the diff keeps measuring real drift.
 
+## Denial-kind probe
+
+`probes/denial_kind.py` is a separate, standalone probe that names the
+`toolDenialKind` values `scan.py` folds to `<other>`. For each value it reports
+the line count, the first and last Claude Code version seen, the `is_error`
+split, and which of a few fixed phrases the `tool_result` text matches (a
+hook-error prefix, "user doesn't want to proceed", "blocked by … hook", and so
+on). The phrase cross-tab is what shows whether a value labels a hook, a user
+or auto mode.
+
+```bash
+python3 tooling/format-scan/probes/denial_kind.py            # default root
+python3 tooling/format-scan/probes/denial_kind.py ROOT --json
+```
+
+**Its output contract is weaker than `scan.py`'s, which is why it is not a
+`scan.py` flag.** `scan.py` prints a value only when a committed fixture attests
+it. The probe prints any `toolDenialKind` value that is *enum-shaped*
+(lowercase, `[a-z0-9_-]`, at most 40 characters) and buckets everything else as
+`<non-enum len=N>`. That is a bet that harness labels look like enums and user
+content does not, not an attestation. The `tool_result` text is never printed,
+only the name of the phrase it matched. The full contract is in the probe's
+docstring, and `tests/test_denial_kind_probe.py` gates it with planted
+sentinels.
+
+Use it to find candidate values, then attest each one with a sanitized fixture
+and add it to `TOOL_DENIAL_KIND_ALLOWLIST` so the committed scan can report it
+([#276](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/276)).
+
 ## Tests
 
 The suite locks down both the taxonomy/diff output **and** the content-free
 contract (a sentinel-leak gate that fails if any planted value reaches stdout).
 Fixtures are synthetic only — no test ever points the scanner at real
-`~/.claude/projects/` data. Run from the repo root:
+`~/.claude/projects/` data. The one exception reads committed **sanitized**
+fixtures: the denial-kind probe's attested test runs over `fixtures/sanitized/`. Run from the repo root:
 
 ```bash
 python3 -m pytest tooling/format-scan/tests/
