@@ -84,18 +84,18 @@ Here is the simplest of them, with the common envelope stripped so the hook fiel
 }
 ```
 
-What came out is the ordinary envelope: `parentUuid`, `uuid`, `timestamp`, `cwd`, `version`, `gitBranch`, and the session id in both of its spellings. A `stop_hook_summary` line is a fully addressable record, which is worth holding on to for the comparison two sections down.
+The line in the [fixture](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/sanitized/hook-trace-denial-and-stop-ladder.jsonl) also carries the ordinary envelope, omitted above: `parentUuid`, `uuid`, `timestamp`, `cwd`, `version`, `gitBranch`, and the session id in both of its spellings. A `stop_hook_summary` line is a fully addressable record, which is worth keeping in mind for the comparison two sections down.
 
 The other three outcomes are that same record with a handful of fields changed. This is everything that moves:
 
-| Field                    | allowed | blocked          | injected context  | hook failed          |
-| ------------------------ | ------- | ---------------- | ----------------- | -------------------- |
-| `hookErrors`             | `[]`    | the block reason | `[]`              | prefix + the message |
-| `hookAdditionalContext`  | `[]`    | `[]`             | the injected text | `[]`                 |
-| `hasOutput`              | `false` | `true`           | `true`            | `true`               |
-| `hookInfos[].durationMs` | `149`   | **absent**       | `146`             | `148`, `155`         |
-| `preventedContinuation`  | `false` | `false`          | `false`           | `false`              |
-| `stopReason`             | `""`    | `""`             | `""`              | `""`                 |
+| Field                    | allowed | blocked                | injected context        | hook failed                |
+| ------------------------ | ------- | ---------------------- | ----------------------- | -------------------------- |
+| `hookErrors`             | `[]`    | `["the block reason"]` | `[]`                    | `["prefix + the message"]` |
+| `hookAdditionalContext`  | `[]`    | `[]`                   | `["the injected text"]` | `[]`                       |
+| `hasOutput`              | `false` | `true`                 | `true`                  | `true`                     |
+| `hookInfos[].durationMs` | `149`   | **absent**             | `146`                   | `148`, `155`               |
+| `preventedContinuation`  | `false` | `false`                | `false`                 | `false`                    |
+| `stopReason`             | `""`    | `""`                   | `""`                    | `""`                       |
 
 Two notes on reading that. The failure column comes from a second session, where I added `fail_on_stop.py` alongside the first hook, so its `hookCount` is 2 and `hookInfos` holds two entries rather than one. And `durationMs` vanishes from `hookInfos` on the blocking turn while being present on every other turn in the same session. I have no explanation for that, and one session is not enough to call it a pattern, so it is recorded rather than interpreted.
 
@@ -115,7 +115,7 @@ Four of those fields are worth reading closely, because in each case the key nam
 
 You would expect a denial to be written down twice: once by the hook that blocked the call, once by the tool cycle closing around it. That is what the `system` line exists for everywhere else. I built a session that denies a tool call to look at both halves, and the `system` half is not there.
 
-A denied tool call produces one record: the `user` line that closes the tool cycle, the way any tool result does, with `is_error: true` inside the block and one extra top-level key. Here it is from the fixture, with two long strings elided and the tail of the envelope dropped:
+A denied tool call produces one record: the `user` line that closes the tool cycle, the way any tool result does, with `is_error: true` inside the block and one extra top-level key, `toolDenialKind`. Here it is from the fixture, with two long strings elided and the tail of the envelope dropped:
 
 ```jsonl
 // from https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/sanitized/hook-trace-denial-and-stop-ladder.jsonl
@@ -128,11 +128,18 @@ Two things are worth pulling out of it. The first is that the hook **is** named,
 
 The second is the prefix. `PreToolUse:Read hook error:` encodes the event and the tool, which is the only place in the entire record where the event name appears. Thirty-three documented events, and one of them reaches disk by being typed into an error message.
 
-Which brings us to `toolDenialKind` itself. The field is on 233 lines out of 101,553 `tool_result` blocks, roughly two in a thousand, and stating that honestly took two attempts. The obvious probe counts keys per `tool_result` block, so a line carrying two results contributes its keys twice, which makes a block-weighted figure an upper bound on lines rather than a count of them. The scanner now counts both ways over a stated population. They agree at 233, so no denial line carried a second result and the figure is exact.
+Which brings us to `toolDenialKind` itself. The field is on 233 lines out of 101,553 `tool_result` blocks, roughly two in a thousand, and getting that right took two attempts. The obvious probe counts keys per `tool_result` block, so a line carrying two results contributes its keys twice, which makes a block-weighted figure an upper bound on lines rather than a count of them. The scanner now counts both ways over a stated population. They agree at 233, so no denial line carried a second result and the figure is exact.
 
-The values split 147 `permission-rule` to 86 something else. So the field does discriminate. It carries at least two values, which rules out its being a constant. What it does not do is separate a hook from a rule: the denial above came from a hook and is labelled `permission-rule`. Whatever the other 86 are, they are not "hook" as distinct from "rule".
+The scan splits the values 147 `permission-rule` to 86 something else. It stops there because the scanner only names a value that a committed fixture shows, and the fixtures show only `permission-rule`. To name the rest I ran a one-off probe on 2026-10-01, over a corpus that had grown to 550,447 lines and 279 denial lines. It printed each value and checked the start of each result's text against a few fixed phrases, without printing the text itself. There are four values:
 
-[`reference/data-dictionary.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md) gained a row for that field while this post was in edit, which is the first thing it sent back upstream. The row is already behind the numbers above. It was written before the scanner folded the values, so it still records the value as never read, and it counts 227 occurrences against a different population.
+| Value                  | Lines | What the result text shows |
+| ---------------------- | ----- | -------------------------- |
+| `permission-rule`      | 178   | 172 name a hook            |
+| `user-rejected`        | 75    | 54 say the user declined   |
+| `automode-blocked`     | 19    | all 19 mention permission  |
+| `automode-unavailable` | 7     | none matched a phrase      |
+
+So the field records who denied the call: a rule, you, or auto mode. A hook counts as a rule. On my machine `permission-rule` almost always means a hook, 172 times out of 178, but the field cannot tell you which one you have. Only the text can. All four values first appear at v2.1.199 or later, which fits the v2.1.193 changelog entry that added denial reasons to the transcript.
 
 ## The second shape
 
@@ -233,7 +240,7 @@ Folding. A value can be counted without being emitted, by matching it against a 
 
 Fixtures. Everything a fold cannot reach, a purpose-built session can. Six hooks, three runs, and a sanitizer produced three committed fixtures with real values in them, and those fixtures are where every field example above comes from. They also corrected this repo's synthetic hook fixture, which had been marking its unknown values honestly while inventing the structure around them.
 
-What is still unread: the 86 `toolDenialKind` values that are not `permission-rule`. The fold tells you they exist and refuses to say what they are. If you have sessions with denials in them, that is one line of `jq`, and I would like to know.
+The 86 `toolDenialKind` values the fold would not name took a one-off probe on my own machine, which printed only enum-shaped values and fixed-phrase matches. Its four values are in the denial section above. The scanner still folds three of them into `<other>`, and will until a committed fixture shows each one. If your sessions carry a value outside those four, I would like to know.
 
 ## What's next
 
