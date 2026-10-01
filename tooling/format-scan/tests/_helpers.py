@@ -2,7 +2,7 @@
 
 Two jobs:
 
-  - load ``scan.py`` as an importable module (it's a standalone script, not a
+  - load ``scan.py`` (and ``probes/denial_kind.py``) as an importable module (it's a standalone script, not a
     package), so functional tests can call ``scan()``/``build_report()``
     directly.
   - build a synthetic ``~/.claude/projects/``-shaped tree in a tmp dir. Fixtures
@@ -20,11 +20,20 @@ from pathlib import Path
 
 SCAN_PY = Path(__file__).resolve().parent.parent / "scan.py"
 BASELINE = Path(__file__).resolve().parent.parent / "baseline-v2.1.150.json"
+PROBE_PY = Path(__file__).resolve().parent.parent / "probes" / "denial_kind.py"
 
 
 def load_scan():
     """Import scan.py as a module via its file path (it has no package)."""
     spec = importlib.util.spec_from_file_location("ccs_format_scan", SCAN_PY)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_probe():
+    """Import probes/denial_kind.py as a module via its file path."""
+    spec = importlib.util.spec_from_file_location("ccs_denial_kind_probe", PROBE_PY)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

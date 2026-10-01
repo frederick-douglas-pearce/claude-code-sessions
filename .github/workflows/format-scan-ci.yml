@@ -64,7 +64,9 @@ jobs:
       # that quietly lost a file is still green, and a security gate that can
       # go hollow without anyone noticing is not a gate.
       - name: Assert the security-contract suite is present
-        run: test -f tooling/format-scan/tests/test_content_free_contract.py
+        run: |
+          test -f tooling/format-scan/tests/test_content_free_contract.py
+          test -f tooling/format-scan/tests/test_denial_kind_probe.py
 
       - name: Run the suite
         run: python -m pytest tooling/format-scan/tests/ -q
