@@ -207,10 +207,10 @@ The related `progress` type is a different story: 2,747 lines, carrying `toolUse
 
 ## Six corrections to my own reference doc
 
-Part 5 found three places the reference doc was wrong. This pass found six more. Two of them were half-fixed while the post sat in edit, which is noted where it applies.
+Part 5 found three places the reference doc was wrong. This pass found six more. Two of them were fixed or half-fixed while the post sat in edit, which is noted where it applies.
 
 - `hookAdditionalContext` was described as "Rare." It is on 3,176 lines. The "Rare" wording is gone from the doc now. The type there is still `string`, and it is an array.
-- `toolDenialKind` had no row at all. It has one now, written before the scanner folded the values, so it still records the value as never read and counts 227 rather than 233.
+- `toolDenialKind` had no row at all. It has one now, with the four values from the probe and a note that three of them still lack a fixture ([issue #276](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/276)).
 - The hook-execution section describes its fields as "present as a family on the same lines." Five are, measured. `hookAdditionalContext` is optional, on 3,176 of the 4,159.
 - `toolUseID` is documented as "linking the hook run to the tool call that triggered it." On a Stop-hook line it links to nothing at all.
 - `progress` is listed among the types the doc has not observed. It is on 2,747 lines. Only `hook_progress` still holds up.
