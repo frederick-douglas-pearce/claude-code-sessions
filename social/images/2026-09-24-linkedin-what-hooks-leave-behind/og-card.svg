@@ -18,14 +18,13 @@
 <text x="328" y="350"><tspan fill="#8a8a99">{ </tspan><tspan fill="#2698ba">"command"</tspan><tspan fill="#8a8a99">: </tspan><tspan fill="#11d68b">"on_stop.py"</tspan><tspan fill="#8a8a99">, </tspan><tspan fill="#2698ba">"durationMs"</tspan><tspan fill="#8a8a99">: </tspan><tspan fill="#efcc00">148</tspan><tspan fill="#8a8a99"> }</tspan></text>
 <text x="304" y="372"><tspan fill="#8a8a99">],</tspan></text>
 <text x="304" y="394"><tspan fill="#2698ba">"hookAdditionalContext"</tspan><tspan fill="#8a8a99">: [</tspan><tspan fill="#11d68b">"tests have not run yet."</tspan><tspan fill="#8a8a99">],</tspan></text>
-<text x="304" y="416"><tspan fill="#2698ba">"hasOutput"</tspan><tspan fill="#8a8a99">: </tspan><tspan fill="#8a8a99">true</tspan><tspan fill="#8a8a99">,</tspan></text>
-<text x="304" y="438"><tspan fill="#2698ba">"preventedContinuation"</tspan><tspan fill="#8a8a99">: </tspan><tspan fill="#8a8a99">false</tspan><tspan fill="#8a8a99">,</tspan></text>
-<text x="304" y="460"><tspan fill="#2698ba">"stopReason"</tspan><tspan fill="#8a8a99">: </tspan><tspan fill="#11d68b">""</tspan></text>
-<text x="280" y="482"><tspan fill="#8a8a99">}</tspan></text>
-<text x="280" y="504"><tspan fill="#8a8a99">{</tspan></text>
-<text x="304" y="526"><tspan fill="#2698ba">"type"</tspan><tspan fill="#8a8a99">: </tspan><tspan fill="#11d68b">"permission-mode"</tspan><tspan fill="#8a8a99">,</tspan></text>
-<text x="304" y="548"><tspan fill="#2698ba">"permissionMode"</tspan><tspan fill="#8a8a99">: </tspan><tspan fill="#11d68b">"auto"</tspan></text>
-<text x="280" y="570"><tspan fill="#8a8a99">}</tspan></text>
+<text x="304" y="416"><tspan fill="#2698ba">"preventedContinuation"</tspan><tspan fill="#8a8a99">: </tspan><tspan fill="#8a8a99">false</tspan></text>
+<text x="280" y="438"><tspan fill="#8a8a99">}</tspan></text>
+<text x="280" y="460"><tspan fill="#8a8a99">{</tspan></text>
+<text x="304" y="482"><tspan fill="#2698ba">"type"</tspan><tspan fill="#8a8a99">: </tspan><tspan fill="#11d68b">"system"</tspan><tspan fill="#8a8a99">,</tspan></text>
+<text x="304" y="504"><tspan fill="#2698ba">"subtype"</tspan><tspan fill="#8a8a99">: </tspan><tspan fill="#11d68b">"informational"</tspan><tspan fill="#8a8a99">,</tspan></text>
+<text x="304" y="526"><tspan fill="#2698ba">"preventContinuation"</tspan><tspan fill="#8a8a99">: </tspan><tspan fill="#8a8a99">true</tspan></text>
+<text x="280" y="548"><tspan fill="#8a8a99">}</tspan></text>
 </g>
 </g>
 <text x="38" y="606" fill="#8a8a99" font-size="22" font-weight="300">Frederick Pearce · Data. AI. Human.</text>
