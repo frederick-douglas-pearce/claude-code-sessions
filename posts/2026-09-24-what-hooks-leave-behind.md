@@ -2,7 +2,7 @@
 layout: post
 title: "What hooks leave behind"
 date: 2026-09-24 00:00:00-0800
-description: "Part 6 of the anatomy series. Claude Code's hooks documentation names thirty-three outbound events; a corpus scan of 465,452 lines finds the on-disk record is a Stop-hook summary, a single field on a denied tool result, and a permission-mode line so thin it cannot be placed in time."
+description: "Part 6 of the anatomy series. Claude Code's hooks documentation names thirty-three outbound events; a corpus scan of 465,452 lines finds the on-disk record is a Stop-hook summary, a single field on a denied tool result, and a prompt-hook refusal seen three times."
 categories: ["claude-code-sessions"]
 tags: ["claude-code", "jsonl", "sessions", "hooks", "foundation"]
 og_image: https://frederick-douglas-pearce.github.io/assets/img/what-hooks-leave-behind-og.png
@@ -26,12 +26,11 @@ Hooks also execute outside the main model loop. Claude Code's harness fires them
 
 Claude Code's [hooks documentation](https://code.claude.com/docs/en/hooks) lists thirty-three events a hook can attach to. They are the fixed moments from the opening paragraph: `PreToolUse` before a tool call, `PostToolUse` after one, `UserPromptSubmit` when you send a prompt, `Stop` when Claude finishes responding, and so on. When one fires, Claude Code sends each hook attached to it a JSON payload: on stdin for a shell command, as a request body for an HTTP hook, as an interpolated argument for a prompt. Every payload carries the session id, the transcript path, the working directory and the event name, and most add fields specific to the event. The [reference](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#hook-event-fields) documents those payloads field by field.
 
-That is what goes out. What comes back to disk is smaller by an order of magnitude, and it is not evenly distributed across the events. Across the whole scan the on-disk hook record takes four forms:
+That is what goes out. What comes back to disk is smaller by an order of magnitude, and it is not evenly distributed across the events. Across the whole scan the on-disk hook record takes three forms:
 
 1. A `system` line with `subtype: "stop_hook_summary"`, carrying a family of hook-execution fields
 2. One field on the `user` line carrying a denied tool result
 3. A `system` line with `subtype: "informational"`, left when a prompt hook refuses, seen three times
-4. A `permission-mode` line with three keys total
 
 The event name every payload carries never reaches disk as a _field_. One event name does reach disk, typed into the text of an error message. That is the first instance of a pattern that runs through this post: the information you want most sits in a message's prose instead of a field you can parse. Everything else you can learn about a hook firing comes from the harness's own bookkeeping about it.
 
@@ -85,7 +84,7 @@ Here is the simplest of them, with the common envelope stripped so the hook fiel
 }
 ```
 
-The line in the [fixture](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/sanitized/hook-trace-denial-and-stop-ladder.jsonl) also carries the ordinary envelope, omitted above: `parentUuid`, `uuid`, `timestamp`, `cwd`, `version`, `gitBranch`, and the session id in both of its spellings. A `stop_hook_summary` line is a fully addressable record, which is worth keeping in mind for the comparison two sections down.
+The line in the [fixture](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/sanitized/hook-trace-denial-and-stop-ladder.jsonl) also carries the ordinary envelope, omitted above: `parentUuid`, `uuid`, `timestamp`, `cwd`, `version`, `gitBranch`, and the session id in both of its spellings.
 
 The other three outcomes are that same record with a handful of fields changed. This is everything that moves:
 
@@ -164,23 +163,6 @@ Note also what is present. `content` carries the hook's reasoning verbatim, whic
 Those three lines are the only `preventContinuation` in 465,452, and I produced all three by accident. The prompt hook that wrote them gave its evaluating model no condition it could judge, so the model treated the prompt as an injected instruction and refused three prompts at submit time. The first-pass scan, four days earlier, found none. I have never seen this record come from ordinary use.
 
 The practical consequence is the important part. A hook record has at least two shapes, and which one you get depends on which event fired. Anything parsing for `hookCount` will see Stop hooks and miss prompt hooks entirely.
-
-## The thinnest line in the format
-
-`permission-mode` lines record a change in permission mode. There are 6,783 of them in the scan. This is the entire line:
-
-```jsonl
-// from https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/sanitized/hook-trace-denial-and-stop-ladder.jsonl
-{"type":"permission-mode","permissionMode":"auto","sessionId":"c7d5aa0e-6032-49f3-85ad-69754f68748e"}
-```
-
-Three keys, and none of the usual envelope: no `timestamp`, no `uuid`, no `parentUuid`, no `cwd`, no `version`, no `gitBranch`.
-
-Every other line type in the session file carries at least the common envelope, which is what lets you order events and walk the parent chain. This one carries none of it. You can tell that the mode changed and what it changed to. You cannot place the change in time except by where the line sits in the file, and you cannot attach it to the turn that caused it. It also never names a hook, so a mode change triggered by a hook and one triggered by a person typing `/permissions` are indistinguishable.
-
-It has a sibling I did not notice the first time. A `mode` line, 14,929 of them, equally thin, carrying `mode` rather than `permissionMode`. In the fixtures the two arrive together, `mode: "normal"` immediately before `permissionMode: "auto"`, which suggests they are two halves of one state record rather than two independent events.
-
-For most reading this is fine, since file order is real order. For anything that merges sessions, reorders by timestamp, or reconstructs a timeline across files, both types drop out. If you are building an audit trail where "when did this session enter bypass mode" is a question someone might ask under pressure, that gap is the one to know about.
 
 ## The honest blank
 
