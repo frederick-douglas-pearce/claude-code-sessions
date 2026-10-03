@@ -26,11 +26,12 @@ Hooks also execute outside the main model loop. Claude Code's harness fires them
 
 Claude Code's [hooks documentation](https://code.claude.com/docs/en/hooks) lists thirty-three events a hook can attach to. They are the fixed moments from the opening paragraph: `PreToolUse` before a tool call, `PostToolUse` after one, `UserPromptSubmit` when you send a prompt, `Stop` when Claude finishes responding, and so on. When one fires, Claude Code sends each hook attached to it a JSON payload: on stdin for a shell command, as a request body for an HTTP hook, as an interpolated argument for a prompt. Every payload carries the session id, the transcript path, the working directory and the event name, and most add fields specific to the event. The [reference](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#hook-event-fields) documents those payloads field by field.
 
-That is what goes out. What comes back to disk is smaller by an order of magnitude, and it is not evenly distributed across the events. Across the whole scan the on-disk hook record takes three forms:
+That is what goes out. What comes back to disk is smaller by an order of magnitude, and it is not evenly distributed across the events. Across the whole scan the on-disk hook record takes four forms:
 
 1. A `system` line with `subtype: "stop_hook_summary"`, carrying a family of hook-execution fields
 2. One field on the `user` line carrying a denied tool result
-3. A `permission-mode` line with three keys total
+3. A `system` line with `subtype: "informational"`, left when a prompt hook refuses, seen three times
+4. A `permission-mode` line with three keys total
 
 The event name every payload carries never reaches disk as a _field_. One event name does reach disk, typed into the text of an error message. That is the first instance of a pattern that runs through this post: the information you want most sits in a message's prose instead of a field you can parse. Everything else you can learn about a hook firing comes from the harness's own bookkeeping about it.
 
@@ -38,7 +39,7 @@ The event name every payload carries never reaches disk as a _field_. One event 
 
 Hook activity rides on `system` lines. There is no hook-specific top-level type. What there is, and it is easy to read past, is a `subtype` that names the event.
 
-Of the 10,878 `system` lines in the scan, 4,162 record hook activity, and **4,159 of them carry `subtype: "stop_hook_summary"`.** Three lines out of 4,162 are anything else, and I had to build a synthetic session to produce those three.
+Of the 10,878 `system` lines in the scan, 4,162 record hook activity, and **4,159 of them carry `subtype: "stop_hook_summary"`.** Three lines out of 4,162 are anything else, and it took a purpose-built session to produce those three.
 
 So this family is the trace a `Stop` or `SubagentStop` hook leaves, and anything generalised from it is a generalisation from one class of hook.
 
@@ -143,9 +144,7 @@ So the field records who denied the call: a rule, you, or auto mode. A hook coun
 
 ## The second shape
 
-The three-line entry in the shape table is not a rounding error. It is a different kind of hook record, and it took building one to find it.
-
-A `UserPromptSubmit` hook that refuses writes this:
+The three hook lines that are not Stop-hook summaries are a different kind of record. A `UserPromptSubmit` hook that refuses a prompt writes this:
 
 ```json
 {
@@ -162,7 +161,7 @@ Note the spelling. `preventContinuation`, no "ed", a different key from the `pre
 
 Note also what is present. `content` carries the hook's reasoning verbatim, which is the second place a hook's own words reach disk.
 
-Those three lines are the only occurrences of `preventContinuation` in 465,452 lines, and all three are mine. They are not even a deliberate product. The prompt hook that wrote them was misconfigured: its prompt gave the evaluating model no condition it could actually judge, so the model read the prompt as an injected instruction and refused three turns at submit time. The scan I ran four days earlier, over 436,010 lines, had zero. This is the honest version of a negative result: the field exists, I have never seen it arise from ordinary use, and the only evidence I have that it is real is evidence I produced by accident.
+Those three lines are the only `preventContinuation` in 465,452, and I produced all three by accident. The prompt hook that wrote them gave its evaluating model no condition it could judge, so the model treated the prompt as an injected instruction and refused three prompts at submit time. The first-pass scan, four days earlier, found none. I have never seen this record come from ordinary use.
 
 The practical consequence is the important part. A hook record has at least two shapes, and which one you get depends on which event fired. Anything parsing for `hookCount` will see Stop hooks and miss prompt hooks entirely.
 
