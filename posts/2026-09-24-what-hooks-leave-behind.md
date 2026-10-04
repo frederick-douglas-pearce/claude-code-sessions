@@ -139,7 +139,7 @@ The scan splits the values 147 `permission-rule` to 86 something else. It stops 
 | `automode-blocked`     | 19    | all 19 mention permission  |
 | `automode-unavailable` | 7     | none matched a phrase      |
 
-So the field records who denied the call: a rule, you, or auto mode. A hook counts as a rule. On my machine `permission-rule` almost always means a hook, 172 times out of 178, but the field cannot tell you which one you have. Only the text can. All four values first appear at v2.1.199 or later, which fits the v2.1.193 changelog entry that added denial reasons to the transcript.
+So the field records who denied the call: a permission rule, you, or auto mode. A hook counts as a permission rule, alongside the deny rules in your settings. On my machine `permission-rule` almost always means a hook, 172 times out of 178, but the field cannot tell you which one you have. Only the text can. All four values first appear at v2.1.199 or later, which fits the v2.1.193 changelog entry that added denial reasons to the transcript.
 
 ## The second shape
 
@@ -174,17 +174,17 @@ The related `progress` type is a different story: 2,747 lines, carrying `toolUse
 
 ## What this means if you are building on it
 
-**You can audit that a hook ran, which hook, and how long it took**, as long as it was a `Stop` or `SubagentStop` hook. `hookCount` plus `hookInfos` gives you a defensible record: this many hooks fired, these commands, these durations. For a compliance question shaped like "did the guard run," the file answers.
+**You can audit that a hook ran, which hook, and how long it took**, as long as it was a `Stop` or `SubagentStop` hook. `hookCount` plus `hookInfos` gives you a defensible record: this many hooks fired, these commands, these durations. For a compliance question shaped like "did the guard run," the file has the answers.
 
-**You cannot audit that structurally for any other event.** A `PreToolUse` hook that denies a call leaves one typed field on a user line, and that field says `permission-rule` whether a hook or a rule produced it. A `PostToolUse` hook that runs cleanly leaves nothing I have been able to find. This repo's two guards fire on most tool calls in most sessions and are structurally invisible whenever they let the call through.
+**You cannot audit that structurally for any other event.** A `PreToolUse` hook that denies a call leaves one typed field on a user line, and that field says `permission-rule` whether the call was blocked by a hook or by a deny rule in your permission settings. A `PostToolUse` hook that runs cleanly leaves nothing I have been able to find. This repo's two guards fire on most tool calls in most sessions and are structurally invisible whenever they let the call through.
 
-**What you can do instead is match strings, which is worse but not nothing.** In the probe, 172 of the 178 `permission-rule` results name a hook somewhere in their text. Only 37 begin with an `<Event>:<Tool> hook error:` prefix like the fixture's `PreToolUse:Read hook error:`, the one place an event name reaches disk. The other 135 say a hook blocked the call without naming the event, and whether the script is named depends on what the hook wrote. A parser built on any of this is built on wording that both the harness and the hook's author are free to change.
+**What you can do instead is match strings, which is something, but far from ideal.** In the probe, 172 of the 178 `permission-rule` results name a hook somewhere in their text. Only 37 begin with an `<Event>:<Tool> hook error:` prefix like the fixture's `PreToolUse:Read hook error:`, the one place an event name reaches disk. The other 135 say a hook blocked the call without naming the event, and whether the script is named depends on what the hook wrote. A parser built on any of this is built on wording that both the harness and the hook's author are free to change.
 
 **You can read what a blocking hook said**, in three places, none of them obvious. A Stop hook's block reason lands in `hookErrors`, mixed in with real failures and separated from them only by a `"Failed with non-blocking status code: "` prefix. A prompt hook's refusal lands in `content` on an `informational` line. A tool denial's reason lands in the `tool_result` content and again in `toolUseResult`. All readable. None where the reference doc would send you.
 
-**Do not use `preventedContinuation` as the "a hook interfered" signal.** It was `false` on every outcome I produced, including a block. Whatever it means, it is not that. The prompt hook's `preventContinuation` was `true` on all three refusals, so on that shape the key without the "ed" is the one that tracks the block.
+**Do not use `preventedContinuation` as the "a hook interfered" signal.** It was `false` on every outcome I produced, including a block. Whatever it means, it is not that. The prompt hook's `preventContinuation` was `true` on all three refusals, so in those cases the key without the "ed" is the one that tracks the block.
 
-**`hasOutput` is a boolean about whether output happened, not what it was.** A real limit, and a smaller one than it looks, because `hookInfos`, `hookErrors`, `hookAdditionalContext` and `content` between them carry a great deal of what a hook actually said.
+**`hasOutput` only says that a hook produced output.** To read the output itself, look in `hookErrors` and `hookAdditionalContext`. In all eight Stop-hook lines in the fixtures, `hasOutput` was `true` exactly when one of those two arrays held something, so the output was always there to read. The scan counts keys rather than values, so I cannot say that holds across the corpus.
 
 ## Six corrections to my own reference doc
 
