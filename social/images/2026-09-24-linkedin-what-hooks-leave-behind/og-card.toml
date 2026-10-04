@@ -13,13 +13,12 @@ json_sample = """
     { "command": "on_stop.py", "durationMs": 148 }
   ],
   "hookAdditionalContext": ["tests have not run yet."],
-  "hasOutput": true,
-  "preventedContinuation": false,
-  "stopReason": ""
+  "preventedContinuation": false
 }
 {
-  "type": "permission-mode",
-  "permissionMode": "auto"
+  "type": "system",
+  "subtype": "informational",
+  "preventContinuation": true
 }
 """
 
@@ -52,16 +51,23 @@ The hero is the inject-context outcome rather than the plain allow: it is the
 one turn where a hook's own words reach the transcript intact, so the record
 shows both the field family and the one place a hook speaks for itself.
 
-`hookCount` and `hookErrors` are dropped for room, not because anything is wrong
-with them. The 16-line budget is exact: 13 lines of hook record plus the
-3-line `permission-mode` object. Longest line is 55 characters against the
-56-character limit (`x_end = 280 + len*12` must stay under 956).
+`hookCount`, `hookErrors`, `hasOutput` and `stopReason` are dropped for room,
+not because anything is wrong with them. The 16-line budget is exact: 11 lines
+of Stop-hook record plus the 5-line `informational` record. Longest line is 55
+characters against the 56-character limit (`x_end = 280 + len*12` must stay
+under 956).
 
-The `permission-mode` object stays, and stays whole. Putting the format's
-thinnest line directly under its fattest hook line is the visual argument:
-both record something a hook did, and one of them cannot even be placed in
-time. `permissionMode` now reads `auto`, which is what the sanitized fixtures
-and the post's quoted line both show; the previous card said `plan`.
+Second object, rewritten for #247. The previous card put a `permission-mode`
+line under the hook record, on the claim that both record something a hook
+did. The hook-trace fixtures contradict that: a `permission-mode` line is
+written ahead of every prompt, repeating an unchanged value, before any hook
+runs. The post's section on it was cut for the same reason. Its replacement is
+the post's second hook shape, the `informational` line a refusing prompt hook
+leaves. Stacked under the Stop-hook record, it makes the post's point in two
+keys: `preventedContinuation` on one shape, `preventContinuation` on the
+other, and no `hookCount` or `hookInfos` on the second. `content` and `level`
+are dropped for room; `content` carries the hook's verbatim reasoning, which
+has no place on a public card.
 
 Subhead. The previous one read "Thirty events out. Seven fields back." Both
 halves had gone stale. The event count is thirty in the reference and
@@ -71,10 +77,11 @@ seven-field family to six plus an optional one, and the editorial pass in #256
 reframes it again to five measured by co-occurrence. A subhead that counts
 fields would need re-rendering every time that framing moves. "Three shapes
 back" is the post's structural finding, the on-disk hook record takes three
-forms, and that sentence is unchanged in both the published text and the
-branch. 43 characters.
+forms. Through #247 the third form changed from the `permission-mode` line to
+the `informational` refusal line, but the count stayed three, so the subhead
+holds. 43 characters.
 
-Data is synthetic throughout. `55555555-…-4008` and the `permission-mode` line
+Data is synthetic throughout. `55555555-…-4008` and the `informational` line
 follow fixtures/synthetic/anatomy-hook-trace.jsonl; the hook command and the
 injected-context string are shortened to fit the window. Every key shown is one
 the sanitized fixtures observe. No session UUIDs, paths, or prompts appear.
