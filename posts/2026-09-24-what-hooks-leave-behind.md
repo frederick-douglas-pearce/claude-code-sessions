@@ -199,21 +199,9 @@ Part 5 found three places the reference doc was wrong. This pass found six more.
 
 Most of them have the same cause as Part 5's three: a claim written against what a structural scan could see, never checked against a session built to test it. The event table is ordinary drift: the documentation grew and the table did not.
 
-## What the scan could not have told me
-
-It is worth being specific about that, because the scan is not a weak instrument. It reads 3,680 files and 465,452 lines in one pass, it has never miscounted anything I have caught it on, and every number in this post comes from it. It is also the reason I believed five wrong propositions at once.
-
-- That the hook-execution family was seven fields on the same lines. Matching key totals are not shared lines, and a key-count scan cannot tell the two apart.
-- That `toolUseID` joins a hook line back to the tool call that triggered it. It sits on exactly the family's 4,159 lines, which makes that reading close to irresistible. A key-count scan cannot dereference an identifier, and this one points at nothing.
-- That a blocked tool call was recorded twice. That came from a synthetic fixture built on the same assumption, which is a scan's error laundered through an example.
-- That you could not tell which hook ran. The scan reads key names, never values, so `hookInfos` looks empty from the outside.
-- That no event name reaches disk. None reaches a _field_. One is written into the text of an error message, where a field-oriented probe does not look.
-
-The common shape: a structural scan tells you what is present, and every one of those was a question about what the present thing means. Six hooks, three runs and a sanitizer is what answered them.
-
 ## Why the blind spots moved
 
-A scanner that never emits a value it read cannot tell you the value of `toolDenialKind`, the value of `stopReason`, the subtype a hook line carries, or the contents of `hookInfos`.
+Every count in this post comes from the scan, and the scan is also why the first pass got so much wrong. It reads key names and never values, so it cannot tell you the value of `toolDenialKind`, the value of `stopReason`, the subtype a hook line carries, the contents of `hookInfos`, or whether `toolUseID` points at anything.
 
 That constraint is still there, and it still matters: this repo's whole premise is that session files hold prompts, paths, command output, and sometimes secrets, so the tool that reads 3,680 of them has to be provably incapable of leaking what it saw. But the constraint turned out to be narrower than the blind spot. Two things moved it.
 
