@@ -190,14 +190,14 @@ The related `progress` type is a different story: 2,747 lines, carrying `toolUse
 
 Part 5 found three places the reference doc was wrong. This pass found six more. Two of them were fixed or half-fixed while the post sat in edit, which is noted where it applies.
 
-- `hookAdditionalContext` was described as "Rare." It is on 3,176 lines. The "Rare" wording is gone from the doc now. The type there is still `string`, and it is an array.
+- `hookAdditionalContext` was described as "Rare." It is on 3,176 lines. The "Rare" wording is gone from the doc now. The type there is still `string`, and it is an array ([issue #259](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/259)).
 - `toolDenialKind` had no row at all. It has one now, with the four values from the probe and a note that three of them still lack a fixture ([issue #276](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/276)).
-- The hook-execution section describes its fields as "present as a family on the same lines." Five are, measured. `hookAdditionalContext` is optional, on 3,176 of the 4,159.
-- `toolUseID` is documented as "linking the hook run to the tool call that triggered it." On a Stop-hook line it links to nothing at all.
-- `progress` is listed among the types the doc has not observed. It is on 2,747 lines. Only `hook_progress` still holds up.
+- The hook-execution section describes its fields as "present as a family on the same lines." Five are, measured. `hookAdditionalContext` is optional, on 3,176 of the 4,159 ([issue #259](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/259)).
+- `toolUseID` is documented as "linking the hook run to the tool call that triggered it." On a Stop-hook line it links to nothing at all ([issue #259](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/259)).
+- `progress` is listed among the types the doc has not observed. It is on 2,747 lines. Only `hook_progress` still holds up ([issue #279](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/279)).
 - The hook event table stops at thirty, and the coverage around it assumes shell scripts on stdin. There are thirty-three documented events and five implementation types. That is [issue #250](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/250).
 
-All six have the same cause as Part 5's three: a claim written against what a structural scan could see, never checked against a session built to test it.
+Most of them have the same cause as Part 5's three: a claim written against what a structural scan could see, never checked against a session built to test it. The event table is ordinary drift: the documentation grew and the table did not.
 
 ## What the scan could not have told me
 
