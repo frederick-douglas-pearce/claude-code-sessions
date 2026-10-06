@@ -28,6 +28,8 @@ Mechanical enforcement is in place via `.claude/hooks/block_secret_reads.py` (Pr
 
 ## Conventions
 
+**American English, everywhere.** Posts, reference docs, tooling docs and comments, commits, PRs, issues, and social copy all use American spelling: `-ize`/`-ization`, `-or`, `-yze`, `-er` (center), "canceled", "modeling". Leave quoted text, code identifiers, and proper names alone. Check spelling as part of every review and humanizer pass.
+
 ### Posts
 
 - Format: Jekyll-flavored markdown (matching the target Pages site)
