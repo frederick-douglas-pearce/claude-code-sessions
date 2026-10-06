@@ -2,7 +2,7 @@
 layout: post
 title: "What hooks leave behind"
 date: 2026-09-24 00:00:00-0800
-description: "Part 6 of the anatomy series. Claude Code's hooks documentation names thirty-three outbound events; a corpus scan of 465,452 lines finds the on-disk record is a Stop-hook summary, a single field on a denied tool result, and a prompt-hook refusal seen three times."
+description: "Part 6 of the anatomy series. A hook always runs, but the session file rarely says so. Only Stop hooks leave a structured record. Every other hook shows up as a denied tool result or a line of text, if it shows up at all."
 categories: ["claude-code-sessions"]
 tags: ["claude-code", "jsonl", "sessions", "hooks", "foundation"]
 og_image: https://frederick-douglas-pearce.github.io/assets/img/what-hooks-leave-behind-og.png
