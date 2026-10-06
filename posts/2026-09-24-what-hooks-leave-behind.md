@@ -188,7 +188,7 @@ The related `progress` type is a different story: 2,747 lines, carrying `toolUse
 
 ## Six corrections to my own reference doc
 
-Part 5 found three places the reference doc was wrong. This pass found six more. Two of them were fixed or half-fixed while the post sat in edit, which is noted where it applies.
+Part 5 found three places the reference doc was wrong. The research behind this post turned up six more. Two of them were fixed or half-fixed while the post sat in edit, which is noted where it applies.
 
 - `hookAdditionalContext` was described as "Rare." It is on 3,176 lines. The "Rare" wording is gone from the doc now. The type there is still `string`, and it is an array ([issue #259](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/259)).
 - `toolDenialKind` had no row at all. It has one now, with the four values from the probe and a note that three of them still lack a fixture ([issue #276](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/276)).
