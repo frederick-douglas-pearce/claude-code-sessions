@@ -44,7 +44,7 @@ def test_stop_reason_presence_is_three_way(tmp_path):
     discard" — rather than as an absence. Collapsing the two would merge counts
     that reference/ cites separately, and a real-corpus sample turned out to be
     *entirely* present-null with zero truly-absent, so a two-way split would
-    have mislabelled 100% of that bucket.
+    have mislabeled 100% of that bucket.
     """
     make_session(
         tmp_path,
@@ -694,7 +694,7 @@ def test_multi_block_line_without_an_envelope_is_absent_not_ambiguous(tmp_path):
     """Ambiguity requires something to be ambiguous about.
 
     A multi-block line carrying no `toolUseResult` has no body to misattribute,
-    so labelling it `ambiguous_multi_block` would under-count `absent` and
+    so labeling it `ambiguous_multi_block` would under-count `absent` and
     over-count a shape that is supposed to mean "an envelope exists but belongs
     to no single result".
     """

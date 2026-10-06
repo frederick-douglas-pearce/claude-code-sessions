@@ -995,7 +995,7 @@ def test_format_markers_are_still_skipped_at_their_real_positions(tmp_path: Path
     *literal* rule this run aborts, and not because of anything #194 changed:
     the marker survives (correctly), the #195 oracle re-reads the output,
     finds the configured literal still present, and fail-closes. That is
-    pre-existing behaviour on ``main`` -- verified by running this same
+    pre-existing behavior on ``main`` -- verified by running this same
     config against the unmodified tree -- and it means a literal rule whose
     match value equals a format-marker value can never produce output. A
     ``re:`` rule sidesteps that: through #195 because regex was not re-verified
