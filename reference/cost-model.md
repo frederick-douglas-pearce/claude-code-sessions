@@ -2,7 +2,7 @@
 
 **Verified against Claude Code v2.1.150.** Rates and multipliers cross-checked against Anthropic's [pricing page](https://platform.claude.com/docs/en/about-claude/pricing) on **2026-06-26**. Rates are external and volatile; treat every dollar figure and multiplier here as "verified on that date" and re-confirm against the live pricing page before relying on it.
 
-**Scope.** First-party Claude API usage as recorded in Claude Code / Claude Agent SDK session JSONL (`~/.claude/projects/**/*.jsonl`). Cloud-platform (Bedrock / Vertex / AWS-CCU) and Managed-Agents billing are out of scope and catalogued in [Section E](#e-out-of-scope-but-real-no-first-party-jsonl-signal).
+**Scope.** First-party Claude API usage as recorded in Claude Code / Claude Agent SDK session JSONL (`~/.claude/projects/**/*.jsonl`). Cloud-platform (Bedrock / Vertex / AWS-CCU) and Managed-Agents billing are out of scope and cataloged in [Section E](#e-out-of-scope-but-real-no-first-party-jsonl-signal).
 
 This is the canonical cost reference for the Claude-session tooling family. [AgentFluent](https://github.com/frederick-douglas-pearce/agentfluent) and [CodeFluent](https://github.com/frederick-douglas-pearce/codefluent) link here rather than duplicating it. It enumerates **every input that affects the dollar cost of a Claude request**, where (if anywhere) that input is observable in the session JSONL, and whether [pydantic/genai-prices](https://github.com/pydantic/genai-prices) (the best-known open pricing dataset) currently models it. For the field-level shape of `usage`, see [`data-dictionary.md` § Usage and token accounting](data-dictionary.md#usage-and-token-accounting); this doc is the cost layer on top of those fields.
 
@@ -142,7 +142,7 @@ These are **separate line items**, not token rates. The request *count* is in th
 
 ## E. Out-of-scope-but-real (no first-party JSONL signal)
 
-Catalogued for completeness; not observable in Claude Code / Agent SDK session files and therefore out of scope for a session-JSONL cost estimator.
+Cataloged for completeness; not observable in Claude Code / Agent SDK session files and therefore out of scope for a session-JSONL cost estimator.
 
 | Lever | Effect | Why out of scope |
 |---|---|---|

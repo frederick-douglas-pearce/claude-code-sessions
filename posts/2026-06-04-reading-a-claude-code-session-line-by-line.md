@@ -26,7 +26,7 @@ If you want field-level definitions while reading, [`reference/data-dictionary.m
 
 ## The taxonomy at a glance
 
-Every line in a session JSONL has a top-level `type` field. In v2.1.150 you'll see **at least** the distinct values below. The list is observational — Anthropic doesn't publicly catalogue the full set, and sessions in the wild can carry types this list hasn't sampled yet. Treat the table as a strong starting point, not a closed taxonomy.
+Every line in a session JSONL has a top-level `type` field. In v2.1.150 you'll see **at least** the distinct values below. The list is observational — Anthropic doesn't publicly catalog the full set, and sessions in the wild can carry types this list hasn't sampled yet. Treat the table as a strong starting point, not a closed taxonomy.
 
 | What it is                                         | `type` values                                                                                 |
 | -------------------------------------------------- | --------------------------------------------------------------------------------------------- |
@@ -34,7 +34,7 @@ Every line in a session JSONL has a top-level `type` field. In v2.1.150 you'll s
 | **State** — what the session knows about itself    | `file-history-snapshot`, `system`, `permission-mode`, `ai-title`, `last-prompt`, `attachment` |
 | **Telemetry** — events emitted as things happen    | `progress`, `hook_progress`, `bash_progress`, `queue-operation`                               |
 
-Two types I've seen in real sessions but haven't independently verified at the time of writing are `custom-title` (which appears to be the user-set session title, distinct from the auto-generated `ai-title`) and `pr-link` (the per-session PR association mentioned in Part 1). They're not in the table above because the reference doc hasn't catalogued them yet — but if you run the `jq` snippet at the end of this post against your own sessions, expect to see them and other types appear.
+Two types I've seen in real sessions but haven't independently verified at the time of writing are `custom-title` (which appears to be the user-set session title, distinct from the auto-generated `ai-title`) and `pr-link` (the per-session PR association mentioned in Part 1). They're not in the table above because the reference doc hasn't cataloged them yet — but if you run the `jq` snippet at the end of this post against your own sessions, expect to see them and other types appear.
 
 The first bucket is what most parsers think a "session" is. The second is what `/rewind`, the resume picker, and the permission UI all read. The third is the chatter the harness emits while you're working — usually irrelevant for after-the-fact analysis, sometimes invaluable for debugging.
 
@@ -286,7 +286,7 @@ cat <session>.jsonl | jq 'select(.toolUseResult?.agentType?)
 
 The `?` operators in the third snippet matter: in real sessions, `toolUseResult` is sometimes an array or a string rather than an object, and without the `?` guards `jq` will raise an indexing error on those lines. With them, non-matching lines are silently skipped.
 
-The first snippet is the fastest way to feel the shape of a session you've never opened before — and the easiest way to discover top-level `type` values this post hasn't catalogued. The second is a one-line agent-trace. The third pulls the rollup of every subagent the parent session delegated to. The `agent_id` value in that rollup is the literal handle that takes you to the subagent's full trace file at `~/.claude/projects/<slug>/<session-uuid>/subagents/agent-<agent_id>.jsonl` — which is where Part 3 picks up. I deliberately omitted `toolStats` from the third snippet, because its category counters answer a coarser question than the rest of the rollup does, and reading them alongside per-tool data invites the mistake of treating them as a per-tool breakdown.
+The first snippet is the fastest way to feel the shape of a session you've never opened before — and the easiest way to discover top-level `type` values this post hasn't cataloged. The second is a one-line agent-trace. The third pulls the rollup of every subagent the parent session delegated to. The `agent_id` value in that rollup is the literal handle that takes you to the subagent's full trace file at `~/.claude/projects/<slug>/<session-uuid>/subagents/agent-<agent_id>.jsonl` — which is where Part 3 picks up. I deliberately omitted `toolStats` from the third snippet, because its category counters answer a coarser question than the rest of the rollup does, and reading them alongside per-tool data invites the mistake of treating them as a per-tool breakdown.
 
 One caveat on that `context_tokens` field. `toolUseResult.totalTokens` looks like the subagent's token total, but it is a snapshot of a single assistant turn's context size, not a sum across the run, so it understates what the run actually processed and must not be summed across invocations or priced as cost. That's why the key here is named `context_tokens`, not `tokens`. [Part 4](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-24-token-accounting-is-harder-than-it-looks.md) is the full treatment; for now, read it as a rough context-size figure, and get real token totals by summing the trace file's per-turn `message.usage`.
 

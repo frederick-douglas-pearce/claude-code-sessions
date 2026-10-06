@@ -144,7 +144,7 @@ Top-level fields are those listed in [Common fields](#common-fields). Two option
 | Field | Type | Semantics |
 |---|---|---|
 | `toolUseResult` | object (optional) | Tool invocation metadata. Present when the `user` line carries a `tool_result` block AND the underlying tool was a multi-step or context-bearing tool (Agent, Bash, etc.). Sits at the **top level**, beside `message`, not inside `message.content`. Uses camelCase field names (unusual in this otherwise mostly-snake_case format). See [`toolUseResult` envelope](#tooluseresult-envelope) below. |
-| `toolDenialKind` | string (optional) | A top-level key, beside `message` rather than inside it, on the `user` line that closes a **denied** tool call. The `tool_result` block on the same line carries `is_error: true`. The value names **who denied the call**: a rule (which includes a hook), the user, or auto mode. Four values are observed; see [`toolDenialKind` values](#tooldenialkind-values) below. It does **not** separate a hook from a settings rule: a `PreToolUse` hook block is labelled `permission-rule`, and only the `tool_result` text names the hook. **233 lines** carry it in [`scan-2026-09-23.json`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/format-scan/scan-2026-09-23.json), one `tool_result` block per line (the per-line and block-weighted counts agree at 233). Provenance: [`system` § Hook-execution fields](#hook-execution-fields) for the scan; the values table below for the probe. |
+| `toolDenialKind` | string (optional) | A top-level key, beside `message` rather than inside it, on the `user` line that closes a **denied** tool call. The `tool_result` block on the same line carries `is_error: true`. The value names **who denied the call**: a rule (which includes a hook), the user, or auto mode. Four values are observed; see [`toolDenialKind` values](#tooldenialkind-values) below. It does **not** separate a hook from a settings rule: a `PreToolUse` hook block is labeled `permission-rule`, and only the `tool_result` text names the hook. **233 lines** carry it in [`scan-2026-09-23.json`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/format-scan/scan-2026-09-23.json), one `tool_result` block per line (the per-line and block-weighted counts agree at 233). Provenance: [`system` § Hook-execution fields](#hook-execution-fields) for the scan; the values table below for the probe. |
 
 #### `toolDenialKind` values
 
@@ -161,7 +161,7 @@ Top-level fields are those listed in [Common fields](#common-fields). Two option
 
 **The `toolDenialKind` row and values table are not covered by this section's v2.1.150 stamp.** Their evidence is the scan and probe above, aggregated across versions, so they neither re-stamp this section nor inherit its banner, and the sweep in [#231](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/231) should leave them alone.
 
-`toolDenialKind` is **user-side**. The top-level tool-linkage keys on `system` lines — `toolUseID` and its relatives — are catalogued separately under [#93](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/93); the two sets do not overlap and neither owns the other's keys.
+`toolDenialKind` is **user-side**. The top-level tool-linkage keys on `system` lines — `toolUseID` and its relatives — are cataloged separately under [#93](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/93); the two sets do not overlap and neither owns the other's keys.
 
 Inside `message`:
 
@@ -302,7 +302,7 @@ When configured hooks fire, Claude Code records the outcome on a `system` line. 
 | `stopReason` | string | Why continuation stopped, when a hook prevented it. |
 | `hookAdditionalContext` | string | The `additionalContext` string a `Stop`/`SubagentStop` hook injected back into context, recorded on disk. **Not rare — 2,981 `system` lines carry it**, against 3,964 for each of the six other fields in this table and 10,429 `system` lines in the corpus. Read those as three separate line counts, not as a nesting: the scanner tallies each key per line and never joins them, so the 2,981 cannot be shown to sit *inside* the 3,964. The on-disk trace of the hook **response** contract — see [Hook response schema](#hook-response-schema). |
 
-These lines are frequently accompanied by a top-level `toolUseID` linking the hook run to the tool call that triggered it (for `PreToolUse`/`PostToolUse` hooks); the top-level tool-linkage keys are catalogued separately ([#93](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/93)).
+These lines are frequently accompanied by a top-level `toolUseID` linking the hook run to the tool call that triggered it (for `PreToolUse`/`PostToolUse` hooks); the top-level tool-linkage keys are cataloged separately ([#93](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/93)).
 
 #### API-retry and inline-error fields
 
