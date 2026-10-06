@@ -36,7 +36,7 @@ The event name every payload carries never reaches disk as a _field_. One event 
 
 ## The record is a Stop-hook summary
 
-Hook activity rides on `system` lines. There is no hook-specific top-level type. What there is, and it is easy to read past, is a `subtype` that names the event.
+Hook activity rides on `system` lines. There is no hook-specific top-level type. What there is, and it is easy to read past, is a `subtype` that says what kind of record the line is.
 
 Of the 10,878 `system` lines in the scan, 4,162 record hook activity, and **4,159 of them carry `subtype: "stop_hook_summary"`.** Three lines out of 4,162 are anything else, and it took a purpose-built session to produce those three.
 
@@ -105,9 +105,9 @@ Four of those fields are worth reading closely, because in each case the key nam
 
 **`hookErrors` is not only errors.** A hook that blocks puts its reason in that array, in the same shape as a hook that broke. What separates them is a prefix: a genuine failure arrives as `"Failed with non-blocking status code: "` followed by the message, and a block arrives as the reason alone. If you are monitoring `hookErrors` for failures, a hook that blocks on purpose reads as an error unless you split on that prefix.
 
-**`hookAdditionalContext` is an array, not a string.** The reference doc describes it as the string a hook injected. It is a list of them, empty in the common case, and it is the one place a hook's own words reach the transcript intact, because that text became part of the conversation.
+**`hookAdditionalContext` is an array, not a string.** The reference doc describes it as the string a hook injected. It is a list of them, empty in the common case, and the text in it is the hook's own words, intact, because that text became part of the conversation.
 
-**`preventedContinuation` was `false` in all four outcomes, including the block.** The semantics explain it for `Stop` hooks, where blocking means "do not stop yet" and continuation is therefore not what got prevented. But it means the field is not the signal you want if you are asking "did a hook interfere here", and across four deliberate outcomes I never observed it `true`. Neither has anything else in 465,452 lines, which is [issue #260](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/260).
+**`preventedContinuation` was `false` in all four outcomes, including the block.** The semantics explain it for `Stop` hooks, where blocking means "do not stop yet" and continuation is therefore not what got prevented. But it means the field is not the signal you want if you are asking "did a hook interfere here", and across four deliberate outcomes I never observed it `true`. The scan does not read its value, so whether anything in 465,452 lines sets it `true` is open: [issue #260](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/260).
 
 `level` is a fifth key I have not mentioned: it reads `"suggestion"` on all four of these, and `"warning"` on the lines two sections down.
 
@@ -158,11 +158,11 @@ The three hook lines that are not Stop-hook summaries are a different kind of re
 
 Note the spelling. `preventContinuation`, no "ed", a different key from the `preventedContinuation` on Stop lines. And note what is missing: no `hookCount`, no `hookInfos`, nothing naming the hook or counting it.
 
-Note also what is present. `content` carries the hook's reasoning verbatim, which is the second place a hook's own words reach disk.
+Note also what is present. `content` carries the hook's reasoning verbatim, which is another place a hook's own words reach disk.
 
 Those three lines are the only `preventContinuation` in 465,452, and I produced all three by accident. The prompt hook that wrote them gave its evaluating model no condition it could judge, so the model treated the prompt as an injected instruction and refused three prompts at submit time. The first-pass scan, four days earlier, found none. I have never seen this record come from ordinary use.
 
-The practical consequence is the important part. A hook record has at least two shapes, and which one you get depends on which event fired. Anything parsing for `hookCount` will see Stop hooks and miss prompt hooks entirely.
+The practical consequence is the important part. A hook's `system` record has at least two shapes, and which one you get depends on which event fired. Anything parsing for `hookCount` will see Stop hooks and miss prompt hooks entirely.
 
 ## The honest blank
 
@@ -192,7 +192,7 @@ Part 5 found three places the reference doc was wrong. The research behind this 
 
 - `hookAdditionalContext` was described as "Rare." It is on 3,176 lines. The "Rare" wording is gone from the doc now. The type there is still `string`, and it is an array ([issue #259](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/259)).
 - `toolDenialKind` had no row at all. It has one now, with the four values from the probe and a note that three of them still lack a fixture ([issue #276](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/276)).
-- The hook-execution section describes its fields as "present as a family on the same lines." Five are, measured. `hookAdditionalContext` is optional, on 3,176 of the 4,159 ([issue #259](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/259)).
+- The hook-execution section describes its fields as "present as a family on the same lines." Four are, measured, and `hookAdditionalContext` joins them on only 3,176 of the 4,159 ([issue #259](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/259)).
 - `toolUseID` is documented as "linking the hook run to the tool call that triggered it." On a Stop-hook line it links to nothing at all ([issue #259](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/259)).
 - `progress` is listed among the types the doc has not observed. It is on 2,747 lines. Only `hook_progress` still holds up ([issue #279](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/279)).
 - The hook event table stops at thirty, and the coverage around it assumes shell scripts on stdin. There are thirty-three documented events and five implementation types. That is [issue #250](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/250).
@@ -201,15 +201,15 @@ Most of them have the same cause as Part 5's three: a claim written against what
 
 ## Why the blind spots moved
 
-Every count in this post comes from the scan, and the scan is also why the first pass got so much wrong. It reads key names and never values, so it cannot tell you the value of `toolDenialKind`, the value of `stopReason`, the subtype a hook line carries, the contents of `hookInfos`, or whether `toolUseID` points at anything.
+Every count in this post comes from the scan, and the scan is also why the first pass got so much wrong. It reads key names and never values, so the first-pass scan could not tell you the value of `toolDenialKind`, the value of `stopReason`, the subtype a hook line carries, the contents of `hookInfos`, or whether `toolUseID` points at anything.
 
 That constraint is still there, and it still matters: this repo's whole premise is that session files hold prompts, paths, command output, and sometimes secrets, so the tool that reads 3,680 of them has to be provably incapable of leaking what it saw. But the constraint turned out to be narrower than the blind spot. Two things moved it.
 
-Folding. A value can be counted without being emitted, by matching it against a fixed allowlist the scanner declares and bucketing everything else as `<other>`. The scanner already did this for `stop_reason`. It now does it for `subtype` and `toolDenialKind`, which is how this post can tell you that 4,159 of 4,159 family lines are `stop_hook_summary`, and that `toolDenialKind` splits 147 to 86, without either number requiring that a corpus byte reach the output.
+Folding. A value can be counted without being emitted, by matching it against a fixed allowlist the scanner declares and bucketing everything else as `<other>`. The scanner already did this for the assistant message's `stop_reason`. It now does it for `subtype` and `toolDenialKind`, which is how this post can tell you that 4,159 of 4,159 family lines are `stop_hook_summary`, and that `toolDenialKind` splits 147 to 86, without either number requiring that a corpus byte reach the output.
 
 Fixtures. Everything a fold cannot reach, a purpose-built session can. Six hooks, three runs, and a sanitizer produced three committed fixtures with real values in them, and those fixtures are where every field example above comes from. They also corrected this repo's synthetic hook fixture, which had been marking its unknown values honestly while inventing the structure around them.
 
-The 86 `toolDenialKind` values the fold would not name took a [separate probe](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/format-scan/probes/denial_kind.py), which prints only enum-shaped values and the names of fixed phrases. Its four values are in the denial section above, and the probe is in the repo, so you can run it over your own sessions. The scanner still folds three of them into `<other>`, and will until a committed fixture shows each one. If your sessions carry a value outside those four, I would like to know.
+The 86 denial lines the scanner left as `<other>` took a [separate probe](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/format-scan/probes/denial_kind.py), which prints only enum-shaped values and the names of fixed phrases. Its four values are in the denial section above, and the probe is in the repo, so you can run it over your own sessions. The scanner still folds three of them into `<other>`, and will until a committed fixture shows each one. If your sessions carry a value outside those four, I would like to know.
 
 ## What's next
 
@@ -217,7 +217,7 @@ Six posts in, every one has treated a session as a self-contained artifact: one 
 
 The sources behind this post:
 
-- **Reference grounding:** [`reference/data-dictionary.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md), specifically the [`system` hook-execution fields](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#hook-execution-fields) and the [outbound hook event contract](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#hook-event-fields). The corrections above are tracked in [issue #259](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/259) and [issue #250](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/250); [issue #243](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/243) took the first two as far as they have gone and is closed. The unexplained `preventedContinuation` is [issue #260](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/260).
+- **Reference grounding:** [`reference/data-dictionary.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md), specifically the [`system` hook-execution fields](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#hook-execution-fields) and the [outbound hook event contract](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md#hook-event-fields). Each correction above links its tracking issue; [issue #243](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/243) started the first two and is closed. The unexplained `preventedContinuation` is [issue #260](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/260).
 - **Series planning:** [`series-outline.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/.claude/specs/series-outline.md)
 - **Sanitized fixtures**, the source of every field value above: [`hook-trace-stop-hook-error.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/sanitized/hook-trace-stop-hook-error.jsonl), [`hook-trace-denial-and-stop-ladder.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/sanitized/hook-trace-denial-and-stop-ladder.jsonl), and [`hook-trace-prompt-hook-refusal.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/sanitized/hook-trace-prompt-hook-refusal.jsonl), each with a `.scrubbed` sidecar.
 - **Synthetic fixture:** [`anatomy-hook-trace.jsonl`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-hook-trace.jsonl), with its [generator notes](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/fixtures/synthetic/anatomy-hook-trace.jsonl.generator.md). Rebuilt against the sanitized fixtures in [issue #257](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/257), so every shape it shows is one they observe.
