@@ -16,7 +16,7 @@ A hook is an action Claude Code is required to take at a fixed moment in its lif
 
 The guidance for when to reach for one fits in a sentence. If you want Claude to do something most of the time, put it in a prompt or in CLAUDE.md. If you want it to happen every time, make it a hook. The [hooks guide](https://code.claude.com/docs/en/hooks-guide) calls this deterministic control: "certain actions always happen rather than relying on the LLM to choose to run them." An instruction in a prompt or in CLAUDE.md is context the model weighs. A hook is the one part of the system that fires whether the model agrees or not.
 
-The guarantee is narrower than it sounds. A hook guarantees that it runs, not what it concludes. A prompt-type hook fires on schedule and then asks a model, so its verdict is as negotiable as any other model output. Only the firing is certain.
+The guarantee is narrower than it sounds. A hook guarantees that it runs, not what it concludes. A prompt-type hook fires on schedule and then asks a model, so its verdict is as negotiable as any other model output.
 
 Hooks also execute outside the main model loop. Claude Code's harness fires them and acts on what comes back, an exit code or a JSON verdict. The model never calls one. It learns a hook ran only when the harness passes the hook's output into the conversation: a denial reason where a tool result should be, a reason to keep working instead of stopping, or text the hook adds as context. That is why Claude can tell you it was blocked by a hook and try another route. A hook that allows a call and says nothing never reaches the model at all. That raises a question the previous five posts kept deferring: once a hook has fired, is there anything in the session file to show for it?
 
@@ -36,11 +36,11 @@ The event name every payload carries never reaches disk as a _field_. One event 
 
 ## The record is a Stop-hook summary
 
-Hook activity rides on `system` lines. There is no hook-specific top-level type. What there is, and it is easy to read past, is a `subtype` that says what kind of record the line is.
+Hook activity rides on `system` lines. There is no hook-specific top-level type, only a `subtype` that says what kind of record the line is.
 
 Of the 10,878 `system` lines in the scan, 4,162 record hook activity, and **4,159 of them carry `subtype: "stop_hook_summary"`.** Three lines out of 4,162 are anything else, and it took a purpose-built session to produce those three.
 
-So this family is the trace a `Stop` or `SubagentStop` hook leaves, and anything generalised from it is a generalisation from one class of hook.
+So this family is the trace a `Stop` or `SubagentStop` hook leaves, and anything generalized from it is a generalization from one class of hook.
 
 The fields on those lines:
 
@@ -64,7 +64,7 @@ One caveat on the rates. My corpus is hook-dense, though this repo ships only tw
 
 ## What a Stop hook actually writes
 
-Everything below comes from one `Stop` hook I wrote to take a different action on each consecutive turn, so a single session shows the same hook allowing, blocking, and injecting context. A second `Stop` hook that fails on purpose covers the fourth case. Four outcomes, one field family.
+Everything below comes from one `Stop` hook I wrote to take a different action on each consecutive turn, so a single session shows the same hook allowing, blocking, and injecting context. A second `Stop` hook that fails on purpose covers the fourth case.
 
 Here is the simplest of them, with the common envelope stripped so the hook fields stand alone. The hook ran, produced no output, and let the turn end:
 
@@ -97,7 +97,7 @@ The other three outcomes are that same record with a handful of fields changed. 
 | `preventedContinuation`  | `false` | `false`                | `false`                 | `false`                    |
 | `stopReason`             | `""`    | `""`                   | `""`                    | `""`                       |
 
-Two notes on reading that. The failure column comes from a second session, where I added `fail_on_stop.py` alongside the first hook, so its `hookCount` is 2 and `hookInfos` holds two entries rather than one. And `durationMs` vanishes from `hookInfos` on the blocking turn while being present on every other turn in the same session. I have no explanation for that, and one session is not enough to call it a pattern, so it is recorded rather than interpreted.
+Two notes on reading that. The failure column comes from a second session, where I added `fail_on_stop.py` alongside the first hook, so its `hookCount` is 2 and `hookInfos` holds two entries rather than one. And `durationMs` vanishes from `hookInfos` on the blocking turn while being present on every other turn in the same session. I have no explanation for that, and one session is not enough to call it a pattern.
 
 Four of those fields are worth reading closely, because in each case the key name and the key count together give you the wrong idea.
 
@@ -122,11 +122,11 @@ A denied tool call produces one record: the `user` line that closes the tool cyc
 {"parentUuid":"d42f0466-...","isSidechain":false,"promptId":"4c709ecf-...","type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"PreToolUse:Read hook error: Blocked by AgentFluent secrets-protection hook (.claude/hooks/block_secret_reads.py). This file is a likely credential source ...","is_error":true,"tool_use_id":"toolu_01DYtoF7bT1QigmsCvMAwdei"}]},"uuid":"f5f8b633-...","timestamp":"2026-09-22T21:01:29.198Z","toolUseResult":"Error: PreToolUse:Read hook error: ...","toolDenialKind":"permission-rule","cwd":"/home/user/ccs-hook-fixture","version":"2.1.280"}
 ```
 
-That is the whole trace. No `hookCount`, no `hookInfos`, no `system` line at all.
+That is the whole trace: no `hookCount`, no `hookInfos`, and no `system` line.
 
-Two things are worth pulling out of it. The first is that the hook **is** named, just not in a field you can type against. `toolDenialKind` says `permission-rule`, while the `content` string says `PreToolUse:Read hook error: Blocked by AgentFluent secrets-protection hook (.claude/hooks/block_secret_reads.py)`. The structured field cannot tell you a hook was involved. The prose the hook wrote can, and it names the script. If you are building a parser, that is the difference between a field you can rely on and a string you have to match against.
+Two things are worth pulling out of it. The first is that the hook **is** named, just not in a field you can type against. `toolDenialKind` says `permission-rule`, while the `content` string says `PreToolUse:Read hook error: Blocked by AgentFluent secrets-protection hook (.claude/hooks/block_secret_reads.py)`. The structured field cannot tell you a hook was involved. The prose the hook wrote can, and it names the script.
 
-The second is the prefix. `PreToolUse:Read hook error:` encodes the event and the tool, which is the only place in the entire record where the event name appears. Thirty-three documented events, and one of them reaches disk by being typed into an error message.
+The second is the prefix. `PreToolUse:Read hook error:` encodes the event and the tool, which is the only place in the entire record where the event name appears.
 
 Which brings us to `toolDenialKind` itself. The field is on 233 lines out of 101,553 `tool_result` blocks, roughly two in a thousand, and getting that right took two attempts. The obvious probe counts keys per `tool_result` block, so a line carrying two results contributes its keys twice, which makes a block-weighted figure an upper bound on lines rather than a count of them. The scanner now counts both ways over a stated population. They agree at 233, so no denial line carried a second result and the figure is exact.
 
@@ -139,7 +139,7 @@ The scan splits the values 147 `permission-rule` to 86 something else. It stops 
 | `automode-blocked`     | 19    | all 19 mention permission  |
 | `automode-unavailable` | 7     | none matched a phrase      |
 
-So the field records who denied the call: a permission rule, you, or auto mode. A hook counts as a permission rule, alongside the deny rules in your settings. On my machine `permission-rule` almost always means a hook, 172 times out of 178, but the field cannot tell you which one you have. Only the text can. All four values first appear at v2.1.199 or later, which fits the v2.1.193 changelog entry that added denial reasons to the transcript.
+So the field records who denied the call: a permission rule, you, or auto mode. A hook counts as a permission rule, alongside the deny rules in your settings. On my machine `permission-rule` almost always means a hook, 172 times out of 178, but only the text can tell you which one you have. All four values first appear at v2.1.199 or later, which fits the v2.1.193 changelog entry that added denial reasons to the transcript.
 
 ## The second shape
 
@@ -156,13 +156,11 @@ The three hook lines that are not Stop-hook summaries are a different kind of re
 }
 ```
 
-Note the spelling. `preventContinuation`, no "ed", a different key from the `preventedContinuation` on Stop lines. And note what is missing: no `hookCount`, no `hookInfos`, nothing naming the hook or counting it.
-
-Note also what is present. `content` carries the hook's reasoning verbatim, which is another place a hook's own words reach disk.
+`preventContinuation` has no "ed", so it is a different key from the `preventedContinuation` on Stop lines. Nothing on the line names or counts the hook: no `hookCount`, no `hookInfos`. What it does have is `content`, which carries the hook's reasoning verbatim, another place a hook's own words reach disk.
 
 Those three lines are the only `preventContinuation` in 465,452, and I produced all three by accident. The prompt hook that wrote them gave its evaluating model no condition it could judge, so the model treated the prompt as an injected instruction and refused three prompts at submit time. The first-pass scan, four days earlier, found none. I have never seen this record come from ordinary use.
 
-The practical consequence is the important part. A hook's `system` record has at least two shapes, and which one you get depends on which event fired. Anything parsing for `hookCount` will see Stop hooks and miss prompt hooks entirely.
+A hook's `system` record has at least two shapes, and which one you get depends on which event fired. Anything parsing for `hookCount` will see Stop hooks and miss prompt hooks entirely.
 
 ## The honest blank
 
@@ -170,7 +168,7 @@ The practical consequence is the important part. A hook's `system` record has at
 
 The reference doc has carried it since v2.1.150 as a streaming event type that "may still be emitted under specific conditions," documented but unverified. A larger corpus does not rescue it. Zero occurrences across 465,452 lines, 3,680 files, and 131 Claude Code versions. The scan saw 19 distinct top-level types and `hook_progress` was not among them.
 
-The related `progress` type is a different story: 2,747 lines, carrying `toolUseID`, `parentToolUseID`, and `agentId`. That is itself a correction, since the reference lists `progress` alongside `hook_progress` among the types it has not observed. So progress streaming does reach disk in some form, while the hook-specific flavor never does. The cleanest reading is that hook progress streams to your terminal and is never persisted. I cannot prove a negative from one corpus, however large, so the claim stays scoped: not observed here, across this range.
+The related `progress` type is a different story: 2,747 lines, carrying `toolUseID`, `parentToolUseID`, and `agentId`. That is itself a correction, since the reference lists `progress` alongside `hook_progress` among the types it has not observed. So progress streaming does reach disk in some form, while the hook-specific flavor does not appear. The cleanest reading is that hook progress streams to your terminal and is never persisted. I cannot prove a negative from one corpus, however large, so the claim stays scoped: not observed here, across this range.
 
 ## What this means if you are building on it
 
@@ -180,9 +178,9 @@ The related `progress` type is a different story: 2,747 lines, carrying `toolUse
 
 **What you can do instead is match strings, which is something, but far from ideal.** In the probe, 172 of the 178 `permission-rule` results name a hook somewhere in their text. Only 37 begin with an `<Event>:<Tool> hook error:` prefix like the fixture's `PreToolUse:Read hook error:`, the one place an event name reaches disk. The other 135 say a hook blocked the call without naming the event, and whether the script is named depends on what the hook wrote. A parser built on any of this is built on wording that both the harness and the hook's author are free to change.
 
-**You can read what a blocking hook said**, in three places, none of them obvious. A Stop hook's block reason lands in `hookErrors`, mixed in with real failures and separated from them only by a `"Failed with non-blocking status code: "` prefix. A prompt hook's refusal lands in `content` on an `informational` line. A tool denial's reason lands in the `tool_result` content and again in `toolUseResult`. All readable. None where the reference doc would send you.
+**You can read what a blocking hook said**, in three places, none of them obvious. A Stop hook's block reason lands in `hookErrors`, mixed in with real failures and separated from them only by a `"Failed with non-blocking status code: "` prefix. A prompt hook's refusal lands in `content` on an `informational` line. A tool denial's reason lands in the `tool_result` content and again in `toolUseResult`. All three are readable, and none is where the reference doc would send you.
 
-**Do not use `preventedContinuation` as the "a hook interfered" signal.** It was `false` on every outcome I produced, including a block. Whatever it means, it is not that. The prompt hook's `preventContinuation` was `true` on all three refusals, so in those cases the key without the "ed" is the one that tracks the block.
+**Do not use `preventedContinuation` as the "a hook interfered" signal.** It was `false` on every outcome I produced, including a block. The prompt hook's `preventContinuation` was `true` on all three refusals, so in those cases the key without the "ed" is the one that tracks the block.
 
 **`hasOutput` only says that a hook produced output.** To read the output itself, look in `hookErrors` and `hookAdditionalContext`. In all eight Stop-hook lines in the fixtures, `hasOutput` was `true` exactly when one of those two arrays held something, so the output was always there to read. The scan counts keys rather than values, so I cannot say that holds across the corpus.
 
@@ -203,13 +201,13 @@ Most of them have the same cause as Part 5's three: a claim written against what
 
 Every count in this post comes from the scan, and the scan is also why the first pass got so much wrong. It reads key names and never values, so the first-pass scan could not tell you the value of `toolDenialKind`, the value of `stopReason`, the subtype a hook line carries, the contents of `hookInfos`, or whether `toolUseID` points at anything.
 
-That constraint is still there, and it still matters: this repo's whole premise is that session files hold prompts, paths, command output, and sometimes secrets, so the tool that reads 3,680 of them has to be provably incapable of leaking what it saw. But the constraint turned out to be narrower than the blind spot. Two things moved it.
+That constraint is still there, and it still matters: this repo's whole premise is that session files hold prompts, paths, command output, and sometimes secrets, so the tool that reads 3,680 of them has to be provably incapable of leaking what it saw. But the constraint turned out to be narrower than the blind spot. Three things moved it.
 
 Folding. A value can be counted without being emitted, by matching it against a fixed allowlist the scanner declares and bucketing everything else as `<other>`. The scanner already did this for the assistant message's `stop_reason`. It now does it for `subtype` and `toolDenialKind`, which is how this post can tell you that 4,159 of 4,159 family lines are `stop_hook_summary`, and that `toolDenialKind` splits 147 to 86, without either number requiring that a corpus byte reach the output.
 
 Fixtures. Everything a fold cannot reach, a purpose-built session can. Six hooks, three runs, and a sanitizer produced three committed fixtures with real values in them, and those fixtures are where every field example above comes from. They also corrected this repo's synthetic hook fixture, which had been marking its unknown values honestly while inventing the structure around them.
 
-The 86 denial lines the scanner left as `<other>` took a [separate probe](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/format-scan/probes/denial_kind.py), which prints only enum-shaped values and the names of fixed phrases. Its four values are in the denial section above, and the probe is in the repo, so you can run it over your own sessions. The scanner still folds three of them into `<other>`, and will until a committed fixture shows each one. If your sessions carry a value outside those four, I would like to know.
+A probe. The 86 denial lines the scanner left as `<other>` took a [separate probe](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/format-scan/probes/denial_kind.py), which prints only enum-shaped values and the names of fixed phrases. Its four values are in the denial section above, and the probe is in the repo, so you can run it over your own sessions. The scanner still folds three of them into `<other>`, and will until a committed fixture shows each one. If your sessions carry a value outside those four, I would like to know.
 
 ## What's next
 
