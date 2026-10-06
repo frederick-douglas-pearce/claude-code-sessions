@@ -107,7 +107,7 @@ DEFAULT_STRIP_TYPES: frozenset[str] = frozenset({"file-history-snapshot", "attac
 #
 # THAT GAP IS OPEN, NOT COVERED, and it is tracked in #201. Earlier wording
 # here said the format-watch queue and human review "are for" that, which
-# reads as a mechanical check considered and declined in favour of people.
+# reads as a mechanical check considered and declined in favor of people.
 # The real state is that #194's AC-10 asked for a ``format-scan`` drift check
 # as a fast-follow. There is live evidence the human process is the leaky
 # link: the corpus carries UUID-graph edges (``sourceToolAssistantUUID``,

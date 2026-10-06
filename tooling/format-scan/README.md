@@ -99,7 +99,7 @@ happens to be `<kind>_<id>.<ext>`; most real ones have no underscore and come
 back whole, carrying per-invocation ids, decodable `webfetch-<epoch_ms>` stamps
 and fetched documents' names. A prefix matching `mcp-` folds to the single label
 `mcp`, so the family stays countable without the server name. Note that only the
-hyphen form is recognised: a file named with the double-underscore convention
+hyphen form is recognized: a file named with the double-underscore convention
 (`mcp__<server>__<tool>_...`) cuts at the first `_` and yields a bare `mcp`,
 which lands in `<other>`. That is safe — nothing leaks either way — but it means
 the `mcp` count is a floor, not a total.

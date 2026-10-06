@@ -126,7 +126,7 @@ whose answer is a count.
 - **The human report routes the new section through `table()`.** It printed raw
   dict reprs, and this report is Markdown: a bare `<other>` parses as an HTML
   tag and renders as nothing, so the drift bucket was the one value a reader
-  could not see. The `tool_result_line_keys` section is now labelled in
+  could not see. The `tool_result_line_keys` section is now labeled in
   `tool_result blocks` rather than `lines`, which is what it has always counted.
   Its weighting is left alone deliberately: re-weighting it would break
   comparison with every retained scan.
@@ -160,7 +160,7 @@ sourced by citation, so they are re-derived here and the derivation is retained.
   `present_null`, `absent` — because `data-dictionary.md:99` treats a null as a
   real observation (an incomplete turn, "not safe to discard") rather than as an
   absence; a corpus sample turned out to be entirely `present_null` with zero
-  truly-absent, so a two-way split would have mislabelled the whole bucket.
+  truly-absent, so a two-way split would have mislabeled the whole bucket.
 
 - **New top-level report key `tool_cycle`.** Joins each `tool_result` to its
   `tool_use` **within the same file** and reports, per tool, the

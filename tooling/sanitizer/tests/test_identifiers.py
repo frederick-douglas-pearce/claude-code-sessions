@@ -629,7 +629,7 @@ def test_git_state_branch_placeholder_wins_over_a_configured_rule(tmp_path: Path
     Scope, because an earlier version of this docstring overclaimed it: this is
     a TRANSFORM-level test. ``_run`` drives ``run_pipeline`` directly and never
     calls ``sanitize_session``, so the output-side oracle is not exercised here
-    whatever this docstring says about it. The oracle's behaviour at these
+    whatever this docstring says about it. The oracle's behavior at these
     positions is pinned in ``test_residual_rules.py``, which goes through the
     orchestrator."""
     config = _config(
