@@ -21,11 +21,16 @@ the session transcript. Three classes of target:
    SSH private keys (`id_rsa`, `id_ed25519`, …), `.pem`, and named secrets
    files (`credentials.json`, `secrets.yaml`, …). Checked for the file tools
    (`Read`/`Edit`/`Write`/`NotebookEdit`), the search tools (`Grep`/`Glob`),
-   and `Bash` commands.
+   and `Bash` commands. Basenames match case-insensitively (`.ENV` is the
+   same file as `.env` on macOS and Windows), and SSH keys match by prefix so
+   renamed or backed-up keys (`id_rsa.bak`) are covered; `*.pub` stays
+   readable.
 2. **Raw session transcripts** — anything ending in `.jsonl` under
    `~/.claude/projects/`. Checked for `Read`/`Edit`/`NotebookEdit`/`Grep`/`Glob`
    **only — not `Bash`**. A `Grep` rooted at `~/.claude/projects/` or any
    directory under it is denied too, since it searches every session beneath.
+   Paths are compared after `~` expansion and `..` collapsing; symlinks are
+   not resolved, so a link pointing into the session directory is not caught.
 3. **Live sanitizer config** — `.ccs-sanitize.yaml` (the file that holds the
    literal PII strings to scrub). Checked for `Read`/`Edit`/`NotebookEdit`/
    `Grep`/`Glob`/`Bash`. **`Write` is allowed** so `ccs-sanitize --init` and

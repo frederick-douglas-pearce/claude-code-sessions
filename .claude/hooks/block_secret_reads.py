@@ -31,9 +31,10 @@ import re
 import sys
 from pathlib import PurePath
 
-# The BLOCKED_BASENAMES set and the CREDENTIAL_TOKEN_PATTERNS list must stay in
-# sync — they express the same credential-file list in two matching contexts
-# (exact basename vs. substring-in-command-or-pattern). Update both together.
+# BLOCKED_BASENAMES + SSH_PRIVATE_KEY_STEMS and the CREDENTIAL_TOKEN_PATTERNS
+# list must stay in sync — they express the same credential-file list in two
+# matching contexts (basename vs. substring-in-command-or-pattern). Update
+# both together. Basenames are lowercase; path_is_blocked compares lowercased.
 BLOCKED_BASENAMES: frozenset[str] = frozenset(
     {
         ".env",
@@ -49,12 +50,13 @@ BLOCKED_BASENAMES: frozenset[str] = frozenset(
         ".zshrc",
         ".zshenv",
         ".zprofile",
-        "id_rsa",
-        "id_ed25519",
-        "id_ecdsa",
-        "id_dsa",
     }
 )
+
+# Matched as a basename prefix so renamed and backed-up private keys
+# (id_rsa.bak, id_rsa.old, id_ed25519_sk) are covered too. The .pub half of a
+# key pair is public and stays readable.
+SSH_PRIVATE_KEY_STEMS: tuple[str, ...] = ("id_rsa", "id_ed25519", "id_ecdsa", "id_dsa")
 
 BLOCKED_SUFFIXES: frozenset[str] = frozenset({".pem"})
 
@@ -71,8 +73,8 @@ CREDENTIAL_TOKEN_PATTERNS: list[str] = [
     r"\.zshenv\b",
     r"\.zprofile\b",
     r"\bid_rsa\b",
-    r"\bid_ed25519\b",
-    r"\bid_ecdsa\b",
+    r"\bid_ed25519(_sk)?\b",
+    r"\bid_ecdsa(_sk)?\b",
     r"\bid_dsa\b",
     r"\.pem\b",
 ]
@@ -136,21 +138,32 @@ SANITIZER_CONFIG_DENY_REASON = (
 def path_is_blocked(path_str: str) -> bool:
     if not path_str:
         return False
-    p = PurePath(path_str)
-    name = p.name
+    # Lowercased to match CREDENTIAL_TOKEN_REGEX (IGNORECASE) and to cover
+    # macOS APFS / Windows NTFS, where `.ENV` resolves to the same file as
+    # `.env`. On a case-sensitive filesystem this over-blocks, deliberately.
+    name = PurePath(path_str).name.lower()
     if name in BLOCKED_BASENAMES:
         return True
-    if p.suffix in BLOCKED_SUFFIXES:
+    if PurePath(name).suffix in BLOCKED_SUFFIXES:
         return True
     if name.startswith((".env.", ".env-", ".env_")):
         return True
+    if name.startswith(SSH_PRIVATE_KEY_STEMS) and not name.endswith(".pub"):
+        return True
     return False
+
+
+def _normalized(path_str: str) -> PurePath:
+    # Expand ~ and collapse `..` lexically, so `~/x/../.claude/projects/...`
+    # compares equal to the session root. Symlinks are not resolved: the hook
+    # sees the path as the model wrote it and does not touch the filesystem.
+    return PurePath(os.path.normpath(os.path.expanduser(path_str)))
 
 
 def path_is_raw_session(path_str: str) -> bool:
     if not path_str:
         return False
-    p = PurePath(os.path.expanduser(path_str))
+    p = _normalized(path_str)
     if p.suffix != ".jsonl":
         return False
     return RAW_SESSION_ROOT in p.parents
@@ -163,7 +176,7 @@ def path_is_in_raw_session_root(path_str: str) -> bool:
     # matched: blocking it would block searching the home directory at all.
     if not path_str:
         return False
-    p = PurePath(os.path.expanduser(path_str))
+    p = _normalized(path_str)
     return p == RAW_SESSION_ROOT or RAW_SESSION_ROOT in p.parents
 
 
