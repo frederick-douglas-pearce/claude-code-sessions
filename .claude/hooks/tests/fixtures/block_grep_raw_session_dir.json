@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Grep",
+  "tool_input": {
+    "pattern": "password",
+    "path": "~/.claude/projects",
+    "output_mode": "content"
+  }
+}

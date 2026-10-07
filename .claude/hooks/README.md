@@ -24,7 +24,8 @@ the session transcript. Three classes of target:
    and `Bash` commands.
 2. **Raw session transcripts** — anything ending in `.jsonl` under
    `~/.claude/projects/`. Checked for `Read`/`Edit`/`NotebookEdit`/`Grep`/`Glob`
-   **only — not `Bash`**.
+   **only — not `Bash`**. A `Grep` rooted at `~/.claude/projects/` or any
+   directory under it is denied too, since it searches every session beneath.
 3. **Live sanitizer config** — `.ccs-sanitize.yaml` (the file that holds the
    literal PII strings to scrub). Checked for `Read`/`Edit`/`NotebookEdit`/
    `Grep`/`Glob`/`Bash`. **`Write` is allowed** so `ccs-sanitize --init` and
@@ -50,6 +51,16 @@ pull a transcript's contents into context are blocked.
 
 `Write` is also excluded from the raw-session rule — it overwrites rather than
 surfacing existing content, so it isn't a read-leak vector.
+
+#### Search tools: what is and isn't covered
+
+For `Grep`, the hook checks `path`, `pattern`, and the `glob` file filter, so
+`glob: ".env*"` with content output is denied the same way a credential path
+is. One case is **not** covered: a `Grep` rooted at an *ancestor* of the
+session directory (`~`, `~/.claude`, or no `path` with home as the working
+directory). Denying that would deny searching the home directory at all.
+Whether Claude Code's `Grep` descends into hidden directories such as
+`~/.claude` by default is unverified (#283).
 
 Fails closed: an unparseable event is denied by default.
 

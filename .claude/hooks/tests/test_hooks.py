@@ -68,6 +68,34 @@ class HookBlockingTests(unittest.TestCase):
             d["hookSpecificOutput"]["permissionDecisionReason"],
         )
 
+    def test_grep_glob_credential_denied(self):
+        # Grep's `glob` filter narrows a content search to credential files
+        # without naming one in `path` or `pattern` (#283).
+        d = self._decision("block_grep_glob_credential.json")
+        self.assertEqual(
+            d.get("hookSpecificOutput", {}).get("permissionDecision"), "deny"
+        )
+        self.assertIn(
+            "credential source",
+            d["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    def test_grep_raw_session_dir_denied(self):
+        # A Grep rooted at ~/.claude/projects searches every session under it,
+        # though the path itself has no .jsonl suffix (#283).
+        d = self._decision("block_grep_raw_session_dir.json")
+        self.assertEqual(
+            d.get("hookSpecificOutput", {}).get("permissionDecision"), "deny"
+        )
+        self.assertIn(
+            "raw Claude Code session",
+            d["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    def test_grep_glob_allowed(self):
+        # An ordinary `glob` filter must not trip the new check.
+        self.assertEqual(self._decision("allow_grep_glob.json"), {})
+
     def test_secret_in_output_blocked(self):
         d = self._decision("block_secret_in_output.json")
         self.assertEqual(d.get("decision"), "block")
@@ -125,6 +153,9 @@ class HookBlockingTests(unittest.TestCase):
 
     def test_sanitizer_config_grep_pattern_denied(self):
         self._assert_sanitizer_config_deny("block_sanitizer_config_grep_pattern.json")
+
+    def test_sanitizer_config_grep_glob_denied(self):
+        self._assert_sanitizer_config_deny("block_sanitizer_config_grep_glob.json")
 
     def test_sanitizer_config_bash_denied(self):
         self._assert_sanitizer_config_deny("block_sanitizer_config_bash.json")

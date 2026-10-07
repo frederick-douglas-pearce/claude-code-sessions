@@ -156,6 +156,17 @@ def path_is_raw_session(path_str: str) -> bool:
     return RAW_SESSION_ROOT in p.parents
 
 
+def path_is_in_raw_session_root(path_str: str) -> bool:
+    # A Grep search root at or under ~/.claude/projects reaches every session
+    # beneath it, so the .jsonl-suffix test in path_is_raw_session is too
+    # narrow for a directory. An ancestor of the root (~, ~/.claude) is not
+    # matched: blocking it would block searching the home directory at all.
+    if not path_str:
+        return False
+    p = PurePath(os.path.expanduser(path_str))
+    return p == RAW_SESSION_ROOT or RAW_SESSION_ROOT in p.parents
+
+
 def path_is_sanitizer_config(path_str: str) -> bool:
     if not path_str:
         return False
@@ -193,9 +204,13 @@ def check(event: dict) -> tuple[bool, str]:
     if tool_name in PATH_SEARCH_TOOLS:
         path = tool_input.get("path") or ""
         pattern = tool_input.get("pattern") or ""
+        # Grep's file filter. Glob has no such field; its pattern is the glob.
+        glob = tool_input.get("glob") or ""
         if path and path_is_blocked(path):
             return True, f"{DENY_REASON} (search path: {path})"
         if path and path_is_raw_session(path):
+            return True, f"{RAW_SESSION_DENY_REASON} (search path: {path})"
+        if tool_name == "Grep" and path and path_is_in_raw_session_root(path):
             return True, f"{RAW_SESSION_DENY_REASON} (search path: {path})"
         if path and path_is_sanitizer_config(path):
             return True, f"{SANITIZER_CONFIG_DENY_REASON} (search path: {path})"
@@ -203,6 +218,10 @@ def check(event: dict) -> tuple[bool, str]:
             return True, f"{DENY_REASON} (search pattern targets credential file: {pattern})"
         if pattern and SANITIZER_CONFIG_TOKEN_REGEX.search(pattern):
             return True, f"{SANITIZER_CONFIG_DENY_REASON} (search pattern: {pattern})"
+        if glob and CREDENTIAL_TOKEN_REGEX.search(glob):
+            return True, f"{DENY_REASON} (search glob targets credential file: {glob})"
+        if glob and SANITIZER_CONFIG_TOKEN_REGEX.search(glob):
+            return True, f"{SANITIZER_CONFIG_DENY_REASON} (search glob: {glob})"
 
     if tool_name == "Bash":
         command = tool_input.get("command") or ""
