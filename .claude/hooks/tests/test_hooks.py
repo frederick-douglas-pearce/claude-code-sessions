@@ -48,6 +48,16 @@ class HookBlockingTests(unittest.TestCase):
         out = run_hook(hook_for(text), text)
         return json.loads(out) if out.strip() else {}
 
+    def _assert_deny(self, fixture: str, reason_fragment: str) -> None:
+        d = self._decision(fixture)
+        self.assertEqual(
+            d.get("hookSpecificOutput", {}).get("permissionDecision"), "deny"
+        )
+        self.assertIn(
+            reason_fragment,
+            d["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
     def test_credential_env_read_denied(self):
         d = self._decision("block_credential_env.json")
         self.assertEqual(
@@ -67,6 +77,50 @@ class HookBlockingTests(unittest.TestCase):
             "raw Claude Code session",
             d["hookSpecificOutput"]["permissionDecisionReason"],
         )
+
+    def test_credential_env_uppercase_denied(self):
+        # Same file as the lowercase name on macOS APFS / Windows NTFS (#283).
+        self._assert_deny("block_credential_env_uppercase.json", "credential source")
+
+    def test_ssh_key_backup_denied(self):
+        # A renamed or backed-up private key is still a private key (#283).
+        self._assert_deny("block_ssh_key_backup.json", "credential source")
+
+    def test_ssh_public_key_allowed(self):
+        # The stem match must not swallow the public half of the pair.
+        self.assertEqual(self._decision("allow_ssh_public_key.json"), {})
+
+    def test_raw_session_dotdot_denied(self):
+        # `..` is collapsed before the session-root comparison (#283).
+        self._assert_deny("block_raw_session_dotdot.json", "raw Claude Code session")
+
+    def test_grep_glob_credential_denied(self):
+        # Grep's `glob` filter narrows a content search to credential files
+        # without naming one in `path` or `pattern` (#283).
+        d = self._decision("block_grep_glob_credential.json")
+        self.assertEqual(
+            d.get("hookSpecificOutput", {}).get("permissionDecision"), "deny"
+        )
+        self.assertIn(
+            "credential source",
+            d["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    def test_grep_raw_session_dir_denied(self):
+        # A Grep rooted at ~/.claude/projects searches every session under it,
+        # though the path itself has no .jsonl suffix (#283).
+        d = self._decision("block_grep_raw_session_dir.json")
+        self.assertEqual(
+            d.get("hookSpecificOutput", {}).get("permissionDecision"), "deny"
+        )
+        self.assertIn(
+            "raw Claude Code session",
+            d["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    def test_grep_glob_allowed(self):
+        # An ordinary `glob` filter must not trip the new check.
+        self.assertEqual(self._decision("allow_grep_glob.json"), {})
 
     def test_secret_in_output_blocked(self):
         d = self._decision("block_secret_in_output.json")
@@ -125,6 +179,9 @@ class HookBlockingTests(unittest.TestCase):
 
     def test_sanitizer_config_grep_pattern_denied(self):
         self._assert_sanitizer_config_deny("block_sanitizer_config_grep_pattern.json")
+
+    def test_sanitizer_config_grep_glob_denied(self):
+        self._assert_sanitizer_config_deny("block_sanitizer_config_grep_glob.json")
 
     def test_sanitizer_config_bash_denied(self):
         self._assert_sanitizer_config_deny("block_sanitizer_config_bash.json")
