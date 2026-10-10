@@ -372,7 +372,7 @@ Several message types appear in session JSONL but are typically ignored by analy
 | `attachment` | An attachment associated with a message (e.g., a pasted file or image). Carries the standard line envelope fields plus `attachment`. | Often referenced by adjacent user/assistant messages. | Recovering full multimodal session context; auditing what context was attached to which turn. |
 | `queue-operation` | Internal operation queue state. Fields: `content`, `operation`, `sessionId`, `timestamp`, `type`. | Internal scheduling state. | Debugging session orchestration. |
 | `progress` | Streaming progress events. | High-volume streaming chatter. | Real-time monitoring; debugging long-running tool calls. |
-| `hook_progress` | Streaming progress events from hooks. | High-volume streaming chatter. | Debugging hook scripts. |
+| `hook_progress` | Streaming progress events from hooks. | High-volume streaming chatter. | Debugging hooks. |
 | `bash_progress` | Streaming progress events from Bash tool calls. | High-volume streaming chatter. | Debugging or monitoring long-running shell commands. |
 | `create` | File creation events. | Editing-specific; redundant with `tool_use`/`tool_result` for the Write tool. | Auditing file creation patterns. |
 
@@ -545,13 +545,32 @@ Tools like [AgentFluent](https://github.com/frederick-douglas-pearce/agentfluent
 
 ## Hook event fields
 
-**Verified against [Claude Code hook documentation](https://code.claude.com/docs/en/hooks) as of 2026-05-26, with the `post-session` event (CHANGELOG v2.1.169) and the `hookSpecificOutput.additionalContext` response key (CHANGELOG v2.1.163) added from the v2.1.170 changelog cross-reference.**
+**Verified against [Claude Code hook documentation](https://code.claude.com/docs/en/hooks) and the CHANGELOG as of 2026-10-09 (Claude Code v2.1.296) for the implementation types, payload delivery, response handling, and the `MessageDisplay`, `DirectoryAdded`, `PreModelSwitch` and `PostModelSwitch` rows. The other event rows date from the 2026-05-26 pass, with the `post-session` event (CHANGELOG v2.1.169) and the `hookSpecificOutput.additionalContext` response key (CHANGELOG v2.1.163) added from the v2.1.170 changelog cross-reference.**
 
-Hook events are an **outbound JSON contract** — Claude Code sends them to hook scripts via stdin when configured events fire. They are NOT session JSONL message lines. The one exception is the `file-history-snapshot` *message type* (see [Skipped types](#skipped-types)), which is a session line, not a hook event, despite sounding hook-related.
+Hook events are an **outbound JSON contract**. When a configured event fires, Claude Code sends each hook attached to it a JSON payload. The payload is the same whatever the hook is, but how it arrives depends on the hook's implementation type: on stdin for a `command` hook, as the request body for an `http` hook, interpolated into the prompt for a `prompt` or `agent` hook, and substituted into the tool input for an `mcp_tool` hook. See [Hook implementation types](#hook-implementation-types). Hook events are NOT session JSONL message lines. The one exception is the `file-history-snapshot` *message type* (see [Skipped types](#skipped-types)), which is a session line, not a hook event, despite sounding hook-related.
 
 (Hook *firings* are nonetheless recorded in the session JSONL — as bookkeeping fields on `system` lines, separate from this outbound contract. See [`system` § Hook-execution fields](#hook-execution-fields).)
 
 This section documents the outbound JSON shape Claude Code sends to hooks, and — newly — the shape hooks can send **back**. For configuration syntax and matcher semantics, see Claude Code's hooks documentation directly.
+
+### Hook implementation types
+
+A hook's `type` in its settings entry decides what runs, how the payload reaches it, and how it answers. Claude Code supports five. The same five are the documented values of the `hook_type` attribute on the [`claude_code.hook_registered`](https://code.claude.com/docs/en/monitoring-usage) OpenTelemetry event.
+
+| `type` | What runs | Payload delivery | How it answers | Landed |
+|---|---|---|---|---|
+| `command` | A shell command | JSON on stdin | Exit code, stdout and stderr. See [Hook response schema](#hook-response-schema) | v1.0.38 (hooks released) |
+| `http` | A POST to a URL | The request body, `Content-Type: application/json` | A 2xx response whose body uses the same JSON output schema as a `command` hook's stdout. A non-2xx status, a failed connection, or a 2xx body that is neither empty nor a JSON object is a non-blocking error, so a status code alone cannot block | v2.1.63 |
+| `mcp_tool` | A tool on a connected MCP server | `${path}` substitution from the payload into string values of the tool's `input`, e.g. `"${tool_input.file_path}"` | The tool's text content, parsed the way a `command` hook's stdout is on exit 0. `isError: true` is a non-blocking error | v2.1.118 |
+| `prompt` | A single call to a Claude model, by default the one Claude Code uses for background work; `model` overrides it | The `$ARGUMENTS` placeholder in the hook's `prompt`. Without the placeholder, the payload is appended to the prompt | JSON from the model: `{"ok": true}` to allow, `{"ok": false, "reason": "..."}` to block. What `ok: false` does varies by event | v2.0.30 (prompt-based Stop hooks); `model` field v2.0.41 |
+| `agent` | A subagent that can use tools such as Read, Grep and Glob for up to 50 turns. The docs mark it experimental | `$ARGUMENTS`, as for `prompt` | The same `{ok, reason}` schema as `prompt` | Plugin support v2.1.0; the CHANGELOG does not record when settings first accepted it |
+
+Not every event accepts every type. Per the hooks docs as of 2026-10-09:
+
+- **All five types:** `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PostToolBatch`, `PermissionDenied`, `UserPromptSubmit`, `UserPromptExpansion`, `Stop`, `SubagentStop`, `TaskCreated`, `TaskCompleted`, `TeammateIdle`.
+- **All but `agent`:** `PermissionRequest`. An `agent` hook configured there is skipped.
+- **`command` and `mcp_tool` only:** `SessionStart`, `Setup`.
+- **`command`, `http` and `mcp_tool`:** the remaining eighteen events.
 
 ### Common fields (all events)
 
@@ -594,30 +613,36 @@ Each row lists the event name, when it fires, and fields **beyond** the common s
 | `InstructionsLoaded` | A CLAUDE.md or `.claude/rules/*.md` file is loaded into context | `file_path`, `memory_type` (`"User"`, `"Project"`, `"Local"`, `"Managed"`), `load_reason`, `globs` (optional), `trigger_file_path` (optional), `parent_file_path` (optional) |
 | `ConfigChange` | A settings file changes during the session | `config_source` (`"user_settings"`, `"project_settings"`, `"local_settings"`, `"policy_settings"`, `"skills"`), `changed_keys` |
 | `CwdChanged` | Working directory changes | `old_cwd`, `new_cwd` |
+| `DirectoryAdded` | A working directory is added mid-session with `/add-dir` or the SDK `register_repo_root` control request. Not fired for `--add-dir` at startup, which `SessionStart` covers. Cannot block; the add has already happened (CHANGELOG v2.1.219) | `directory`, `source` (`"slash_command"`, `"register_repo_root"`) |
 | `FileChanged` | A watched file changes on disk | `file_path`, `change_type` (`"created"`, `"modified"`, `"deleted"`) |
 | `WorktreeCreate` | A worktree is created | `worktree_name`, `base_path` |
 | `WorktreeRemove` | A worktree is removed | `worktree_path` |
 | `PreCompact` | Before context compaction | `trigger` (`"manual"`, `"auto"`) |
 | `PostCompact` | After context compaction completes | `trigger` (`"manual"`, `"auto"`) |
+| `PreModelSwitch` | Before Claude Code applies a model switch that you or a client requested. Can block the switch (CHANGELOG v2.1.251) | `from_model`, `to_model`, `requested_model` (string, or `null` for the default model), `source` (`"command"`, `"picker"`, `"sdk"`), `context_tokens`, `prompt_cache_warm`, `cache_ttl` (`"5m"`, `"1h"`), `estimated_cache_write_usd`, `pricing` (`"configured"`, `"catalog"`, `"default"`) |
+| `PostModelSwitch` | After the session's model changes, including changes Claude Code makes itself. Cannot block (CHANGELOG v2.1.251) | The `PreModelSwitch` fields, with two more `source` values: `"auto"` (a fallback or other change Claude Code made) and `"resume"` (the model restored on resume) |
 | `Elicitation` | An MCP server requests user input | `server`, `form_schema`, `form_description` |
 | `ElicitationResult` | User responds to an MCP elicitation | `server`, `form_schema`, `user_response` |
+| `MessageDisplay` | While assistant message text streams to the screen, once per batch of completed lines; once per message in `claude -p` and Agent SDK runs. Display-only: a hook can replace the on-screen text with `displayContent`, but the transcript and what Claude sees keep the original (CHANGELOG v2.1.152) | `turn_id`, `message_id` (not the API `msg_…` id, so it does not join to transcript message ids), `index`, `final`, `delta` |
 | `Notification` | Claude Code sends a notification | `notification_type` (`"permission_prompt"`, `"idle_prompt"`, `"auth_success"`, `"elicitation_dialog"`, etc.), `message` |
 | `SessionEnd` | Session terminates | `end_reason` (`"clear"`, `"resume"`, `"logout"`, `"prompt_input_exit"`, etc.) |
-| `post-session` | After a session has fully ended — added in CHANGELOG v2.1.169, fires after `SessionEnd` (intended for post-teardown / async cleanup work) | Event-specific fields not yet documented — changelog-reported, not yet observed in a payload. No companion `pre-session` event was found in the CHANGELOG; session startup remains [`SessionStart`](#event-types-and-event-specific-fields). |
+| `post-session` | After a session has fully ended — added in CHANGELOG v2.1.169, fires after `SessionEnd` (intended for post-teardown / async cleanup work). Not among the thirty-three events the hooks docs list as of 2026-10-09 | Event-specific fields not yet documented — changelog-reported, not yet observed in a payload. No companion `pre-session` event was found in the CHANGELOG; session startup remains [`SessionStart`](#event-types-and-event-specific-fields). |
 
 ### Hook response schema
 
-Hooks reply to Claude Code on exit. The baseline protocol is the exit-code convention (0 = allow, non-zero = block/deny; see Claude Code's hooks docs). Beyond that, a hook can return a structured JSON payload on stdout carrying a `hookSpecificOutput` object. The first named key documented in that payload:
+How a hook answers depends on its [implementation type](#hook-implementation-types). A `command` hook answers with its exit code. Exit 0 is success, and Claude Code parses stdout for JSON. Exit 2 is a blocking error on events that can block, with stderr as the message. Any other code, including the conventional Unix failure code 1, is a non-blocking error and execution continues. `http` and `mcp_tool` hooks return the same JSON output schema through a response body or a tool result. `prompt` and `agent` hooks return the `{ok, reason}` verdict instead and cannot set the fields below.
+
+The JSON output can carry a `hookSpecificOutput` object. The first named key documented in that payload:
 
 | Field | Returned by | Semantics |
 |---|---|---|
-| `hookSpecificOutput.additionalContext` | `Stop`, `SubagentStop` | Extra context the hook injects back into the model's context when the turn would otherwise stop (added in CHANGELOG v2.1.163). Lets a `Stop` hook **feed information forward** — e.g., "you still have unfinished tasks" — instead of only allowing or blocking the stop. |
+| `hookSpecificOutput.additionalContext` | `Stop`, `SubagentStop`; per the hooks docs as of 2026-10-09 also `SessionStart`, `SubagentStart`, `UserPromptSubmit`, `UserPromptExpansion`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PostToolBatch` and `PostModelSwitch` | Extra context the hook injects into the model's context. On `Stop` and `SubagentStop` it lands when the turn would otherwise stop (added in CHANGELOG v2.1.163). Lets a `Stop` hook **feed information forward** — e.g., "you still have unfinished tasks" — instead of only allowing or blocking the stop. |
 
-When a hook returns `additionalContext`, the injected string is recorded on the corresponding `system` line as the `hookAdditionalContext` field (see [`system` § Hook-execution fields](#hook-execution-fields)) — the on-disk trace of this response contract. The `additionalContext` key name is changelog-reported; the `hookAdditionalContext` carrier on `system` lines is scan-observed.
+When a `Stop` or `SubagentStop` hook returns `additionalContext`, the injected string is recorded on the corresponding `system` line as the `hookAdditionalContext` field (see [`system` § Hook-execution fields](#hook-execution-fields)) — the on-disk trace of this response contract. The `additionalContext` key name is changelog-reported; the `hookAdditionalContext` carrier on `system` lines is scan-observed.
 
 ### Version-specific notes
 
-The Claude Code hooks documentation does not surface a per-field version history. Fields and events documented above represent the contract as of 2026-05-26. The W3 roadmap (issue #7) flagged `duration_ms` (claimed v2.1.119) and `background_tasks`/`session_crons` (claimed v2.1.145) as version-specific additions — these were not surfaced in the current docs page and may have since been folded into the common fields, renamed, or removed. Re-verify against a current Claude Code release when this section needs re-stamping.
+The Claude Code hooks documentation does not surface a per-field version history. Fields and events documented above represent the contract as of 2026-05-26, except the rows and subsections the verification note at the top of this section dates to 2026-10-09. The W3 roadmap (issue #7) flagged `duration_ms` (claimed v2.1.119) and `background_tasks`/`session_crons` (claimed v2.1.145) as version-specific additions — these were not surfaced in the current docs page and may have since been folded into the common fields, renamed, or removed. Re-verify against a current Claude Code release when this section needs re-stamping.
 
 ---
 
