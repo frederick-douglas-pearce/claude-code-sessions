@@ -580,13 +580,13 @@ Hook event payloads carry these fields alongside the event-specific ones. Fields
 |---|---|---|
 | `session_id` | string | The session UUID. Matches `sessionId` in JSONL lines. |
 | `prompt_id` | string (optional) | UUID of the user prompt being processed. Matches the `prompt.id` attribute on OpenTelemetry events. Whether it equals `promptId` on JSONL lines is not documented or yet observed. Absent until the first user input. |
-| `transcript_path` | string | Absolute path to the session JSONL on disk. The file is written asynchronously, so it can lag the current turn when the hook fires. `Stop` and `SubagentStop` carry `last_assistant_message` for that reason. |
+| `transcript_path` | string | Path to the session JSONL on disk. The docs' own examples include `~`-prefixed paths, so do not assume it is absolute. The file is written asynchronously, so it can lag the current turn when the hook fires. `Stop` and `SubagentStop` carry `last_assistant_message` for that reason. |
 | `cwd` | string | Working directory when the hook fired. |
 | `scratchpad_dir` | string (optional) | The session's scratchpad directory. Absent when the session has none. Requires v2.1.257 or later. |
 | `hook_event_name` | string | The event type that fired (e.g., `"PreToolUse"`). |
 | `permission_mode` | string (optional) | Current permission mode: `"default"`, `"plan"`, `"acceptEdits"`, `"auto"`, `"dontAsk"`, or `"bypassPermissions"`. The mode labeled **Manual** arrives as `"default"`. Not all events receive this. |
 | `effort` | object (optional) | `{level: "low"\|"medium"\|"high"\|"xhigh"\|"max"}`, the level actually in effect, which can differ from the one requested when the model does not support it. Present for tool-use context events when the current model supports the effort parameter. Also exposed as `$CLAUDE_EFFORT`. |
-| `agent_id` | string (optional) | Subagent UUID when the hook fires inside a subagent call. On `TaskCreated`, `TaskCompleted` and `TeammateIdle` it can also identify an in-process teammate (v2.1.290 or later). |
+| `agent_id` | string (optional) | Unique identifier for the subagent when the hook fires inside a subagent call. The docs do not promise a UUID; their examples are `"agent-abc123"` and `"def456"`. On `TaskCreated`, `TaskCompleted` and `TeammateIdle` it can also identify an in-process teammate (v2.1.290 or later). |
 | `agent_type` | string (optional) | Agent name when running with `--agent` or inside a subagent. Inside a subagent, the subagent's type wins over the session's `--agent` value. |
 
 Only `SessionStart` can carry a `model` field. `PreModelSwitch` and `PostModelSwitch` carry `from_model` and `to_model` instead.
@@ -605,12 +605,12 @@ Each row lists the event name, when it fires, and fields **beyond** the common s
 | `PermissionRequest` | Claude Code is about to ask for permission, or would auto-deny a call that cannot prompt | `tool_name`, `tool_input`, `permission_suggestions` (optional array of permission updates), `mcp_server` (MCP tools only). No `tool_use_id` |
 | `PermissionDenied` | Auto mode denies a tool call, including denials without a classifier verdict | `tool_name`, `tool_input`, `tool_use_id`, `reason`, `mcp_server` (MCP tools only) |
 | `PostToolUse` | After a tool call succeeds | `tool_name`, `tool_input`, `tool_use_id`, `tool_response` (the tool's structured output object), `duration_ms` (optional), `mcp_server` (MCP tools only) |
-| `PostToolUseFailure` | After a tool that started executing fails | `tool_name`, `tool_input`, `tool_use_id`, `error` (string; for Bash and PowerShell the first line is `Exit code N`), `is_interrupt` (optional), `duration_ms` (optional), `mcp_server` (MCP tools only) |
+| `PostToolUseFailure` | After a tool that started executing fails | `tool_name`, `tool_input`, `tool_use_id`, `error` (string; for a Bash or PowerShell command that ran and exited the first line is `Exit code N`, but a shell that failed to start gives a bare message), `is_interrupt` (optional), `duration_ms` (optional), `mcp_server` (MCP tools only) |
 | `PostToolBatch` | Full batch of parallel tool calls resolves, before next model call | `tool_calls` (array of `{tool_name, tool_input, tool_use_id, tool_response}`; here `tool_response` is the serialized `tool_result` content the model sees, not `PostToolUse`'s structured object) |
-| `Stop` | Claude finishes responding. Not on user interrupt; API errors fire `StopFailure` | `stop_hook_active`, `last_assistant_message`, `background_tasks` (array of `{id, type, status, description, ...}`), `session_crons` (array of `{id, schedule, recurring, prompt}`) |
+| `Stop` | Claude finishes responding. Not on user interrupt; API errors fire `StopFailure` | `stop_hook_active`, `last_assistant_message`, `background_tasks` (array of `{id, type, status, description, ...}`), `session_crons` (array of `{id, schedule, recurring, prompt}`). Both arrays are present when the task registry is reachable |
 | `StopFailure` | Turn ends due to API error | `error` (`"rate_limit"`, `"overloaded"`, `"authentication_failed"`, `"oauth_org_not_allowed"`, `"account_on_hold"`, `"billing_error"`, `"invalid_request"`, `"model_not_found"`, `"server_error"`, `"max_output_tokens"`, `"cloud_credential_error"`, `"unknown"`), `error_details` (optional), `last_assistant_message` (optional; the rendered API error string, not Claude's output) |
 | `SubagentStart` | Subagent spawned or resumed, or an in-process teammate handles a new message | `agent_id`, `agent_type` |
-| `SubagentStop` | Subagent finishes, including Claude Code's internal agents (where `agent_type` can be `""`) | `stop_hook_active`, `agent_id`, `agent_type`, `agent_transcript_path`, `last_assistant_message`, `background_tasks`, `session_crons` (both scoped to the parent session) |
+| `SubagentStop` | Subagent finishes, including Claude Code's internal agents (where `agent_type` can be `""`) | `stop_hook_active`, `agent_id`, `agent_type`, `agent_transcript_path`, `last_assistant_message`, `background_tasks`, `session_crons` (both scoped to the parent session, and present when the task registry is reachable) |
 | `TaskCreated` | A task is being created via `TaskCreate` | `task_id`, `task_subject`, `task_description` (optional), `teammate_name` (optional), `team_name` (optional, deprecated) |
 | `TaskCompleted` | A task is being marked completed, via `TaskUpdate` or when a teammate ends its turn with in-progress tasks | `task_id`, `task_subject`, `task_description` (optional), `teammate_name` (optional), `team_name` (optional, deprecated) |
 | `TeammateIdle` | Agent team teammate about to go idle | `teammate_name`, `team_name` (deprecated) |
@@ -631,7 +631,7 @@ Each row lists the event name, when it fires, and fields **beyond** the common s
 | `Notification` | Claude Code sends a notification | `notification_type` (`"permission_prompt"`, `"idle_prompt"`, `"auth_success"`, `"elicitation_dialog"`, `"elicitation_url_dialog"`, `"elicitation_complete"`, `"elicitation_response"`, `"agent_needs_input"`, `"agent_completed"`, `"quota_auto_resume_fired"`, `"quota_auto_resume_stale"`, `"quota_auto_resume_disabled"`), `message`, `title` (optional) |
 | `SessionEnd` | Session terminates | `reason` (`"clear"`, `"resume"`, `"logout"`, `"prompt_input_exit"`, `"other"`) |
 
-`post-session` is not a Claude Code hook event, although an earlier version of this table listed it as one. It is a [self-hosted runner lifecycle hook](https://code.claude.com/docs/en/self-hosted-environments-configuration#post-session): an executable named `post-session` in the runner's `--hooks-dir`, which the runner runs on the host after the Claude Code process exits and before it tears the workspace down. It gets no JSON payload. The runner passes context in environment variables such as `CLAUDE_RUNNER_SESSION_ID` and `CLAUDE_RUNNER_EXIT_REASON` (`completed`, `failed`, `interrupted`, and a reserved `abandoned`), and its exit status never affects the session. It is not configured in `settings.json`; the docs call lifecycle hooks "distinct from Claude Code hooks, which run inside the session." Its sibling lifecycle hooks are `checkout` and `spawn-runner`.
+`post-session` is not a Claude Code hook event, although an earlier version of this table listed it as one. It is a [self-hosted runner lifecycle hook](https://code.claude.com/docs/en/self-hosted-environments-configuration#post-session): an executable named `post-session` in the runner's `--hooks-dir`, which the runner runs on the host after the Claude Code process exits and before it tears the workspace down. The docs describe no JSON payload for it. The runner passes context in environment variables such as `CLAUDE_RUNNER_SESSION_ID` and `CLAUDE_RUNNER_EXIT_REASON` (`completed`, `failed`, `interrupted`, and a reserved `abandoned`), and its exit status never affects the session. It is not configured in `settings.json`; the docs call lifecycle hooks "distinct from Claude Code hooks, which run inside the session." The other runner lifecycle hooks are `checkout` and `command`, plus the on-demand orchestrator's `spawn-runner`.
 
 ### Hook response schema
 
@@ -643,7 +643,7 @@ The JSON output can carry a `hookSpecificOutput` object. The first named key doc
 |---|---|---|
 | `hookSpecificOutput.additionalContext` | `Stop`, `SubagentStop`; per the hooks docs as of 2026-10-10 also `SessionStart`, `SubagentStart`, `UserPromptSubmit`, `UserPromptExpansion`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PostToolBatch` and `PostModelSwitch` | Extra context the hook injects into the model's context. On `Stop` and `SubagentStop` it lands when the turn would otherwise stop (added in CHANGELOG v2.1.163). Lets a `Stop` hook **feed information forward** — e.g., "you still have unfinished tasks" — instead of only allowing or blocking the stop. |
 
-When a `Stop` or `SubagentStop` hook returns `additionalContext`, the injected string is recorded on the corresponding `system` line as the `hookAdditionalContext` field (see [`system` § Hook-execution fields](#hook-execution-fields)) — the on-disk trace of this response contract. The `additionalContext` key name is changelog-reported; the `hookAdditionalContext` carrier on `system` lines is scan-observed.
+When a `Stop` or `SubagentStop` hook returns `additionalContext`, the injected string is recorded on the corresponding `system` line as the `hookAdditionalContext` field (see [`system` § Hook-execution fields](#hook-execution-fields)) — the on-disk trace of this response contract. The `additionalContext` key is documented in the hooks docs (Add context for Claude); the `hookAdditionalContext` carrier on `system` lines is scan-observed.
 
 ### Version-specific notes
 
@@ -665,7 +665,7 @@ The Claude Code hooks documentation does not keep a per-field version history. T
 
 The W3 roadmap (issue #7) flagged `duration_ms` (v2.1.119) and `background_tasks`/`session_crons` (v2.1.145) as unplaced version-specific additions. Both are event-specific, not common fields, and are in the rows above.
 
-**Corrected on 2026-10-10 ([issue #293](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/293)).** The 2026-05-26 pass recorded field names that the hooks docs do not use. None of the old names appears in the CHANGELOG either, so they read as errors in that pass rather than upstream renames. Code written against the old table should switch:
+**Corrected on 2026-10-10 ([issue #293](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/293)).** The 2026-05-26 pass recorded field names that the hooks docs do not use. None of the old names appears in the CHANGELOG as a hook input field (`tool_result` appears only as an OpenTelemetry event name, and `reason`, `result` and `server` only as ordinary words), so they read as errors in that pass rather than upstream renames. Code written against the old table should switch:
 
 | Event | Old name in this table | Documented name |
 |---|---|---|
@@ -680,7 +680,7 @@ The W3 roadmap (issue #7) flagged `duration_ms` (v2.1.119) and `background_tasks
 | `Elicitation` | `server`, `form_schema`, `form_description` | `mcp_server_name`, `requested_schema`, `message` |
 | `ElicitationResult` | `server`, `form_schema`, `user_response` | `mcp_server_name`, `content`, `action` |
 | `PostToolUse` | `tool_result` | `tool_response` |
-| `TeammateIdle` | `reason` | `team_name` |
+| `TeammateIdle` | `reason` | none; no reason field. The documented fields are `teammate_name` and `team_name` |
 | `Stop` | listed as common fields only | `stop_hook_active`, `last_assistant_message`, `background_tasks`, `session_crons` |
 
 The same pass also listed `post-session` as an event. It is a self-hosted runner lifecycle hook; see the note under the event table.
