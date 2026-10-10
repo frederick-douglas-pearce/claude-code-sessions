@@ -545,7 +545,7 @@ Tools like [AgentFluent](https://github.com/frederick-douglas-pearce/agentfluent
 
 ## Hook event fields
 
-**Verified against [Claude Code hook documentation](https://code.claude.com/docs/en/hooks) and the CHANGELOG as of 2026-10-09 (Claude Code v2.1.296) for the implementation types, payload delivery, response handling, and the `MessageDisplay`, `DirectoryAdded`, `PreModelSwitch` and `PostModelSwitch` rows. The other event rows date from the 2026-05-26 pass, with the `post-session` event (CHANGELOG v2.1.169) and the `hookSpecificOutput.additionalContext` response key (CHANGELOG v2.1.163) added from the v2.1.170 changelog cross-reference.**
+**Verified against [Claude Code hook documentation](https://code.claude.com/docs/en/hooks) and the CHANGELOG as of 2026-10-10 (Claude Code v2.1.296), for the whole section: implementation types, common fields, every event row, and the response schema. Each row was checked against that event's input section in the docs, not only its summary table.**
 
 Hook events are an **outbound JSON contract**. When a configured event fires, Claude Code sends each hook attached to it a JSON payload. The payload is the same whatever the hook is, but how it arrives depends on the hook's implementation type: on stdin for a `command` hook, as the request body for an `http` hook, interpolated into the prompt for a `prompt` or `agent` hook, and substituted into the tool input for an `mcp_tool` hook. See [Hook implementation types](#hook-implementation-types). Hook events are NOT session JSONL message lines. The one exception is the `file-history-snapshot` *message type* (see [Skipped types](#skipped-types)), which is a session line, not a hook event, despite sounding hook-related.
 
@@ -565,27 +565,31 @@ A hook's `type` in its settings entry decides what runs, how the payload reaches
 | `prompt` | A single call to a Claude model, by default the one Claude Code uses for background work; `model` overrides it | The `$ARGUMENTS` placeholder in the hook's `prompt`. Without the placeholder, the payload is appended to the prompt | JSON from the model: `{"ok": true}` to allow, `{"ok": false, "reason": "..."}` to block. What `ok: false` does varies by event | v2.0.30 (prompt-based Stop hooks); `model` field v2.0.41 |
 | `agent` | A subagent that can use tools such as Read, Grep and Glob for up to 50 turns. The docs mark it experimental | `$ARGUMENTS`, as for `prompt` | The same `{ok, reason}` schema as `prompt` | Plugin support v2.1.0; the CHANGELOG does not record when settings first accepted it |
 
-Not every event accepts every type. Per the hooks docs as of 2026-10-09:
+Not every event accepts every type. Per the hooks docs as of 2026-10-10:
 
 - **All five types:** `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PostToolBatch`, `PermissionDenied`, `UserPromptSubmit`, `UserPromptExpansion`, `Stop`, `SubagentStop`, `TaskCreated`, `TaskCompleted`, `TeammateIdle`.
 - **All but `agent`:** `PermissionRequest`. An `agent` hook configured there is skipped.
-- **`command` and `mcp_tool` only:** `SessionStart`, `Setup`.
+- **`command` and `mcp_tool` only:** `SessionStart`, `Setup`. Both fire before MCP servers are available at launch, so Claude Code skips an `mcp_tool` hook on every `Setup` and on the launch `SessionStart`. A later `SessionStart`, after `/clear` or a compaction, runs it.
 - **`command`, `http` and `mcp_tool`:** the remaining eighteen events.
 
 ### Common fields (all events)
 
-Every hook event payload includes these fields:
+Hook event payloads carry these fields alongside the event-specific ones. Fields marked optional are absent on some events or in some sessions:
 
 | Field | Type | Semantics |
 |---|---|---|
 | `session_id` | string | The session UUID. Matches `sessionId` in JSONL lines. |
-| `transcript_path` | string | Absolute path to the session JSONL on disk. |
+| `prompt_id` | string (optional) | UUID of the user prompt being processed. Matches the `prompt.id` attribute on OpenTelemetry events. Whether it equals `promptId` on JSONL lines is not documented or yet observed. Absent until the first user input. |
+| `transcript_path` | string | Absolute path to the session JSONL on disk. The file is written asynchronously, so it can lag the current turn when the hook fires. `Stop` and `SubagentStop` carry `last_assistant_message` for that reason. |
 | `cwd` | string | Working directory when the hook fired. |
+| `scratchpad_dir` | string (optional) | The session's scratchpad directory. Absent when the session has none. Requires v2.1.257 or later. |
 | `hook_event_name` | string | The event type that fired (e.g., `"PreToolUse"`). |
-| `permission_mode` | string (optional) | Current permission mode: `"default"`, `"plan"`, `"acceptEdits"`, `"auto"`, `"dontAsk"`, or `"bypassPermissions"`. Not all events receive this. |
-| `effort` | object (optional) | `{level: "low"|"medium"|"high"|"xhigh"|"max"}`. Present for tool-use context events when the current model supports `--effort`. Also exposed as `$CLAUDE_EFFORT`. |
-| `agent_id` | string (optional) | Subagent UUID when the hook fires inside a subagent call. |
-| `agent_type` | string (optional) | Agent type when running with `--agent` or inside a subagent. |
+| `permission_mode` | string (optional) | Current permission mode: `"default"`, `"plan"`, `"acceptEdits"`, `"auto"`, `"dontAsk"`, or `"bypassPermissions"`. The mode labeled **Manual** arrives as `"default"`. Not all events receive this. |
+| `effort` | object (optional) | `{level: "low"\|"medium"\|"high"\|"xhigh"\|"max"}`, the level actually in effect, which can differ from the one requested when the model does not support it. Present for tool-use context events when the current model supports the effort parameter. Also exposed as `$CLAUDE_EFFORT`. |
+| `agent_id` | string (optional) | Subagent UUID when the hook fires inside a subagent call. On `TaskCreated`, `TaskCompleted` and `TeammateIdle` it can also identify an in-process teammate (v2.1.290 or later). |
+| `agent_type` | string (optional) | Agent name when running with `--agent` or inside a subagent. Inside a subagent, the subagent's type wins over the session's `--agent` value. |
+
+Only `SessionStart` can carry a `model` field. `PreModelSwitch` and `PostModelSwitch` carry `from_model` and `to_model` instead.
 
 ### Event types and event-specific fields
 
@@ -593,40 +597,41 @@ Each row lists the event name, when it fires, and fields **beyond** the common s
 
 | Event | When | Event-specific fields |
 |---|---|---|
-| `SessionStart` | Session begins or resumes | `source` (`"startup"`, `"resume"`, `"clear"`, `"compact"`), `model`, `agent_type` (if `--agent`) |
+| `SessionStart` | Session begins or resumes | `source` (`"startup"`, `"resume"`, `"clear"`, `"compact"`, `"fork"`), `model` (optional; can be omitted, e.g. after `/clear`), `agent_type` (if `--agent`), `session_title` (if a custom title is set). On `"resume"` or `"fork"` with at least one prior response, also `seconds_since_last_response`, `context_tokens`, `prompt_cache_likely_expired`, `estimated_cache_write_usd` |
 | `Setup` | `claude --init-only` or `claude -p --init/--maintenance` | `trigger` (`"init"`, `"maintenance"`) |
-| `UserPromptSubmit` | User submits a prompt, before processing | `prompt` |
+| `UserPromptSubmit` | User submits a prompt, before processing. Also fires on turns Claude Code starts on its own | `prompt` (pasted-text placeholders arrive expanded), `session_title` (if a custom title is set) |
 | `UserPromptExpansion` | User-typed command expands into a prompt (slash command, MCP prompt) | `expansion_type` (`"slash_command"`, `"mcp_prompt"`), `command_name`, `command_args`, `command_source`, `prompt` |
-| `PreToolUse` | Before a tool call executes | `tool_name`, `tool_input` (tool-specific schema), `tool_use_id` |
-| `PermissionRequest` | Permission dialog appears | `tool_name`, `tool_input` |
-| `PermissionDenied` | Auto-mode classifier denies a tool call | `tool_name`, `tool_input` |
-| `PostToolUse` | After a tool call succeeds | `tool_name`, `tool_input`, `tool_use_id`, `tool_result` |
-| `PostToolUseFailure` | After a tool call fails | `tool_name`, `tool_input`, `tool_use_id`, `error` |
-| `PostToolBatch` | Full batch of parallel tool calls resolves, before next model call | `tool_calls` (array of `{tool_name, tool_input, tool_use_id, ...}`) |
-| `Stop` | Claude finishes responding | (common only) |
-| `StopFailure` | Turn ends due to API error | `error_type` (e.g., `"rate_limit"`, `"server_error"`), `error_message` |
-| `SubagentStart` | Subagent spawned | `agent_type`, `agent_id`, `initial_prompt` |
-| `SubagentStop` | Subagent finishes | `agent_type`, `agent_id`, `result` |
-| `TaskCreated` | A task is created via TaskCreate | `task_id`, `task_title`, `task_description` |
-| `TaskCompleted` | A task is marked completed | `task_id`, `task_title`, `completion_status` |
-| `TeammateIdle` | Agent team teammate going idle | `teammate_name`, `reason` |
-| `InstructionsLoaded` | A CLAUDE.md or `.claude/rules/*.md` file is loaded into context | `file_path`, `memory_type` (`"User"`, `"Project"`, `"Local"`, `"Managed"`), `load_reason`, `globs` (optional), `trigger_file_path` (optional), `parent_file_path` (optional) |
-| `ConfigChange` | A settings file changes during the session | `config_source` (`"user_settings"`, `"project_settings"`, `"local_settings"`, `"policy_settings"`, `"skills"`), `changed_keys` |
+| `PreToolUse` | Before a tool call executes. Not fired for `EndConversation` | `tool_name`, `tool_input` (tool-specific schema; file-tool paths always absolute), `tool_use_id`, `mcp_server` (MCP tools only: `{name, source}`) |
+| `PermissionRequest` | Claude Code is about to ask for permission, or would auto-deny a call that cannot prompt | `tool_name`, `tool_input`, `permission_suggestions` (optional array of permission updates), `mcp_server` (MCP tools only). No `tool_use_id` |
+| `PermissionDenied` | Auto mode denies a tool call, including denials without a classifier verdict | `tool_name`, `tool_input`, `tool_use_id`, `reason`, `mcp_server` (MCP tools only) |
+| `PostToolUse` | After a tool call succeeds | `tool_name`, `tool_input`, `tool_use_id`, `tool_response` (the tool's structured output object), `duration_ms` (optional), `mcp_server` (MCP tools only) |
+| `PostToolUseFailure` | After a tool that started executing fails | `tool_name`, `tool_input`, `tool_use_id`, `error` (string; for Bash and PowerShell the first line is `Exit code N`), `is_interrupt` (optional), `duration_ms` (optional), `mcp_server` (MCP tools only) |
+| `PostToolBatch` | Full batch of parallel tool calls resolves, before next model call | `tool_calls` (array of `{tool_name, tool_input, tool_use_id, tool_response}`; here `tool_response` is the serialized `tool_result` content the model sees, not `PostToolUse`'s structured object) |
+| `Stop` | Claude finishes responding. Not on user interrupt; API errors fire `StopFailure` | `stop_hook_active`, `last_assistant_message`, `background_tasks` (array of `{id, type, status, description, ...}`), `session_crons` (array of `{id, schedule, recurring, prompt}`) |
+| `StopFailure` | Turn ends due to API error | `error` (`"rate_limit"`, `"overloaded"`, `"authentication_failed"`, `"oauth_org_not_allowed"`, `"account_on_hold"`, `"billing_error"`, `"invalid_request"`, `"model_not_found"`, `"server_error"`, `"max_output_tokens"`, `"cloud_credential_error"`, `"unknown"`), `error_details` (optional), `last_assistant_message` (optional; the rendered API error string, not Claude's output) |
+| `SubagentStart` | Subagent spawned or resumed, or an in-process teammate handles a new message | `agent_id`, `agent_type` |
+| `SubagentStop` | Subagent finishes, including Claude Code's internal agents (where `agent_type` can be `""`) | `stop_hook_active`, `agent_id`, `agent_type`, `agent_transcript_path`, `last_assistant_message`, `background_tasks`, `session_crons` (both scoped to the parent session) |
+| `TaskCreated` | A task is being created via `TaskCreate` | `task_id`, `task_subject`, `task_description` (optional), `teammate_name` (optional), `team_name` (optional, deprecated) |
+| `TaskCompleted` | A task is being marked completed, via `TaskUpdate` or when a teammate ends its turn with in-progress tasks | `task_id`, `task_subject`, `task_description` (optional), `teammate_name` (optional), `team_name` (optional, deprecated) |
+| `TeammateIdle` | Agent team teammate about to go idle | `teammate_name`, `team_name` (deprecated) |
+| `InstructionsLoaded` | A CLAUDE.md or `.claude/rules/*.md` file is loaded into context | `file_path`, `memory_type` (`"User"`, `"Project"`, `"Local"`, `"Managed"`), `load_reason` (`"session_start"`, `"nested_traversal"`, `"path_glob_match"`, `"include"`, `"compact"`), `globs` (optional), `trigger_file_path` (optional), `parent_file_path` (optional) |
+| `ConfigChange` | A settings, managed-policy, or skill file changes during the session | `source` (`"user_settings"`, `"project_settings"`, `"local_settings"`, `"policy_settings"`, `"skills"`), `file_path` (optional) |
 | `CwdChanged` | Working directory changes | `old_cwd`, `new_cwd` |
 | `DirectoryAdded` | A working directory is added mid-session with `/add-dir` or the SDK `register_repo_root` control request. Not fired for `--add-dir` at startup, which `SessionStart` covers. Cannot block; the add has already happened (CHANGELOG v2.1.219) | `directory`, `source` (`"slash_command"`, `"register_repo_root"`) |
-| `FileChanged` | A watched file changes on disk | `file_path`, `change_type` (`"created"`, `"modified"`, `"deleted"`) |
-| `WorktreeCreate` | A worktree is created | `worktree_name`, `base_path` |
-| `WorktreeRemove` | A worktree is removed | `worktree_path` |
-| `PreCompact` | Before context compaction | `trigger` (`"manual"`, `"auto"`) |
-| `PostCompact` | After context compaction completes | `trigger` (`"manual"`, `"auto"`) |
+| `FileChanged` | A watched file changes on disk, whatever changed it | `file_path`, `event` (`"change"`, `"add"`, `"unlink"`) |
+| `WorktreeCreate` | A worktree is being created (`--worktree`, `isolation: "worktree"`, or a background session). A hook replaces the default `git worktree` behavior and must return the path | `name` (worktree slug) |
+| `WorktreeRemove` | A worktree that a `WorktreeCreate` hook created is being removed | `worktree_path` |
+| `PreCompact` | Before context compaction | `trigger` (`"manual"`, `"auto"`), `custom_instructions` (string, or `null`) |
+| `PostCompact` | After context compaction completes | `trigger` (`"manual"`, `"auto"`), `compact_summary` |
 | `PreModelSwitch` | Before Claude Code applies a model switch that you or a client requested. Can block the switch (CHANGELOG v2.1.251) | `from_model`, `to_model`, `requested_model` (string, or `null` for the default model), `source` (`"command"`, `"picker"`, `"sdk"`), `context_tokens`, `prompt_cache_warm`, `cache_ttl` (`"5m"`, `"1h"`), `estimated_cache_write_usd`, `pricing` (`"configured"`, `"catalog"`, `"default"`) |
 | `PostModelSwitch` | After the session's model changes, including changes Claude Code makes itself. Cannot block (CHANGELOG v2.1.251) | The `PreModelSwitch` fields, with two more `source` values: `"auto"` (a fallback or other change Claude Code made) and `"resume"` (the model restored on resume) |
-| `Elicitation` | An MCP server requests user input | `server`, `form_schema`, `form_description` |
-| `ElicitationResult` | User responds to an MCP elicitation | `server`, `form_schema`, `user_response` |
+| `Elicitation` | An MCP server requests user input during a tool call | `mcp_server_name`, `message`, `mode` (optional: `"form"`, `"url"`), `url` (optional, URL mode), `elicitation_id` (optional), `requested_schema` (optional, form mode) |
+| `ElicitationResult` | User responds to an MCP elicitation, before the response goes back to the server. Not fired when an `Elicitation` hook answered | `mcp_server_name`, `action` (`"accept"`, `"decline"`, `"cancel"`), `mode` (optional), `elicitation_id` (optional), `content` (optional, the submitted values) |
 | `MessageDisplay` | While assistant message text streams to the screen, once per batch of completed lines; once per message in `claude -p` and Agent SDK runs. Display-only: a hook can replace the on-screen text with `displayContent`, but the transcript and what Claude sees keep the original (CHANGELOG v2.1.152) | `turn_id`, `message_id` (not the API `msg_…` id, so it does not join to transcript message ids), `index`, `final`, `delta` |
-| `Notification` | Claude Code sends a notification | `notification_type` (`"permission_prompt"`, `"idle_prompt"`, `"auth_success"`, `"elicitation_dialog"`, etc.), `message` |
-| `SessionEnd` | Session terminates | `end_reason` (`"clear"`, `"resume"`, `"logout"`, `"prompt_input_exit"`, etc.) |
-| `post-session` | After a session has fully ended — added in CHANGELOG v2.1.169, fires after `SessionEnd` (intended for post-teardown / async cleanup work). Not among the thirty-three events the hooks docs list as of 2026-10-09 | Event-specific fields not yet documented — changelog-reported, not yet observed in a payload. No companion `pre-session` event was found in the CHANGELOG; session startup remains [`SessionStart`](#event-types-and-event-specific-fields). |
+| `Notification` | Claude Code sends a notification | `notification_type` (`"permission_prompt"`, `"idle_prompt"`, `"auth_success"`, `"elicitation_dialog"`, `"elicitation_url_dialog"`, `"elicitation_complete"`, `"elicitation_response"`, `"agent_needs_input"`, `"agent_completed"`, `"quota_auto_resume_fired"`, `"quota_auto_resume_stale"`, `"quota_auto_resume_disabled"`), `message`, `title` (optional) |
+| `SessionEnd` | Session terminates | `reason` (`"clear"`, `"resume"`, `"logout"`, `"prompt_input_exit"`, `"other"`) |
+
+`post-session` is not a Claude Code hook event, although an earlier version of this table listed it as one. It is a [self-hosted runner lifecycle hook](https://code.claude.com/docs/en/self-hosted-environments-configuration#post-session): an executable named `post-session` in the runner's `--hooks-dir`, which the runner runs on the host after the Claude Code process exits and before it tears the workspace down. It gets no JSON payload. The runner passes context in environment variables such as `CLAUDE_RUNNER_SESSION_ID` and `CLAUDE_RUNNER_EXIT_REASON` (`completed`, `failed`, `interrupted`, and a reserved `abandoned`), and its exit status never affects the session. It is not configured in `settings.json`; the docs call lifecycle hooks "distinct from Claude Code hooks, which run inside the session." Its sibling lifecycle hooks are `checkout` and `spawn-runner`.
 
 ### Hook response schema
 
@@ -636,13 +641,49 @@ The JSON output can carry a `hookSpecificOutput` object. The first named key doc
 
 | Field | Returned by | Semantics |
 |---|---|---|
-| `hookSpecificOutput.additionalContext` | `Stop`, `SubagentStop`; per the hooks docs as of 2026-10-09 also `SessionStart`, `SubagentStart`, `UserPromptSubmit`, `UserPromptExpansion`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PostToolBatch` and `PostModelSwitch` | Extra context the hook injects into the model's context. On `Stop` and `SubagentStop` it lands when the turn would otherwise stop (added in CHANGELOG v2.1.163). Lets a `Stop` hook **feed information forward** — e.g., "you still have unfinished tasks" — instead of only allowing or blocking the stop. |
+| `hookSpecificOutput.additionalContext` | `Stop`, `SubagentStop`; per the hooks docs as of 2026-10-10 also `SessionStart`, `SubagentStart`, `UserPromptSubmit`, `UserPromptExpansion`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PostToolBatch` and `PostModelSwitch` | Extra context the hook injects into the model's context. On `Stop` and `SubagentStop` it lands when the turn would otherwise stop (added in CHANGELOG v2.1.163). Lets a `Stop` hook **feed information forward** — e.g., "you still have unfinished tasks" — instead of only allowing or blocking the stop. |
 
 When a `Stop` or `SubagentStop` hook returns `additionalContext`, the injected string is recorded on the corresponding `system` line as the `hookAdditionalContext` field (see [`system` § Hook-execution fields](#hook-execution-fields)) — the on-disk trace of this response contract. The `additionalContext` key name is changelog-reported; the `hookAdditionalContext` carrier on `system` lines is scan-observed.
 
 ### Version-specific notes
 
-The Claude Code hooks documentation does not surface a per-field version history. Fields and events documented above represent the contract as of 2026-05-26, except the rows and subsections the verification note at the top of this section dates to 2026-10-09. The W3 roadmap (issue #7) flagged `duration_ms` (claimed v2.1.119) and `background_tasks`/`session_crons` (claimed v2.1.145) as version-specific additions — these were not surfaced in the current docs page and may have since been folded into the common fields, renamed, or removed. Re-verify against a current Claude Code release when this section needs re-stamping.
+The Claude Code hooks documentation does not keep a per-field version history. The table above is the contract as of 2026-10-10. Where the docs or the CHANGELOG date a field, that date is below.
+
+| Field or value | Event | Landed |
+|---|---|---|
+| `agent_id`, `agent_transcript_path` | `SubagentStop` | v2.0.42 (CHANGELOG) |
+| `last_assistant_message` | `Stop`, `SubagentStop` | v2.1.47 (CHANGELOG) |
+| `duration_ms` | `PostToolUse`, `PostToolUseFailure` | v2.1.119 (CHANGELOG) |
+| `background_tasks`, `session_crons` | `Stop`, `SubagentStop` | v2.1.145 (CHANGELOG) |
+| `source: "fork"` | `SessionStart` | v2.1.214 (docs). Forked sessions reported `"resume"` before that |
+| `reason: "bypass_permissions_disabled"` | `SessionEnd` | Removed in v2.1.234 (docs) |
+| `quota_auto_resume_*` notification types | `Notification` | v2.1.234 (docs) |
+| `seconds_since_last_response`, `context_tokens`, `prompt_cache_likely_expired`, `estimated_cache_write_usd` | `SessionStart` | v2.1.251 (docs) |
+| `scratchpad_dir` | common | v2.1.257 (docs) |
+| `mcp_server` | `PreToolUse`, `PermissionRequest`, `PermissionDenied`, `PostToolUse`, `PostToolUseFailure` | v2.1.274 (docs) |
+| `agent_id` for in-process teammates | `TaskCreated`, `TaskCompleted`, `TeammateIdle` | v2.1.290 (docs) |
+
+The W3 roadmap (issue #7) flagged `duration_ms` (v2.1.119) and `background_tasks`/`session_crons` (v2.1.145) as unplaced version-specific additions. Both are event-specific, not common fields, and are in the rows above.
+
+**Corrected on 2026-10-10 ([issue #293](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/293)).** The 2026-05-26 pass recorded field names that the hooks docs do not use. None of the old names appears in the CHANGELOG either, so they read as errors in that pass rather than upstream renames. Code written against the old table should switch:
+
+| Event | Old name in this table | Documented name |
+|---|---|---|
+| `SessionEnd` | `end_reason` | `reason` |
+| `StopFailure` | `error_type`, `error_message` | `error`, `error_details`; plus `last_assistant_message` |
+| `FileChanged` | `change_type` (`created`/`modified`/`deleted`) | `event` (`add`/`change`/`unlink`) |
+| `TaskCreated`, `TaskCompleted` | `task_title`; `completion_status` (`TaskCompleted`) | `task_subject`; no status field |
+| `ConfigChange` | `config_source`, `changed_keys` | `source`, `file_path`; no changed-keys field |
+| `WorktreeCreate` | `worktree_name`, `base_path` | `name`; no base-path field |
+| `SubagentStart` | `initial_prompt` | none; only `agent_id` and `agent_type` |
+| `SubagentStop` | `result` | `last_assistant_message`, among others |
+| `Elicitation` | `server`, `form_schema`, `form_description` | `mcp_server_name`, `requested_schema`, `message` |
+| `ElicitationResult` | `server`, `form_schema`, `user_response` | `mcp_server_name`, `content`, `action` |
+| `PostToolUse` | `tool_result` | `tool_response` |
+| `TeammateIdle` | `reason` | `team_name` |
+| `Stop` | listed as common fields only | `stop_hook_active`, `last_assistant_message`, `background_tasks`, `session_crons` |
+
+The same pass also listed `post-session` as an event. It is a self-hosted runner lifecycle hook; see the note under the event table.
 
 ---
 
