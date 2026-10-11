@@ -290,6 +290,7 @@ Examples:
 - **Decision (2026-06-10):** approve — upstream-confirmed (v2.1.169); reference hook table; Part 6
 - **Promotion (2026-06-10):** approve → filed #89 (cluster B — hook traces)
 - **Status:** promoted
+- **Correction (2026-10-10, #293):** misclassified. `post-session` is a self-hosted runner lifecycle hook (an executable in the runner's `--hooks-dir`, context via `CLAUDE_RUNNER_*` env vars), not a Claude Code hook event, and has no `hook_event_name`. The current CHANGELOG has no v2.1.169 line for it; its first mention by name is v2.1.236. The reference hook table no longer lists it as an event.
 
 ### F-014: `Stop`/`SubagentStop` `hookSpecificOutput.additionalContext` (new hook response field)
 
