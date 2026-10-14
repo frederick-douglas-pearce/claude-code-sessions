@@ -24,6 +24,7 @@ Nothing here runs as part of this repo.
 | `hooks/note_bash.py` | `PostToolUse` hook that prints one fixed line |
 | `scratch-project-settings.json` | The hook registration, copied verbatim from the scratch project's `.claude/settings.json` |
 | `RUNBOOK.md` | The session-collection procedure |
+| `capture/` | The #295 kit for comparing ways to record every hook decision: a dispatcher hook, a local OTLP sink, an `http` guard, an API-client judge, and a content-free `analyze.py`. Procedure in [`capture/RUNBOOK-295.md`](capture/RUNBOOK-295.md) |
 
 The log is the control. It records what fired; the session JSONL records what
 was kept. The difference between the two is the measurement, and it is how Part 6
