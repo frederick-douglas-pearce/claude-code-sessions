@@ -66,9 +66,10 @@ v2.1.299, before the `api-request*` line types, and carries
 S1b, S2 and S3 ran on v2.1.301 and were sanitized with 0.6.0, which drops their
 `api-request*` lines
 ([#298](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/298)).
-Each sidecar's `stripped_lines` counts them. These three also carry line types
-S1 does not: `cost-state` (a per-session cost rollup by model), `mode`,
-`atis-latch` and `file-history-delta`. None of them is in `reference/` yet.
+Each sidecar's `stripped_lines` counts them. All four sessions carry
+`cost-state`, a per-session cost rollup by model, and `atis-latch`; S1b also
+carries `file-history-delta` for the two files it wrote. None of the three is
+in `reference/` yet (format-watch F-027, F-028 and F-018).
 
 - **S1b** is the baseline: a task the model planned itself, with every call
   passing through the dispatcher, which stayed silent. None of the four
