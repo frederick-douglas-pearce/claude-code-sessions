@@ -44,7 +44,7 @@ Releases are tagged `sanitizer-v<version>` (component-scoped, not a bare `v*`:
 this is a monorepo and a bare tag filter would fire the publish workflow on
 unrelated tags).
 
-## [0.6.0] — unreleased
+## [0.6.0] — 2026-10-17
 
 **MINOR.** Existing configs keep working, no sidecar field is removed,
 renamed or retyped (`sidecar_schema_version` stays `1`; `stripped_lines` was
@@ -69,17 +69,27 @@ bump table.
 **Output-changing.** Any input that carries these lines produces different
 bytes under 0.6.0 than under 0.5.0: the lines are gone and the sidecar's
 `stripped_lines` counts them. That is why this is a new version rather than an
-addition to the unreleased 0.5.0 block, which three committed sidecars record.
-Those three fixtures were scrubbed from v2.1.278 and v2.1.280 sessions, carry
-none of these lines, and produce the same bytes under both versions, so they
-need no re-scrub. The golden fixture carries none of these lines either; the
+addition to the unreleased 0.5.0 block, which five committed sidecars record.
+Those five fixtures were scrubbed from v2.1.278, v2.1.280 and v2.1.299 sessions,
+carry none of these lines, and produce the same bytes under both versions, so
+they need no re-scrub. The golden fixture carries none of these lines either; the
 new behavior is pinned by `test_pipeline.py` and `test_cli.py` instead.
 
 Not in this release: whether a line `type` the sanitizer has never seen should
 warn or be dropped by default, rather than pass through as it does now. #298
 keeps that open.
 
-## [0.5.0] — unreleased
+## [0.5.0] — never published
+
+**Not released.** 0.6.0 merged before 0.5.0 was tagged, and publishing 0.5.0
+after that would have shipped a version that passes the v2.1.301 request
+records (#298) straight through. Everything below first ships in 0.6.0.
+
+Unlike `0.4.0`, this version keeps its heading, so the five committed sidecars
+that record `sanitizer_version: 0.5.0` still point at an entry describing the
+code that produced them. What they lack is a published artifact. Their JSONL
+bytes are the same under 0.6.0 (see above), so 0.6.0 reproduces those; only
+the sidecar's recorded version would differ.
 
 **MINOR.** Existing configs keep working, no sidecar field is removed,
 renamed or retyped (`sidecar_schema_version` stays `1`), and no built-in
