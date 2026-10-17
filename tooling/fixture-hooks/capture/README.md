@@ -1,0 +1,48 @@
+# capture
+
+The #295 kit for comparing ways to record every hook decision. The procedure is
+[`RUNBOOK-295.md`](RUNBOOK-295.md), and the design and its review are in
+[`.claude/specs/plan-295-hook-capture.md`](../../../.claude/specs/plan-295-hook-capture.md).
+Like the rest of `fixture-hooks/`, nothing here is registered in this repo.
+
+| File | Role |
+| --- | --- |
+| `dispatcher.py` | One `command` hook on every `PreToolUse` and `PostToolUse` call. Picks a route by file name (allow, ask, rewrite, deny, sleep, crash, or no decision) and logs each firing |
+| `otlp_sink.py` | Local OTLP/JSON receiver. Keeps attribute values only on an allowlist |
+| `http_guard.py` | The `http` hook's server, with `up`, `500` and `slow` modes |
+| `judge_client.py` | A `command` hook that judges a Bash call through the Anthropic SDK, beside a `prompt` hook doing the same |
+| `analyze.py` | Joins the hook logs, telemetry, the `--debug-file` `Hooks:` lines and a sanitized session. Prints ids, numbers and closed-vocabulary values only |
+| `settings-s1/s2/s3.json`, `env.sh`, `make-sentinels.sh` | Session settings, telemetry environment, sentinel files |
+| `tests/` | Unit and planted-canary contract tests: `python3 -m pytest tooling/fixture-hooks/capture/tests/` |
+
+## What these runs established
+
+From the first series, run 2026-10-15 and 2026-10-16. The step numbers refer to
+the runbook. Each row names the version it was seen on and the record that shows
+it, so it can be re-checked on a later version. Every row comes from `analyze.py`
+output or from key names and closed-vocabulary values in the sanitized files,
+never from raw session data.
+
+| # | Finding | Version | Step | Evidence |
+| --- | --- | --- | --- | --- |
+| 1 | `--setting-sources project,local` stops user hooks from running, but `/hooks` and the `hook_registered` event still list them | 2.1.301 | P1 | debug `Hooks:` lines: 0 with the flag, the guard plus every user command hook without it |
+| 2 | A `PreToolUse` hook that crashes, times out, or gets an HTTP error leaves the same JSONL record as a hook that chose to stay silent: `permissionDecision {accept, config, mode}`, with no `hookInfos` or `hookErrors` | 2.1.299, 2.1.301 | 1.7, 1.8, 2.2–2.4 | sanitized JSONL |
+| 3 | A crash and an HTTP error show a UI notice. A timeout, `command` or `http`, shows none. The model is told about none of them | 2.1.299, 2.1.301 | 1.7, 1.8, 2.2–2.4 | screen notes |
+| 4 | An `http` hook that answers after its timeout is ignored: the guard's late deny was discarded and the read went through | 2.1.301 | 2.4 | `http-guard-s2.jsonl`, sanitized JSONL |
+| 5 | `user` lines carry `permissionDecision {decision, source, reasonType}`. `source: hook` separates a hook decision from `config` and `user_temporary`. Not in `reference/` yet ([#299](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/299)) | 2.1.299, 2.1.301 | all | sanitized JSONL |
+| 6 | A settings deny rule on `Read` is enforced in the tool's path validation: no `PreToolUse` firing, no `permissionDecision`, no `toolDenialKind`, no `tool_decision` event | 2.1.299 | 1.6 | sanitized JSONL, telemetry, dispatcher log |
+| 7 | Hook telemetry counts: a `command` JSON deny is `num_blocking: 1`, but an `http` JSON deny is `num_success: 1, num_blocking: 0`. Errors count as `num_non_blocking_error`, timeouts as `num_cancelled` at about 5020 ms | 2.1.299, 2.1.301 | 1.5, 1.7, 1.8, 2.1–2.5 | telemetry |
+| 8 | A timed-out `command` hook is sent SIGTERM | 2.1.299 | 1.7 | dispatcher log |
+| 9 | Debug `Hooks:` lines cover `command` hooks only, not `http` or `prompt` hooks. Neither the debug log nor telemetry carries `tool_use_id`, so joins go through `event.sequence` and timestamps | 2.1.299, 2.1.301 | S1, S2, S3 | debug log, telemetry |
+| 10 | A Python `command` hook costs a median of about 63 ms per firing, against about 5 ms inside the script and about 15 ms of interpreter startup | 2.1.299, 2.1.301 | S1, S1b | `analyze.py --baseline`, dispatcher log, debug log |
+| 11 | Of four parallel `Read` calls, only two `PreToolUse` firings overlapped in time | 2.1.299 | 1.9 | dispatcher log |
+| 12 | A rewrite through `updatedInput` leaves the original input in the transcript. The model cannot tell the path was swapped | 2.1.299 | 1.4 | sanitized JSONL |
+| 13 | When two hooks deny one call, telemetry counts `num_blocking: 2` but only one reason reaches the screen | 2.1.301 | 3.2 | telemetry, screen notes |
+| 14 | A `prompt` hook's call shows as `query_source: hook_prompt` and reads from the prompt cache. Three calls cost $0.000427 in all. The SDK client sent about 700 uncached input tokens per call and took 2.7 to 3.2 s | 2.1.301 | 3.1, 3.2 | telemetry, `judge-s3.jsonl` |
+| 15 | A subagent's hook input carries `agent_id` and `agent_type` (`Explore`), and its API calls carry `query_source: agent:builtin:Explore` in telemetry | 2.1.299 | 1.10 | dispatcher log, telemetry |
+| 16 | `PostToolUse` `num_hooks` exceeds the configured count (Read and Write by 1, Bash by 2, Agent by 0). Unexplained; likely internal callbacks | 2.1.299, 2.1.301 | S1, S1b | telemetry |
+| 17 | New line types `api-request`, `api-request-blob` and `api-request-shape` repeat request content, and the sanitizer passes them through ([#298](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/298)) | 2.1.301 | S1b, S2, S3 | sanitized JSONL key names |
+| 18 | `user` and `assistant` lines carry a snake_case `session_id` equal to `sessionId`. Subagent files do not | 2.1.299, 2.1.301 | all | sanitized JSONL |
+
+The raw logs, telemetry and session files behind these rows stay in the scratch
+project. None of them is committed.

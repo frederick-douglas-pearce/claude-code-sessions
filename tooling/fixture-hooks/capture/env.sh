@@ -16,3 +16,7 @@ export OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://127.0.0.1:4318/v1/metrics
 export OTEL_LOGS_EXPORT_INTERVAL=1000
 export OTEL_METRIC_EXPORT_INTERVAL=5000
 unset OTEL_LOG_TOOL_DETAILS OTEL_LOG_USER_PROMPTS
+
+# Hold the Claude Code version for the whole series. The first run drifted from
+# v2.1.299 to v2.1.301 between S1 and S1b.
+export DISABLE_AUTOUPDATER=1

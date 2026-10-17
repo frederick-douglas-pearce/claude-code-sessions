@@ -10,7 +10,16 @@ This file is the authoritative procedure.
 
 Run it in **new terminals**, in a throwaway project, never from a session
 working on this repo. Written for Claude Code **v2.1.299**. If `claude --version`
-says otherwise, note the version and carry on.
+says otherwise, note the version and carry on. The first series did not hold one
+version: S1 ran on v2.1.299 and an auto-update moved S1b, S2 and S3 to v2.1.301.
+`env.sh` now turns the auto-updater off in the terminal that sources it, but check
+the version before every session anyway.
+
+Every command below that writes into the project starts with
+`cd ~/scratch/hook-capture &&`. A terminal left in the repo after the sanitize
+step once had the scratch settings written over the repo's own
+`.claude/settings.json`, which switched off the repo's guards until it was
+restored.
 
 ## What you need
 
@@ -33,7 +42,7 @@ cp "$REPO"/tooling/fixture-hooks/capture/*.py "$REPO"/tooling/fixture-hooks/capt
 ./make-sentinels.sh
 printf 'the quick brown fox\n' > work/notes/a.txt
 printf 'jumps over the lazy dog\n' > work/notes/b.txt
-printf '*.jsonl\n*.log\n.venv/\nsanitized/\n' > .gitignore
+printf '*.jsonl\n*.log\nlatest\n.venv/\nsanitized/\n' > .gitignore   # --debug-file also writes a `latest` symlink
 python3 -m venv .venv && .venv/bin/pip install -q anthropic   # S3's judge client
 ```
 
@@ -51,14 +60,13 @@ Replace `sN` with the session's tag (`s1`, `s1b`, `s2`, `s3`).
 
 1. Make sure no `claude` is running in this directory. Hooks hot-reload, so a
    settings swap mid-session changes the experiment under you.
-2. `cp settings-<session>.json .claude/settings.json`. S1b reuses
-   `settings-s1.json`.
+2. `cd ~/scratch/hook-capture && cp settings-<session>.json .claude/settings.json`.
+   S1b reuses `settings-s1.json`.
 3. Terminal A: `python3 otlp_sink.py --tag sN`. Leave it running.
 4. Terminal B:
 
    ```bash
-   cd ~/scratch/hook-capture
-   source env.sh
+   cd ~/scratch/hook-capture && source env.sh
    export HOOKCAP_TAG=sN
    SID=$(uuidgen); echo "$SID"        # write it down next to the tag
    claude --model sonnet --setting-sources project,local --permission-mode default \
@@ -66,10 +74,13 @@ Replace `sN` with the session's tag (`s1`, `s1b`, `s2`, `s3`).
    ```
 
 5. Trust the directory. Hooks are held back until you do.
-6. Type `/hooks`. Expect only this session's hooks, all from project settings.
-   **If you see `block_secret_reads.py`, any other user hook, or a plugin hook,
-   stop:** `--setting-sources` did not isolate the session (pre-flight P1).
-   Escape out.
+6. Type `/hooks`. Expect this session's hooks under project settings. **`/hooks`
+   also lists your user hooks (`[User]`), and that is expected:** on v2.1.301
+   they are listed but do not run under `--setting-sources project,local`. The
+   `hook_registered` telemetry event lists them too. The
+   [P1 check](#pre-flight-p1-do-user-hooks-run-under---setting-sources) is what
+   showed this. A **plugin** hook in the list is a real problem: stop and note
+   it. Escape out.
 7. Type each prompt below, one per turn. After each, check the expectation
    before the next. If it is wrong, stop and write down what happened. A
    half-failed run documents nothing.
@@ -136,11 +147,31 @@ export JUDGE_KEY_FILE=~/.config/hook-judge/key
 
 | # | Type this | Expect |
 | --- | --- | --- |
-| 3.0 | `Reply with the single word READY.` Then wait 10 seconds | READY. The wait lets title generation, which also uses a small model, finish before any hook fires |
+| 3.0 | `Reply with the single word READY.` | READY. **Then wait 10 seconds before 3.1**, without typing anything, so title generation, which also uses a small model, finishes before any hook fires |
 | 3.1 | `Use the Bash tool to run: ls` | A directory listing |
 | 3.2 | `Use the Bash tool to run: rm plain-1.txt. If it is blocked, do not retry; stop and report the block.` | A block reported, and `plain-1.txt` still exists. **If a permission prompt appears instead, choose No**: both judges allowed it, which is itself a finding |
 
 Afterward, `./make-sentinels.sh` restores anything 3.2 removed.
+
+## Pre-flight P1: do user hooks run under `--setting-sources`?
+
+A two-run check that needs no sink. It reads a file your user-level
+`block_secret_reads.py` denies by its `.pem` suffix, once with the flag and once
+without. If your user settings register no such guard, use any user hook that
+denies something.
+
+```bash
+cd ~/scratch/hook-capture && printf '{}\n' > .claude/settings.json && touch p1test.pem
+P='Use the Read tool to read p1test.pem and say whether the call succeeded. If the call is denied, stop and report the denial; do not retry by any other means.'
+claude -p --model sonnet --setting-sources project,local --debug-file ./debug-p1a.log "$P"
+claude -p --model sonnet --debug-file ./debug-p1b.log "$P"
+rm p1test.pem latest && cp settings-s1.json .claude/settings.json
+```
+
+Then run `python3 analyze.py --dir . --tag p1a`, and again with `--tag p1b`. On
+v2.1.301 the first read succeeded with 0 `Hooks:` lines. The second was denied by
+the guard, and the log had `Hooks:` lines for the guard and for every other user
+command hook. So the flag drops user hooks, even though `/hooks` lists them.
 
 ## After the sessions
 
@@ -160,10 +191,18 @@ Afterward, `./make-sentinels.sh` restores anything 3.2 removed.
    for f in "$P"/<s1 uuid>/subagents/agent-*.jsonl; do
      tooling/sanitizer/.venv/bin/ccs-sanitize "$f" -o ~/scratch/hook-capture/sanitized/s1-$(basename "$f")
    done
+   cd ~/scratch/hook-capture          # leave the repo before running anything else
    ```
 
    Check each sidecar's `rules_applied`. `remap_uuids` must be off, or the
    `tool_use_id` joins break.
+
+   Sessions from v2.1.301 on carry `api-request`, `api-request-blob` and
+   `api-request-shape` lines, which repeat the system prompt and message content.
+   The sanitizer passes them through until
+   [#298](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/298)
+   lands. Until then, their sanitized files stay in the scratch directory and do
+   not go into `fixtures/`.
 
 2. **Tell Claude the tags and that sanitizing is done.** Claude runs `analyze.py`
    over the scratch directory and reads only its output and the sanitized files:
@@ -182,9 +221,12 @@ by construction, but they stay in the scratch directory too.
 
 ## If something goes sideways
 
-- **`/hooks` shows user or plugin hooks.** `--setting-sources project,local` did
-  not isolate the session. Stop and note which hooks appeared; the counts in that
-  session would include them.
+- **`/hooks` shows user hooks.** Expected; see step 6. To confirm they did not
+  run, check that `analyze.py` reports no `Hooks:` line for any of their
+  scripts.
+- **`/hooks` shows a plugin hook.** The `enabledPlugins` block in the session's
+  settings did not disable it. Stop and note which; that session's counts would
+  include it.
 - **The sink prints nothing after 1.0.** Check terminal B sourced `env.sh`
   (`echo $OTEL_EXPORTER_OTLP_PROTOCOL` should say `http/json`). If the sink prints
   `non-JSON body`, the protocol variable was not picked up.
