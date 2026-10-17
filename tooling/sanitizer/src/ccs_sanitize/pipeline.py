@@ -16,7 +16,10 @@ What this module ships (issue #20):
 
   - ``DEFAULT_STRIP_TYPES`` — the ``--strip-types`` default (PRD section 6b A
     / D-7): ``file-history-snapshot`` and ``attachment`` lines are dropped
-    wholesale rather than scrubbed.
+    wholesale rather than scrubbed. Issue #298 adds the three request-record
+    types Claude Code v2.1.301 began writing (``api-request``,
+    ``api-request-blob``, ``api-request-shape``), which repeat the system
+    prompt, tool definitions and message content in bulk.
   - ``walk_strings`` — recursive structural walker. Visits every string leaf
     whose JSON path is not skipped, applies a caller-supplied ``transform``,
     and returns the rebuilt structure. Non-string leaves (numbers, bool,
@@ -62,7 +65,16 @@ JsonNode = Any
 TransformCallback = Callable[[str, JsonPath], str]
 SkipPredicate = Callable[[JsonPath], bool]
 
-DEFAULT_STRIP_TYPES: frozenset[str] = frozenset({"file-history-snapshot", "attachment"})
+DEFAULT_STRIP_TYPES: frozenset[str] = frozenset(
+    {
+        "file-history-snapshot",
+        "attachment",
+        # Request records, from Claude Code v2.1.301 (#298).
+        "api-request",
+        "api-request-blob",
+        "api-request-shape",
+    }
+)
 
 # ---------------------------------------------------------------------------
 # The skip allow-list (PRD section 6b B), keyed on ROOT-ANCHORED paths.

@@ -330,4 +330,7 @@ These four questions originally gated implementation. All are resolved in
 
 The PRD also adds [D-7](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/.claude/specs/prd-sanitizer.md#decision-d-7--v0-drops-high-risk-line-types):
 v0 drops `file-history-snapshot` and `attachment` lines wholesale rather than scrub arbitrary
-file bodies or opaque binary payloads.
+file bodies or opaque binary payloads. From 0.6.0 the default also drops the `api-request`,
+`api-request-blob` and `api-request-shape` lines that Claude Code began writing in v2.1.301,
+which repeat the system prompt, tool definitions and message content of each API request
+([#298](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/298)).

@@ -44,6 +44,41 @@ Releases are tagged `sanitizer-v<version>` (component-scoped, not a bare `v*`:
 this is a monorepo and a bare tag filter would fire the publish workflow on
 unrelated tags).
 
+## [0.6.0] — unreleased
+
+**MINOR.** Existing configs keep working, no sidecar field is removed,
+renamed or retyped (`sidecar_schema_version` stays `1`; `stripped_lines` was
+always an open-ended map keyed by line type), and no built-in pattern is
+removed. The tool now drops more, which is the MINOR row of the README's
+bump table.
+
+### Changed (issue #298 — strip the v2.1.301 request records)
+
+- **`DEFAULT_STRIP_TYPES` adds `api-request`, `api-request-blob` and
+  `api-request-shape`** (#298). Claude Code v2.1.301 began writing these
+  three line types. Their key names (`shape.system`, `shape.tools`,
+  `message.content`, `params`) show they repeat the system prompt, tool
+  definitions and message content of each API request: bulk free text that a
+  fixture never needs, and that the sanitizer's free-text limitation leaves
+  unscrubbed beyond the configured rules. They were found in the #295 capture
+  sessions, whose sidecars all reported `residual_scan: clean`, so no
+  configured value is known to have survived; this is a structural rule, not
+  a fix for a leak. `--strip-types` still replaces the default set, so a
+  caller who wants these lines can pass the old list explicitly.
+
+**Output-changing.** Any input that carries these lines produces different
+bytes under 0.6.0 than under 0.5.0: the lines are gone and the sidecar's
+`stripped_lines` counts them. That is why this is a new version rather than an
+addition to the unreleased 0.5.0 block, which three committed sidecars record.
+Those three fixtures were scrubbed from v2.1.278 and v2.1.280 sessions, carry
+none of these lines, and produce the same bytes under both versions, so they
+need no re-scrub. The golden fixture carries none of these lines either; the
+new behavior is pinned by `test_pipeline.py` and `test_cli.py` instead.
+
+Not in this release: whether a line `type` the sanitizer has never seen should
+warn or be dropped by default, rather than pass through as it does now. #298
+keeps that open.
+
 ## [0.5.0] — unreleased
 
 **MINOR.** Existing configs keep working, no sidecar field is removed,
