@@ -128,6 +128,18 @@ Short, focused posts that deepen one thread from a numbered part without advanci
 
 **Bridge.** Aside, no spine bridge. It points back to Part 4 for the core accounting and to the reference doc for the full field-level treatment. The next numbered step remains Part 5 (the tool-use walkthrough).
 
+### Aside (off Part 6) — Did my hook run? Getting a complete record of hook decisions
+
+> **Status:** Go decided 2026-10-16, on the research in [#295](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/295) (results comment there; telemetry answers on [#285](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/285)). Evidence table: [`tooling/fixture-hooks/capture/README.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/fixture-hooks/capture/README.md). Reference grounding lands with [#299](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/299); a sanitized S1 fixture is the planned sample data. Prompted by a reader's comment on Part 6 about the silent allow. Refer to them as "a reader" unless they agree to be named.
+
+**Scope.** Part 6 showed the session file records `Stop` hooks well, denials thinly and allows not at all. This aside takes the next question: if you need a complete record of what your hooks decided, where do you get it? It compares four approaches, each run for real on v2.1.299 and v2.1.301: built-in telemetry, a dispatcher `command` hook that logs every decision, an `http` hook to a local service, and a model-judged check written as a `prompt` hook and as an API-calling `command` hook. The `--debug-file` `Hooks:` lines come in as a fifth, free record. The center of the post is the fail-open finding: in the session file, a `PreToolUse` guard that crashed, timed out or lost its server leaves the same `permissionDecision {accept, config, mode}` as a guard that allowed the call, and a timeout shows no notice to the user or the model at all. Telemetry tells them apart (`num_non_blocking_error`, `num_cancelled`), with one trap: an `http` hook's deny counts as `num_success`, so count denials from `tool_decision`. Measured costs give the comparison teeth: about 63 ms of overhead per firing for a Python `command` hook, and a `prompt` hook's model call visible in telemetry as `query_source: hook_prompt` at a fraction of a cent, cached. Smaller findings that earn a line each: `--setting-sources project,local` silently drops user hooks that `/hooks` still lists, a rewrite through `updatedInput` leaves the original input in the transcript, and two hooks denying one call show only one reason.
+
+**Fail open or fail closed.** The fail-open default is a design choice, and many hook authors make it deliberately so a broken helper never stalls a session. The aside should give readers the means to choose, not a verdict: which failures a hook can turn into a deny on its own (its own error handling, an internal deadline shorter than the hook `timeout`), and which it cannot (an `http` hook whose server is down, a harness-side timeout). The "can turn into a deny" half is untested as of this entry. Run it as a follow-up experiment before drafting.
+
+**Audience hook.** Anyone running a hook as a guard: a secrets blocker, a policy check, a cheap-model judge. The question "did my guard actually run on that call?" has an answer, but not in the file most people would look at first.
+
+**Bridge.** Aside, no spine bridge. It points back to Part 6 for what the session file records, and to the reference doc for the field mappings.
+
 ---
 
 ## Standalone posts
