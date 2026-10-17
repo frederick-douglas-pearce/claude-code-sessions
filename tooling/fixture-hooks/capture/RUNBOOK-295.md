@@ -194,6 +194,11 @@ command hook. So the flag drops user hooks, even though `/hooks` lists them.
    cd ~/scratch/hook-capture          # leave the repo before running anything else
    ```
 
+   The sanitizer refuses to overwrite an existing output file. To sanitize a
+   session again (after a sanitizer upgrade, say), add `--force` to the
+   `ccs-sanitize` calls. It only allows the overwrite and changes nothing about
+   what is scrubbed.
+
    Check each sidecar's `rules_applied`. `remap_uuids` must be off, or the
    `tool_use_id` joins break.
 
