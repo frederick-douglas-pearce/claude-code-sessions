@@ -556,6 +556,41 @@ def test_end_to_end_synthetic_session(tmp_path: Path) -> None:
     assert sidecar["rules_applied"]["secrets"]["matches"] >= 1
 
 
+def test_api_request_records_dropped_and_counted_in_sidecar(tmp_path: Path) -> None:
+    """#298: the v2.1.301 request records are dropped by default, their
+    content (including a configured literal) never reaches the output, and
+    the sidecar's ``stripped_lines`` counts each type."""
+    lines = [
+        _line({"type": "user", "cwd": _REAL_HOME, "message": {"content": "hi"}}),
+        _line({"type": "api-request-shape", "shape": {"system": f"cwd {_REAL_HOME}", "tools": []}}),
+        _line({"type": "api-request-blob", "message": {"role": "user", "content": _REAL_EMAIL}}),
+        _line({"type": "api-request-blob", "message": {"role": "assistant", "content": "x"}}),
+        _line({"type": "api-request", "params": {"model": "m"}, "querySource": "q"}),
+    ]
+    inp_path = _write_input(tmp_path / "session.jsonl", lines)
+    cfg_path = _write_config(tmp_path / ".ccs-sanitize.yaml")
+    out_path = tmp_path / "out.jsonl"
+
+    assert main([str(inp_path), "-o", str(out_path), "-c", str(cfg_path)]) == 0
+
+    body = out_path.read_text(encoding="utf-8")
+    surviving = [ln for ln in body.splitlines() if ln]
+    assert len(surviving) == 1
+    assert "api-request" not in body
+    assert _REAL_HOME not in body
+    assert _REAL_EMAIL not in body
+
+    sidecar = yaml.safe_load(
+        (tmp_path / "out.jsonl.scrubbed").read_text(encoding="utf-8")
+    )
+    assert sidecar["stripped_lines"] == {
+        "api-request-shape": 1,
+        "api-request-blob": 2,
+        "api-request": 1,
+    }
+    assert sidecar["residual_scan"] == "clean"
+
+
 def test_verbose_writes_to_stderr(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

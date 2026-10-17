@@ -81,7 +81,72 @@ def test_strip_types_drops_attachment() -> None:
 
 
 def test_default_strip_types_covers_prd_section_6b_a() -> None:
-    assert DEFAULT_STRIP_TYPES == frozenset({"file-history-snapshot", "attachment"})
+    assert DEFAULT_STRIP_TYPES == frozenset(
+        {
+            "file-history-snapshot",
+            "attachment",
+            "api-request",
+            "api-request-blob",
+            "api-request-shape",
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        # Key sets as observed on Claude Code v2.1.301 (#298); values invented.
+        {
+            "type": "api-request-shape",
+            "shapeHash": "h-shape",
+            "shape": {"system": "SYSTEM-PROMPT-CANARY", "tools": [{"name": "TOOL-CANARY"}]},
+        },
+        {
+            "type": "api-request-blob",
+            "hash": "h-blob",
+            "message": {"role": "user", "content": "BLOB-CONTENT-CANARY"},
+        },
+        {
+            "type": "api-request",
+            "params": {"model": "MODEL-CANARY", "max_tokens": 1},
+            "querySource": "repl_main_thread",
+            "requestDigest": "DIGEST-CANARY",
+            "shapeHash": "h-shape",
+            "base": ["h-blob"],
+            "tail": [],
+        },
+    ],
+    ids=lambda line: line["type"],
+)
+def test_strip_types_drops_api_request_records(line: dict) -> None:
+    lines = [
+        _line({"type": "user", "uuid": "u1", "message": {"content": "kept"}}),
+        _line(line),
+        _line({"type": "assistant", "uuid": "u2"}),
+    ]
+    out, counts = run_pipeline(lines)
+    assert len(out) == 2
+    assert dict(counts.stripped_lines) == {line["type"]: 1}
+    serialized = "\n".join(out)
+    assert "CANARY" not in serialized
+    assert "kept" in serialized
+
+
+def test_api_request_records_counted_per_type() -> None:
+    lines = [
+        _line({"type": "api-request-shape", "shape": {}}),
+        _line({"type": "api-request-blob", "message": {}}),
+        _line({"type": "api-request-blob", "message": {}}),
+        _line({"type": "api-request", "params": {}}),
+        _line({"type": "user", "uuid": "u1"}),
+    ]
+    out, counts = run_pipeline(lines)
+    assert len(out) == 1
+    assert dict(counts.stripped_lines) == {
+        "api-request-shape": 1,
+        "api-request-blob": 2,
+        "api-request": 1,
+    }
 
 
 def test_custom_strip_types_replaces_default() -> None:
