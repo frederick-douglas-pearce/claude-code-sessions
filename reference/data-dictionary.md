@@ -63,6 +63,7 @@ Some fields appear on most or all line types; others are type-specific. The tabl
 | `uuid` | string (UUID) | Per-line identifier. Unique within a session. |
 | `parentUuid` | string (UUID) or `null` | Links this line to its predecessor in the conversation graph. `null` on the first line of a session. Used to reconstruct linear vs forked conversation flow. |
 | `sessionId` | string (UUID) | Shared across every line in a session. The session-level key. Matches the `<session-uuid>` in the file name. |
+| `session_id` | string (UUID) | A snake_case copy of `sessionId` on `user` and `assistant` lines. Equal to `sessionId` on all 72 lines checked; absent from the subagent trace file checked. **Not covered by this section's v2.1.150 stamp: observed on Claude Code v2.1.299 and v2.1.301** in the four [#295 capture sessions](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/fixture-hooks/capture/README.md#what-these-runs-established) (row 18). When it first appeared is unknown. Not the same surface as the `session_id` field in [hook event payloads](#common-fields-all-events), which is part of the JSON a hook receives, not a session-file key. |
 | `isSidechain` | boolean | `true` for every line inside a subagent trace file; `false` (or absent) in parent session files. The canonical signal that you're reading a subagent trace, not a parent session. |
 | `cwd` | string | Working directory at the time the line was written. Can change mid-session if the user `cd`s. |
 | `version` | string | Claude Code version (e.g., `"2.1.150"`) at the time the line was written. Can change mid-session if Claude Code is updated. |
@@ -139,12 +140,13 @@ Inline minimal example (see [`anatomy-minimal-session.jsonl`](https://github.com
 
 User prompts AND tool result envelopes. In Claude Code, tool results are not their own top-level type — they live inside `user` messages, with optional sibling metadata at the line level. This is the format's most counterintuitive structural detail.
 
-Top-level fields are those listed in [Common fields](#common-fields). Two optional top-level sibling keys are documented here. They share a structural position, not a weight — `toolUseResult` is one of the highest-information surfaces in the format; `toolDenialKind` is a single short label on the few hundred `user` lines that close a denied tool call:
+Top-level fields are those listed in [Common fields](#common-fields). Three optional top-level sibling keys are documented here. They share a structural position, not a weight — `toolUseResult` is one of the highest-information surfaces in the format; `toolDenialKind` is a single short label on the few hundred `user` lines that close a denied tool call; `permissionDecision` is a newer, small object recording who allowed or denied a call:
 
 | Field | Type | Semantics |
 |---|---|---|
 | `toolUseResult` | object (optional) | Tool invocation metadata. Present when the `user` line carries a `tool_result` block AND the underlying tool was a multi-step or context-bearing tool (Agent, Bash, etc.). Sits at the **top level**, beside `message`, not inside `message.content`. Uses camelCase field names (unusual in this otherwise mostly-snake_case format). See [`toolUseResult` envelope](#tooluseresult-envelope) below. |
-| `toolDenialKind` | string (optional) | A top-level key, beside `message` rather than inside it, on the `user` line that closes a **denied** tool call. The `tool_result` block on the same line carries `is_error: true`. The value names **who denied the call**: a rule (which includes a hook), the user, or auto mode. Four values are observed; see [`toolDenialKind` values](#tooldenialkind-values) below. It does **not** separate a hook from a settings rule: a `PreToolUse` hook block is labeled `permission-rule`, and only the `tool_result` text names the hook. **233 lines** carry it in [`scan-2026-09-23.json`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/format-scan/scan-2026-09-23.json), one `tool_result` block per line (the per-line and block-weighted counts agree at 233). Provenance: [`system` § Hook-execution fields](#hook-execution-fields) for the scan; the values table below for the probe. |
+| `toolDenialKind` | string (optional) | A top-level key, beside `message` rather than inside it, on the `user` line that closes a **denied** tool call. The `tool_result` block on the same line carries `is_error: true`. The value names **who denied the call**: a rule (which includes a hook), the user, or auto mode. Four values are observed; see [`toolDenialKind` values](#tooldenialkind-values) below. It does **not** separate a hook from a settings rule: a `PreToolUse` hook block is labeled `permission-rule`, and only the `tool_result` text names the hook. From v2.1.299 at least, [`permissionDecision`](#permissiondecision-values) on the same line does separate them. Not every denial carries the key: a settings deny rule on `Read` leaves none (see the [correction](#tooldenialkind-correction-2026-10-16) below). **233 lines** carry it in [`scan-2026-09-23.json`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/format-scan/scan-2026-09-23.json), one `tool_result` block per line (the per-line and block-weighted counts agree at 233). Provenance: [`system` § Hook-execution fields](#hook-execution-fields) for the scan; the values table below for the probe. |
+| `permissionDecision` | object (optional) | `{decision, source, reasonType}`, a top-level key on the `user` line that closes a tool call, allowed or denied. Records which layer decided: a hook, a settings rule or mode, or the user. In one capture session it was on 12 of the 13 tool-result lines; the exception was the `Read` stopped by a deny rule (see the correction below). See [`permissionDecision` values](#permissiondecision-values) below. Not documented upstream. |
 
 #### `toolDenialKind` values
 
@@ -159,7 +161,36 @@ Top-level fields are those listed in [Common fields](#common-fields). Two option
 
 **Dating.** The earliest version carrying any value is v2.1.199 (`user-rejected`); `permission-rule` first appears at v2.1.201, `automode-blocked` at v2.1.232, `automode-unavailable` at v2.1.246. That fits the Claude Code CHANGELOG at **v2.1.193**, "Added auto-mode denial reasons to the transcript" ([format-watch F-025](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/.claude/specs/research/jsonl-format-watch.md)). First-seen versions in one person's corpus are an upper bound on when a value was introduced, not the introduction itself.
 
-**The `toolDenialKind` row and values table are not covered by this section's v2.1.150 stamp.** Their evidence is the scan and probe above, aggregated across versions, so they neither re-stamp this section nor inherit its banner, and the sweep in [#231](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/231) should leave them alone.
+#### `toolDenialKind` correction, 2026-10-16
+
+**Verified against Claude Code v2.1.299** ([#299](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/299)), in one capture session. Its evidence is a single run, not the scan or probe above.
+
+The row above reads "a rule (which includes a hook)" as if every rule denial carried `permission-rule`. One kind does not. A settings deny rule on `Read` (`"Read(./denied-by-rule.txt)"`) produced the `tool_result` error "File is in a directory that is denied by your permission settings." with:
+
+- no `toolDenialKind` and no `permissionDecision` on the closing `user` line
+- no `PreToolUse` hook firing, although a `"*"`-matcher hook was registered
+- no OpenTelemetry `tool_decision` event
+
+The rule is enforced in the Read tool's own path validation, before the permission pipeline that writes these keys. That `tool_result` text is the only record of the denial. Whether rule denials on other tools (a `Bash` rule, for example) carry `permission-rule` is untested. Evidence: [#295 capture findings](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/fixture-hooks/capture/README.md#what-these-runs-established), row 6.
+
+#### `permissionDecision` values
+
+**Verified against Claude Code v2.1.299 and v2.1.301**, in the four [#295 capture sessions](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/fixture-hooks/capture/README.md#what-these-runs-established) (row 5). The value set comes from four short sessions, so it is not complete. Values were read from sanitized session files as closed-vocabulary labels only.
+
+| `decision` | `source` | `reasonType` | When |
+|---|---|---|---|
+| `reject` | `hook` | `hook` | A `PreToolUse` hook denied the call, `command` and `http` hooks alike. `toolDenialKind: "permission-rule"` is also present |
+| `accept` | `hook` | `hook` | A hook returned allow, or allow with `updatedInput` |
+| `accept` | `user_temporary` | `null` | The user picked the plain **Yes** at a permission prompt, including one a hook raised with `ask` |
+| `accept` | `config` | `mode` | No hook decided. This covers a hook that chose to stay silent, **and also a hook that crashed, timed out, or got an HTTP error** |
+| `accept` | `config` | `subcommandResults` | A `Bash` call allowed by settings after per-subcommand checks |
+| `accept` | `config` | `null` | Once: the `Agent` call that launched a subagent. No hook decided, as in the `mode` row; why `reasonType` is `null` here is open |
+
+The `source` values match the `source` attribute on the OpenTelemetry [`claude_code.tool_decision`](https://code.claude.com/docs/en/monitoring-usage) event, whose documented set also includes `user_permanent`, `user_abort` and `user_reject`. Those were not observed here.
+
+**The `config`/`mode` row is the one to read carefully.** A `PreToolUse` hook that failed and one that allowed silently leave the same record, and nothing else in the session file separates them: no `hookInfos` or `hookErrors` is written for a `PreToolUse` failure. Telemetry does separate them; see [Where a hook outcome is recorded](#where-a-hook-outcome-is-recorded).
+
+**The `toolDenialKind` row and values table, the correction, and the `permissionDecision` row and values are not covered by this section's v2.1.150 stamp.** The `toolDenialKind` evidence is the scan and probe above, aggregated across versions; the correction and `permissionDecision` carry their own stamps. None of them re-stamps this section or inherits its banner, and the sweep in [#231](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/231) should leave them alone.
 
 `toolDenialKind` is **user-side**. The top-level tool-linkage keys on `system` lines — `toolUseID` and its relatives — are cataloged separately under [#93](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/93); the two sets do not overlap and neither owns the other's keys.
 
@@ -303,6 +334,8 @@ When configured hooks fire, Claude Code records the outcome on a `system` line. 
 | `hookAdditionalContext` | string | The `additionalContext` string a `Stop`/`SubagentStop` hook injected back into context, recorded on disk. **Not rare — 2,981 `system` lines carry it**, against 3,964 for each of the six other fields in this table and 10,429 `system` lines in the corpus. Read those as three separate line counts, not as a nesting: the scanner tallies each key per line and never joins them, so the 2,981 cannot be shown to sit *inside* the 3,964. The on-disk trace of the hook **response** contract — see [Hook response schema](#hook-response-schema). |
 
 These lines are frequently accompanied by a top-level `toolUseID` linking the hook run to the tool call that triggered it (for `PreToolUse`/`PostToolUse` hooks); the top-level tool-linkage keys are cataloged separately ([#93](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/93)).
+
+For what a `PreToolUse` or `PostToolUse` firing leaves outside the session file, and what it leaves on the `user` line instead, see [Where a hook outcome is recorded](#where-a-hook-outcome-is-recorded).
 
 #### API-retry and inline-error fields
 
@@ -684,6 +717,31 @@ The W3 roadmap (issue #7) flagged `duration_ms` (v2.1.119) and `background_tasks
 | `Stop` | listed as common fields only | `stop_hook_active`, `last_assistant_message`, `background_tasks`, `session_crons` |
 
 The same pass also listed `post-session` as an event. It is a self-hosted runner lifecycle hook; see the note under the event table.
+
+### Where a hook outcome is recorded
+
+**Verified against Claude Code v2.1.299 and v2.1.301** ([#295](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/295), [#299](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/299)). The evidence is four capture sessions and a two-run probe in a scratch project. Telemetry went to a local OTLP sink that keeps attribute values only on an allowlist, and the debug log was read through a parser that prints only ids, numbers and fixed labels. Event and attribute names match the [monitoring docs](https://code.claude.com/docs/en/monitoring-usage) as read on 2026-10-16, except where noted. Per-finding evidence: the [capture findings table](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/tooling/fixture-hooks/capture/README.md#what-these-runs-established).
+
+The payload above is what a hook receives. What a firing leaves behind is spread across three records: the session file, Claude Code's OpenTelemetry events, and the debug log written by `--debug-file` (from v2.1.296). For `PreToolUse` and `PostToolUse` hooks, the session file holds the least.
+
+| Question | Session JSONL | OpenTelemetry events | `--debug-file` log |
+|---|---|---|---|
+| Did a hook fire? | Only for `Stop`/`SubagentStop`, on `system` lines ([Hook-execution fields](#hook-execution-fields)) | `claude_code.hook_execution_start` and `_complete`, one pair per hook event covering every matching hook, allows included | One `Hooks:` line per `command` hook per firing. None for `http` or `prompt` hooks |
+| What did it decide? | [`permissionDecision`](#permissiondecision-values) (v2.1.299 at least); [`toolDenialKind`](#tooldenialkind-values) on denials | `claude_code.tool_decision`: `decision` and `source` (`hook`, `config`, `user_temporary`, …). `num_blocking` on `_complete`, with the `http` caveat below | The line's outcome and exit status, for `command` hooks |
+| Did it fail or time out? | **Nothing** for `PreToolUse`: the same `permissionDecision` as a silent allow | `num_non_blocking_error` for a crash, a refused connection or an HTTP 500. `num_cancelled` for a timeout (about 5020 ms against `timeout: 5`). A hook that returns no decision counts as `num_success` | Outcome `timed out` or a non-zero status, for `command` hooks |
+| Which hook? | `hookInfos` on `Stop` lines; on a denial, only if the hook's own message names it | None per firing: `hook_source` is `"merged"` (or `"policySettings"`). `hook_definitions` needs detailed beta tracing. `claude_code.hook_registered` inventories configured hooks | The command, per line |
+| How long? | `durationMs` on `Stop` lines | `total_duration_ms`, for all matching hooks together | Per `command` hook |
+| Joins to the transcript by | `tool_use` id | `tool_decision.tool_use_id`, which matched a transcript `tool_use` id in 13 of 13 cases. The hook events carry no `tool_use_id`: join them through `event.sequence` and timestamps | Timestamps only |
+
+Caveats from the capture runs:
+
+- **An `http` hook's deny counts as `num_success: 1, num_blocking: 0`.** A `command` hook's JSON deny counts as `num_blocking: 1`, and `tool_decision` records both as `reject`/`hook`. The docs' recipe for "Policy hook blocked an action" (`hook_execution_complete`, `num_blocking`) would miss `http` denials. Count denials from `tool_decision`. Capture row 7.
+- **`hook_registered` lists hooks that never run.** Under `--setting-sources project,local`, user-level hooks still appear in `hook_registered` (as `hook_source: "userSettings"`) and in `/hooks`, but they do not fire: a guard that denied a read without the flag let it through with the flag, and the debug log had no `Hooks:` line for it. The docs describe the event as logged "once per configured hook at session start", which matches; it is an inventory, not evidence of execution. Capture row 1.
+- **`prompt` hook model calls appear as `claude_code.api_request` with `query_source: "hook_prompt"`**, with tokens and `cost_usd`. The docs do not list that value. They do say the metrics category `"subagent"` "also counts requests from agent-based hooks." Capture row 14.
+- **Hooks inside a subagent** are not marked on the hook events, which carry no agent attribute. The hook's own input carries `agent_id` and `agent_type`, per the [common fields](#common-fields-all-events) above. Capture row 15.
+- **Timeouts are silent in the UI.** A crashed `command` hook and an `http` hook that is unreachable or returns 500 show a hook-error notice. A timeout, `command` or `http`, shows none, and the model is told about none of these. An `http` hook's answer that arrives after its timeout is discarded. Capture rows 3 and 4.
+
+**Data safety.** Every OpenTelemetry record carries standard attributes that include `user.email`, `user.account_uuid` and `organization.id`, and `Hooks:` lines in the debug log carry each hook's full command. Treat both like a raw session file: never commit them, and publish only derived counts and names.
 
 ---
 
