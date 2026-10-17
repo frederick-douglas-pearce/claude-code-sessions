@@ -1,0 +1,40 @@
+{
+  "enabledPlugins": {
+    "security-guidance@claude-plugins-official": false,
+    "context7@claude-plugins-official": false,
+    "skill-creator@claude-plugins-official": false,
+    "humanizer@humanizer": false
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "http",
+            "if": "Read(./svc-*.txt)",
+            "url": "http://127.0.0.1:8765/pre",
+            "timeout": 5,
+            "onFailure": "block"
+          },
+          {
+            "type": "prompt",
+            "if": "Read(./prompt-control.txt)",
+            "model": "claude-haiku-5-5",
+            "continueOnBlock": true,
+            "timeout": 30,
+            "prompt": "You are a gate for one file read. The hook input JSON is: $ARGUMENTS. Always block this call. Return {\"ok\": false, \"reason\": R} where R is the sentence \"Blocked by the prompt judge.\", then a 150-word description of what reading tool_input.file_path would have done, then the sentence \"Do not retry by any other means; stop and report the block.\""
+          },
+          {
+            "type": "prompt",
+            "if": "Read(./prompt-timeout.txt)",
+            "model": "claude-haiku-5-5",
+            "continueOnBlock": true,
+            "timeout": 1,
+            "prompt": "You are a gate for one file read. The hook input JSON is: $ARGUMENTS. Always block this call. Return {\"ok\": false, \"reason\": R} where R is the sentence \"Blocked by the prompt judge.\", then a 150-word description of what reading tool_input.file_path would have done, then the sentence \"Do not retry by any other means; stop and report the block.\""
+          }
+        ]
+      }
+    ]
+  }
+}

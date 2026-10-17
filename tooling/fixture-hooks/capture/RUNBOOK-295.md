@@ -56,7 +56,7 @@ chmod 600 ~/.config/hook-judge/key
 
 ## Every session
 
-Replace `sN` with the session's tag (`s1`, `s1b`, `s2`, `s3`).
+Replace `sN` with the session's tag (`s1`, `s1b`, `s2`, `s3`, `s4`, `s5`).
 
 1. Make sure no `claude` is running in this directory. Hooks hot-reload, so a
    settings swap mid-session changes the experiment under you.
@@ -153,6 +153,90 @@ export JUDGE_KEY_FILE=~/.config/hook-judge/key
 
 Afterward, `./make-sentinels.sh` restores anything 3.2 removed.
 
+## S4 and S5: can a hook fail closed? (#303)
+
+[#303](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/303)
+tests which hook failures can be turned into a deny. Claude Code v2.1.295 added
+`onFailure: "block"` for `command` and `http` hooks: the hooks reference says a
+hook that cannot start, exits with a code other than 0 or 2, gets an HTTP error,
+times out or prints invalid output then blocks the call. S4 and S5 check that
+claim, and what each blocked call leaves in the session file. They also run the
+older in-hook ways to fail closed, and the cases `onFailure` does not reach.
+They need Claude Code v2.1.300 or later: `onFailure` arrived in v2.1.295 and the
+`updatedInput` validation that steps 4.9 and 4.10 test in v2.1.300.
+
+Both sessions scope hooks to single files with the handler `if` field, so one
+session can hold handlers that behave differently. **Before S4, refresh the kit**,
+because the dispatcher, the sentinels and `analyze.py` changed:
+
+```bash
+cd ~/scratch/hook-capture && cp "$REPO"/tooling/fixture-hooks/capture/*.py \
+   "$REPO"/tooling/fixture-hooks/capture/*.sh "$REPO"/tooling/fixture-hooks/capture/settings-s*.json . \
+   && ./make-sentinels.sh && ls no-such-hook.* 2>/dev/null
+```
+
+The last command must print nothing: S4's missing-script cases depend on those
+files not existing.
+
+### S4: `command` hooks
+
+`settings-s4.json` registers, on `PreToolUse` `Read`:
+- the dispatcher with `--set s4`, `timeout: 5` and `onFailure: "block"`, on every
+  Read
+- a fail-open control: the dispatcher with `--set s4-open` and no `onFailure`,
+  only on `crash-open.txt`
+- `python3` on a script that does not exist, no `onFailure`, only on
+  `missing-script.txt`
+- an executable that does not exist, no `onFailure`, only on `missing-exe.txt`
+- the same missing executable with `onFailure: "block"`, only on
+  `missing-exe-block.txt`
+
+For every step, note the outcome, any notice word for word, and what the model
+reports it was told.
+
+| # | Type the Read sentence with this file | Expect |
+| --- | --- | --- |
+| 4.0 | `plain-1.txt` | `sentinel: plain-1.txt`, with **no hook error notice**. A notice here means the `if` filters are not working and every handler ran: stop |
+| 4.1 | `forbidden.txt` | Denied with the dispatcher's reason. The `onFailure` handler still decides normally |
+| 4.2 | `crash-open.txt` | A hook error notice, then `sentinel: crash-open.txt`. The default still fails open on this version |
+| 4.3 | `crash.txt` | Blocked. The error should include `failed; blocking because onFailure is "block"` |
+| 4.4 | `slow.txt` | About a 5 second pause, then blocked, with `timed out` in the error. **Then wait 25 seconds** |
+| 4.5 | `badschema.txt` | Blocked: the hook printed JSON with an invalid `permissionDecision`. Record the error |
+| 4.6 | `raise-closed.txt` | Denied, with a reason saying the check raised. The hook caught its own failure |
+| 4.7 | `deadline-closed.txt` | About a 3 second pause, then denied, with a reason saying the check missed its internal deadline |
+| 4.8 | `exit2.txt` | Blocked, with the reason `Blocked by the dispatcher with exit code 2` |
+| 4.9 | `rewrite-unknown-key.txt` | `sentinel: rewrite-target.txt`. The hook swapped the path and added a key Read does not take; v2.1.300 says the key is dropped |
+| 4.10 | `rewrite-invalid.txt` | Denied: the hook set `limit` to a string. v2.1.300 says input the tool rejects denies the call. Record the message |
+| 4.11 | `missing-script.txt` | Unknown, and the point of the step. `python3` exits 2 when its script is missing, and exit 2 is a block, so this may block with Python's `can't open file` message even without `onFailure` |
+| 4.12 | `missing-exe.txt` | A notice like `Failed with non-blocking status code: ... No such file or directory`, then `sentinel: missing-exe.txt` |
+| 4.13 | `missing-exe-block.txt` | Blocked, with `failed; blocking because onFailure is "block"` |
+| 4.14 | In a spare terminal: `cd ~/scratch/hook-capture && touch .hookcap-off`. Then `forbidden-2.txt` | **`sentinel: forbidden-2.txt`**: the kill switch makes the dispatcher allow a file it would deny. Then `cd ~/scratch/hook-capture && rm .hookcap-off` |
+
+### S5: `http` and `prompt` hooks
+
+`settings-s5.json` registers, on `PreToolUse` `Read`:
+- the S2 `http` hook with `onFailure: "block"`, only on `svc-*.txt`. The guard
+  answers those with an empty 2xx, which allows, so any block in S5 comes from a
+  failure
+- two `prompt` hooks on Haiku with the same always-block prompt, which asks for a
+  150-word reason so the model call takes a few seconds. One has `timeout: 30`,
+  only on `prompt-control.txt`; the other `timeout: 1`, only on
+  `prompt-timeout.txt`. `onFailure` does not apply to `prompt` hooks
+
+Start the guard in terminal C before step 4 of the routine:
+`python3 http_guard.py --tag s5 --mode up`.
+
+| # | Do this, then type the Read sentence with the file | Expect |
+| --- | --- | --- |
+| 5.0 | Guard up. `svc-1.txt` | `sentinel: svc-1.txt`. Terminal C prints `-> 200 no-decision` |
+| 5.1 | Ctrl+C the guard. `svc-2.txt` | Blocked, with `failed; blocking because onFailure is "block"`. Compare S2 step 2.2, where the same failure let the read through |
+| 5.2 | Terminal C: `python3 http_guard.py --tag s5 --mode 500`. `svc-3.txt` | Blocked. Terminal C prints `-> 500` |
+| 5.3 | Ctrl+C, then `--mode slow`. `svc-4.txt`. Wait 25 seconds after the result | About a 5 second pause, then blocked, with `timed out` |
+| 5.4 | `prompt-control.txt` | A few seconds, then blocked with a reason starting `Blocked by the prompt judge.` |
+| 5.5 | `prompt-timeout.txt` | Unknown. Blocked with the judge's reason means the call beat the 1 second timeout; the file's contents mean the timeout failed open. Record any notice word for word |
+
+Ctrl+C the guard after 5.5.
+
 ## Pre-flight P1: do user hooks run under `--setting-sources`?
 
 A two-run check that needs no sink. It reads a file your user-level
@@ -198,6 +282,9 @@ command hook. So the flag drops user hooks, even though `/hooks` lists them.
    session again (after a sanitizer upgrade, say), add `--force` to the
    `ccs-sanitize` calls. It only allows the overwrite and changes nothing about
    what is scrubbed.
+
+   For S4 and S5 the tags are `s4` and `s5`; neither runs a subagent, so the
+   second loop is not needed.
 
    Check each sidecar's `rules_applied`. `remap_uuids` must be off, or the
    `tool_use_id` joins break.

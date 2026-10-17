@@ -149,6 +149,7 @@ def test_analyze_emits_no_canary(tmp_path, capsys):
              "input": {"file_path": f"/home/{CANARY}/secret-{CANARY}.txt"}},
             {"type": "text", "text": f"{CANARY} assistant prose"}]}},
         {"type": "user", "toolDenialKind": f"{CANARY} kind", "toolUseResult": {"file": {"filePath": f"/x/{CANARY}"}},
+         "permissionDecision": {"decision": "reject", "source": f"{CANARY} source", "reasonType": "hook"},
          "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_0001abcd", "is_error": True,
                                   "content": f"{CANARY} result"}]}},
         {"type": "system", "subtype": "stop_hook_summary", "hookInfos": [{"command": f"/home/{CANARY}/h.py"}]},
@@ -162,6 +163,7 @@ def test_analyze_emits_no_canary(tmp_path, capsys):
     assert "Lines that failed to parse (torn appends): **1**" in out
     assert "**1** unparsed" in out and "**1** `[3P telemetry]` lines" in out
     assert "hook_prompt" in out and "| hook |" in out
+    assert "| reject/<other>/hook |" in out
 
 
 def test_analyze_refuses_raw_session_paths(tmp_path, monkeypatch, capsys):

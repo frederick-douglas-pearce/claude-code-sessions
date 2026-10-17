@@ -1,18 +1,19 @@
 # capture
 
-The #295 kit for comparing ways to record every hook decision. The procedure is
+The #295 kit for comparing ways to record every hook decision, extended for #303's fail-closed tests. The procedure is
 [`RUNBOOK-295.md`](RUNBOOK-295.md), and the design and its review are in
 [`.claude/specs/plan-295-hook-capture.md`](../../../.claude/specs/plan-295-hook-capture.md).
 Like the rest of `fixture-hooks/`, nothing here is registered in this repo.
 
 | File | Role |
 | --- | --- |
-| `dispatcher.py` | One `command` hook on every `PreToolUse` and `PostToolUse` call. Picks a route by file name (allow, ask, rewrite, deny, sleep, crash, or no decision) and logs each firing |
+| `dispatcher.py` | One `command` hook on every `PreToolUse` and `PostToolUse` call. Picks a route by file name (allow, ask, rewrite, deny, sleep, crash, or no decision) and logs each firing. `--set s4` adds #303's fail-closed routes, and a `.hookcap-off` file acts as a kill switch |
 | `otlp_sink.py` | Local OTLP/JSON receiver. Keeps attribute values only on an allowlist |
 | `http_guard.py` | The `http` hook's server, with `up`, `500` and `slow` modes |
 | `judge_client.py` | A `command` hook that judges a Bash call through the Anthropic SDK, beside a `prompt` hook doing the same |
 | `analyze.py` | Joins the hook logs, telemetry, the `--debug-file` `Hooks:` lines and a sanitized session. Prints ids, numbers and closed-vocabulary values only |
 | `settings-s1/s2/s3.json`, `env.sh`, `make-sentinels.sh` | Session settings, telemetry environment, sentinel files |
+| `settings-s4/s5.json` | #303's sessions: `onFailure: "block"` on `command` and `http` hooks, the in-hook alternatives, missing scripts, and a `prompt` hook timeout, each scoped to one file with `if` |
 | `tests/` | Unit and planted-canary contract tests: `python3 -m pytest tooling/fixture-hooks/capture/tests/` |
 
 ## What these runs established
