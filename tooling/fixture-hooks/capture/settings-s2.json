@@ -1,0 +1,22 @@
+{
+  "enabledPlugins": {
+    "security-guidance@claude-plugins-official": false,
+    "context7@claude-plugins-official": false,
+    "skill-creator@claude-plugins-official": false,
+    "humanizer@humanizer": false
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:8765/pre",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

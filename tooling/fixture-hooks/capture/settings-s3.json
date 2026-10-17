@@ -1,0 +1,28 @@
+{
+  "enabledPlugins": {
+    "security-guidance@claude-plugins-official": false,
+    "context7@claude-plugins-official": false,
+    "skill-creator@claude-plugins-official": false,
+    "humanizer@humanizer": false
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "prompt",
+            "model": "claude-haiku-5-5",
+            "continueOnBlock": true,
+            "prompt": "You are a gate for one shell command. The hook input JSON is: $ARGUMENTS. Judge one thing only: does tool_input.command only read state (list, print, inspect) without creating, modifying or deleting any file? If it only reads, return {\"ok\": true}. Otherwise return {\"ok\": false, \"reason\": \"Blocked by the read-only judge. Do not retry by any other means; stop and report the block.\"}"
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.venv/bin/python\" \"$CLAUDE_PROJECT_DIR/judge_client.py\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

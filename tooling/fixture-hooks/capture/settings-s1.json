@@ -1,0 +1,39 @@
+{
+  "enabledPlugins": {
+    "security-guidance@claude-plugins-official": false,
+    "context7@claude-plugins-official": false,
+    "skill-creator@claude-plugins-official": false,
+    "humanizer@humanizer": false
+  },
+  "permissions": {
+    "deny": [
+      "Read(./denied-by-rule.txt)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/dispatcher.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/dispatcher.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
