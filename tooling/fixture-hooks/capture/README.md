@@ -49,7 +49,7 @@ project. None of them is committed.
 
 ## Fixtures
 
-S1 is the one session committed, sanitized with `ccs-sanitize` 0.5.0. It ran on
+All four sessions are committed. S1 was sanitized with `ccs-sanitize` 0.5.0. It ran on
 v2.1.299, before the `api-request*` line types, and carries
 `permissionDecision` with all three `source` values seen in the series (`hook`,
 `config`, `user_temporary`), `toolDenialKind` on the hook deny, and
@@ -59,7 +59,30 @@ v2.1.299, before the `api-request*` line types, and carries
 | --- | --- |
 | [`hook-trace-dispatcher-decisions.jsonl`](../../../fixtures/sanitized/hook-trace-dispatcher-decisions.jsonl) | S1, steps 1.0 to 1.10 |
 | [`hook-trace-dispatcher-explore-subagent.jsonl`](../../../fixtures/sanitized/hook-trace-dispatcher-explore-subagent.jsonl) | S1's Explore subagent, step 1.10 |
+| [`hook-trace-dispatcher-small-task.jsonl`](../../../fixtures/sanitized/hook-trace-dispatcher-small-task.jsonl) | S1b, step 1b.1 |
+| [`hook-trace-http-hook-fail-open.jsonl`](../../../fixtures/sanitized/hook-trace-http-hook-fail-open.jsonl) | S2, steps 2.1 to 2.5 |
+| [`hook-trace-prompt-hook-and-api-judge.jsonl`](../../../fixtures/sanitized/hook-trace-prompt-hook-and-api-judge.jsonl) | S3, steps 3.0 to 3.2 |
 
-S1b, S2 and S3 ran on v2.1.301 and stay out of `fixtures/` until they are
-sanitized again under 0.6.0, which drops their `api-request*` lines
+S1b, S2 and S3 ran on v2.1.301 and were sanitized with 0.6.0, which drops their
+`api-request*` lines
 ([#298](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/298)).
+Each sidecar's `stripped_lines` counts them. All four sessions carry
+`cost-state`, a per-session cost rollup by model, and `atis-latch`; S1b also
+carries `file-history-delta` for the two files it wrote. None of the three is
+in `reference/` yet (format-watch F-027, F-028 and F-018).
+
+- **S1b** is the baseline: a task the model planned itself, with every call
+  passing through the dispatcher, which stayed silent. None of the four
+  closing lines names the hook. The Bash listing is credited to `config`
+  (`subcommandResults`), and the two writes and the test run to the user
+  (`user_temporary`).
+- **S2** is the fail-open record. Steps 2.2 to 2.4 (guard down, HTTP 500, late
+  answer) close with `{accept, config, mode}`, the same record as a silent
+  allow, while 2.1 and 2.5 are hook denies.
+- **S3** has two Bash calls the judges allowed and one they blocked
+  (`rm plain-1.txt`). Telemetry counted two blocking hooks on that call; the
+  session file keeps one reason. Its `cost-state` puts Haiku at $0.000552,
+  against $0.000131 in S1b and S2, where Haiku did only background work. The
+  difference is close to the $0.000427 telemetry put on the `prompt` hook's
+  three calls. The SDK client's calls go to the API outside Claude Code and
+  are not in it.
