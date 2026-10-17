@@ -46,3 +46,20 @@ never from raw session data.
 
 The raw logs, telemetry and session files behind these rows stay in the scratch
 project. None of them is committed.
+
+## Fixtures
+
+S1 is the one session committed, sanitized with `ccs-sanitize` 0.5.0. It ran on
+v2.1.299, before the `api-request*` line types, and carries
+`permissionDecision` with all three `source` values seen in the series (`hook`,
+`config`, `user_temporary`), `toolDenialKind` on the hook deny, and
+`session_id`.
+
+| Fixture | Source |
+| --- | --- |
+| [`hook-trace-dispatcher-decisions.jsonl`](../../../fixtures/sanitized/hook-trace-dispatcher-decisions.jsonl) | S1, steps 1.0 to 1.10 |
+| [`hook-trace-dispatcher-explore-subagent.jsonl`](../../../fixtures/sanitized/hook-trace-dispatcher-explore-subagent.jsonl) | S1's Explore subagent, step 1.10 |
+
+S1b, S2 and S3 ran on v2.1.301 and stay out of `fixtures/` until
+[#298](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/298)
+lands and they are sanitized again.
