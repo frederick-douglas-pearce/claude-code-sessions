@@ -29,7 +29,7 @@ never from raw session data.
 | 2 | A `PreToolUse` hook that crashes, times out, or gets an HTTP error leaves the same JSONL record as a hook that chose to stay silent: `permissionDecision {accept, config, mode}`, with no `hookInfos` or `hookErrors` | 2.1.299, 2.1.301 | 1.7, 1.8, 2.2–2.4 | sanitized JSONL |
 | 3 | A crash and an HTTP error show a UI notice. A timeout, `command` or `http`, shows none. The model is told about none of them | 2.1.299, 2.1.301 | 1.7, 1.8, 2.2–2.4 | screen notes |
 | 4 | An `http` hook that answers after its timeout is ignored: the guard's late deny was discarded and the read went through | 2.1.301 | 2.4 | `http-guard-s2.jsonl`, sanitized JSONL |
-| 5 | `user` lines carry `permissionDecision {decision, source, reasonType}`. `source: hook` separates a hook decision from `config` and `user_temporary`. Not in `reference/` yet ([#299](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/299)) | 2.1.299, 2.1.301 | all | sanitized JSONL |
+| 5 | `user` lines carry `permissionDecision {decision, source, reasonType}`. `source: hook` separates a hook decision from `config` and `user_temporary`. Documented in [`reference/data-dictionary.md`](../../../reference/data-dictionary.md#permissiondecision-values) ([#299](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/299)) | 2.1.299, 2.1.301 | all | sanitized JSONL |
 | 6 | A settings deny rule on `Read` is enforced in the tool's path validation: no `PreToolUse` firing, no `permissionDecision`, no `toolDenialKind`, no `tool_decision` event | 2.1.299 | 1.6 | sanitized JSONL, telemetry, dispatcher log |
 | 7 | Hook telemetry counts: a `command` JSON deny is `num_blocking: 1`, but an `http` JSON deny is `num_success: 1, num_blocking: 0`. Errors count as `num_non_blocking_error`, timeouts as `num_cancelled` at about 5020 ms | 2.1.299, 2.1.301 | 1.5, 1.7, 1.8, 2.1–2.5 | telemetry |
 | 8 | A timed-out `command` hook is sent SIGTERM | 2.1.299 | 1.7 | dispatcher log |
@@ -41,7 +41,7 @@ never from raw session data.
 | 14 | A `prompt` hook's call shows as `query_source: hook_prompt` and reads from the prompt cache. Three calls cost $0.000427 in all. The SDK client sent about 700 uncached input tokens per call and took 2.7 to 3.2 s | 2.1.301 | 3.1, 3.2 | telemetry, `judge-s3.jsonl` |
 | 15 | A subagent's hook input carries `agent_id` and `agent_type` (`Explore`), and its API calls carry `query_source: agent:builtin:Explore` in telemetry | 2.1.299 | 1.10 | dispatcher log, telemetry |
 | 16 | `PostToolUse` `num_hooks` exceeds the configured count (Read and Write by 1, Bash by 2, Agent by 0). Unexplained; likely internal callbacks | 2.1.299, 2.1.301 | S1, S1b | telemetry |
-| 17 | New line types `api-request`, `api-request-blob` and `api-request-shape` repeat request content, and the sanitizer passes them through ([#298](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/298)) | 2.1.301 | S1b, S2, S3 | sanitized JSONL key names |
+| 17 | New line types `api-request`, `api-request-blob` and `api-request-shape` repeat request content. Sanitizer 0.5.0 passed them through; 0.6.0 drops them by default ([#298](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/298)) | 2.1.301 | S1b, S2, S3 | sanitized JSONL key names |
 | 18 | `user` and `assistant` lines carry a snake_case `session_id` equal to `sessionId`. Subagent files do not | 2.1.299, 2.1.301 | all | sanitized JSONL |
 
 The raw logs, telemetry and session files behind these rows stay in the scratch
@@ -60,6 +60,6 @@ v2.1.299, before the `api-request*` line types, and carries
 | [`hook-trace-dispatcher-decisions.jsonl`](../../../fixtures/sanitized/hook-trace-dispatcher-decisions.jsonl) | S1, steps 1.0 to 1.10 |
 | [`hook-trace-dispatcher-explore-subagent.jsonl`](../../../fixtures/sanitized/hook-trace-dispatcher-explore-subagent.jsonl) | S1's Explore subagent, step 1.10 |
 
-S1b, S2 and S3 ran on v2.1.301 and stay out of `fixtures/` until
-[#298](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/298)
-lands and they are sanitized again.
+S1b, S2 and S3 ran on v2.1.301 and stay out of `fixtures/` until they are
+sanitized again under 0.6.0, which drops their `api-request*` lines
+([#298](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/298)).

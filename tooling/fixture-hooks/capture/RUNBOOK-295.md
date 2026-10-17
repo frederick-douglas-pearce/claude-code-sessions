@@ -199,9 +199,10 @@ command hook. So the flag drops user hooks, even though `/hooks` lists them.
 
    Sessions from v2.1.301 on carry `api-request`, `api-request-blob` and
    `api-request-shape` lines, which repeat the system prompt and message content.
-   The sanitizer passes them through until
-   [#298](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/298)
-   lands. Until then, their sanitized files stay in the scratch directory and do
+   The sanitizer drops them by default from 0.6.0
+   ([#298](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/298)).
+   Check that each sidecar records `sanitizer_version: 0.6.0` or later; a file
+   sanitized under an earlier version stays in the scratch directory and does
    not go into `fixtures/`.
 
 2. **Tell Claude the tags and that sanitizing is done.** Claude runs `analyze.py`

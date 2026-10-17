@@ -67,7 +67,7 @@ any older `0.x` line.
 
 | Version | Supported |
 |---|---|
-| Newest published release (currently `0.3.1`) | Yes, security fixes |
+| Newest published release (currently `0.6.0`) | Yes, security fixes |
 | Any earlier release | No. Upgrade to the newest release |
 
 "Newest published release" means the newest version on PyPI, which is not always the newest
