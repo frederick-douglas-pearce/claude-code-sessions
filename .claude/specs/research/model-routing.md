@@ -97,7 +97,10 @@ Evidence: [`tooling/fixture-hooks/capture/README.md`](https://github.com/frederi
 - Two judges in parallel put 2.8 to 3.4 s before every Bash call. Latency, not price, may be the binding cost of model-judged hooks.
 - A Python `command` hook costs about 63 ms per firing from Claude Code's side.
 - Auxiliary model calls are not small. In one session, `prompt_suggestion` cost $0.048 against $0.171 for the main thread.
-- A failed hook (crash, timeout, unreachable server) fails open, and in the session file it looks like an allow.
+- A failed hook (crash, timeout, unreachable server) fails open by default, and in the session file it looks like an allow.
+  The [hooks reference](https://code.claude.com/docs/en/hooks#block-the-action-when-a-hook-fails) documents
+  `onFailure: "block"` (v2.1.295+) on `command` and `http` hooks to make those failures block instead; #295's
+  sessions did not set it. `prompt` and `agent` hooks have no such field. #303 (PR #309) tests both.
 
 ## Measuring cost honestly
 
