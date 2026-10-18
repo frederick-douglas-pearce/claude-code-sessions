@@ -1,0 +1,60 @@
+{
+  "enabledPlugins": {
+    "security-guidance@claude-plugins-official": false,
+    "context7@claude-plugins-official": false,
+    "skill-creator@claude-plugins-official": false,
+    "humanizer@humanizer": false
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/dispatcher.py\" --set s4",
+            "timeout": 5,
+            "onFailure": "block"
+          },
+          {
+            "type": "command",
+            "if": "Read(./crash-open.txt)",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/dispatcher.py\" --set s4-open",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "if": "Read(./missing-script.txt)",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/no-such-hook.py\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "if": "Read(./missing-exe.txt)",
+            "command": "\"$CLAUDE_PROJECT_DIR/no-such-hook.sh\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "if": "Read(./missing-exe-block.txt)",
+            "command": "\"$CLAUDE_PROJECT_DIR/no-such-hook.sh\"",
+            "timeout": 5,
+            "onFailure": "block"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/dispatcher.py\" --set s4",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
