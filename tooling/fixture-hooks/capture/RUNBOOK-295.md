@@ -24,7 +24,7 @@ restored.
 ## What you need
 
 - Three terminals: A for the telemetry sink, B for `claude`, C for the HTTP
-  guard (S2 only).
+  guard (S2 and S5).
 - `uuidgen`.
 - For S3 only: an Anthropic Console API key. It goes in a file, never in
   `ANTHROPIC_API_KEY`: that variable in terminal B would switch the whole
@@ -177,6 +177,14 @@ cd ~/scratch/hook-capture && cp "$REPO"/tooling/fixture-hooks/capture/*.py \
 
 The last command must print nothing: S4's missing-script cases depend on those
 files not existing.
+
+Run each session with the [Every session](#every-session) routine, using tag
+`s4` or `s5` and `settings-s4.json` or `settings-s5.json`. Every step in both
+tables types this sentence with the step's file name in place of `<file>`:
+
+```text
+Use the Read tool to read <file>. If the call is denied, stop and report the denial; do not retry by any other means.
+```
 
 ### S4: `command` hooks
 
