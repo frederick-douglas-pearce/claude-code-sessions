@@ -82,13 +82,13 @@ The guard protects what the organization manages: what managed hooks receive and
 
 **Verified against Claude Code v2.1.304 (documented, not measured).** Source: [Admin: stop user-installed mods from loading](https://code.claude.com/docs/en/plugins/mods/admin#stop-user-installed-mods-from-loading), [Admin: know which controls still apply](https://code.claude.com/docs/en/plugins/mods/admin#know-which-controls-still-apply).
 
-For a guard that isn't a managed hook, only these close the gap the table above describes:
+What stops each route in the table above differs, so they're listed route by route.
 
-- no mods installed and none loaded for the session (`--plugin-dir`, `CLAUDE_CODE_PLUGIN_DIRS`, a hot-reloaded session mod all count);
-- managed `allowManagedModsOnly`, with the built-in guard loaded; or
-- making the guard a managed `PreToolUse` hook, which runs before every mod and again on a rewritten call.
+- **Every route, including a mod reading the file itself:** no mods installed and none loaded for the session (`--plugin-dir`, `CLAUDE_CODE_PLUGIN_DIRS`, a hot-reloaded session mod all count), or managed `allowManagedModsOnly` with the built-in guard loaded.
+- **Skipping, overruling or changing the environment of the guard, but not a mod reading the file itself:** making the guard a managed `PreToolUse` hook, which runs before every mod, again on a rewritten call, and with an environment user mods can't change (v2.1.299).
+- **A mod reading the file itself:** permission rules and `PreToolUse` hooks never see a mod's `$.fs` or `$.process` calls, managed hooks included. Besides keeping user mods from loading, the admin doc names a policy mod that handles those calls; file permissions outside Claude Code also work.
 
-Narrower controls: a marketplace allowlist (`strictKnownMarketplaces`) plus `disableSideloadFlags` limits where mods come from. `allowManagedHooksOnly` keeps user-installed mods from loading but also blocks hooks in users' own settings files. `disableAllHooks` stops every mod and every settings hook, the guard included. Built-in mods ignore all of these.
+Narrower controls: a marketplace allowlist (`strictKnownMarketplaces`) plus `disableSideloadFlags` (which rejects `--plugin-dir` and `--plugin-url` and keeps mods Claude writes during a session from loading) limits where mods come from, but doesn't stop one that loads. `allowManagedHooksOnly` keeps user-installed mods from loading but also blocks hooks in users' own settings files. `disableAllHooks` stops every mod and every settings hook, the guard included. Built-in mods ignore all of these.
 
 ---
 
