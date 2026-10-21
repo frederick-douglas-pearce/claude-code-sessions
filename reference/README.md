@@ -13,6 +13,7 @@ This directory is the **source of truth**. Sibling projects ([AgentFluent](https
 | `format-version-history.md` | Observed format changes over time, tied to Claude Code versions | Not yet started |
 | `session-storage.md` | Where session files live, the 30-day `cleanupPeriodDays` auto-deletion, how to retain sessions | Written; verified v2.1.181 |
 | `subagent-traces.md` | The `subagents/` directory layout, sidechain pattern, `agentId` linking | Written; sections verified v2.1.150 |
+| `tool-call-precedence.md` | The order of managed hooks, mods, settings hooks and permission rules on a tool call; when the built-in `sec-default` guard loads; what a user-installed mod can do in each case | Written; documented (not measured) against v2.1.304 |
 | `tool-invocation.md` | The `Agent` tool, `tool_use` / `tool_result` pairing, `toolUseResult` metadata envelope | Written; sections verified v2.1.150 |
 
 ## Verification discipline
