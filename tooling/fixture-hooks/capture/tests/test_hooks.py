@@ -18,13 +18,14 @@ import pytest
 
 from conftest import KIT
 
+import dispatcher
 import http_guard
 import judge_client
 
 
-def run_dispatcher(tmp_path, payload, timeout=10):
+def run_dispatcher(tmp_path, payload, timeout=10, args=()):
     env = {"CLAUDE_PROJECT_DIR": str(tmp_path), "HOOKCAP_TAG": "t", "PATH": "/usr/bin:/bin"}
-    proc = subprocess.run([sys.executable, str(KIT / "dispatcher.py")], input=json.dumps(payload),
+    proc = subprocess.run([sys.executable, str(KIT / "dispatcher.py"), *args], input=json.dumps(payload),
                           text=True, env=env, capture_output=True, timeout=timeout)
     lines = (tmp_path / "dispatch-t.jsonl").read_text().splitlines()
     return proc, [json.loads(line) for line in lines]
@@ -111,6 +112,106 @@ def test_parallel_appends_are_whole_lines(tmp_path):
     lines = (tmp_path / "dispatch-t.jsonl").read_text().splitlines()
     assert len(lines) == 32
     assert all(json.loads(line) for line in lines)
+
+
+# --- #303 fail-closed routes -------------------------------------------------
+
+S4 = ("--set", "s4")
+
+
+def decision_of(proc):
+    return json.loads(proc.stdout)["hookSpecificOutput"]
+
+
+@pytest.mark.parametrize("name,label,phrase", [
+    ("raise-closed.txt", "deny-on-exception", "the check raised"),
+    ("deadline-closed.txt", "deny-on-deadline", "missed its internal deadline"),
+])
+def test_fail_closed_routes_deny(tmp_path, name, label, phrase):
+    start = time.monotonic()
+    proc, lines = run_dispatcher(tmp_path, read_payload(name), args=S4)
+    elapsed = time.monotonic() - start
+    out = decision_of(proc)
+    assert proc.returncode == 0
+    assert out["permissionDecision"] == "deny" and phrase in out["permissionDecisionReason"]
+    assert lines[1]["decision"] == label and lines[0]["route_set"] == "s4"
+    # The deadline route must answer well inside the 5 s hook timeout.
+    assert elapsed < 4.5
+
+
+def test_exit2_blocks_with_stderr_and_no_json(tmp_path):
+    proc, lines = run_dispatcher(tmp_path, read_payload("exit2.txt"), args=S4)
+    assert proc.returncode == 2 and proc.stdout == ""
+    assert "exit code 2" in proc.stderr
+    assert [line["phase"] for line in lines] == ["enter", "exit"] and lines[1]["exit_code"] == 2
+
+
+def test_badschema_is_json_with_an_invalid_decision(tmp_path):
+    proc, _ = run_dispatcher(tmp_path, read_payload("badschema.txt"), args=S4)
+    assert proc.returncode == 0 and decision_of(proc)["permissionDecision"] == "maybe"
+
+
+def test_rewrite_unknown_key_swaps_the_path_and_adds_a_key(tmp_path):
+    proc, _ = run_dispatcher(tmp_path, read_payload("rewrite-unknown-key.txt"), args=S4)
+    updated = decision_of(proc)["updatedInput"]
+    assert updated == {"file_path": "/scratch/rewrite-target.txt", "hookcap_extra": "unknown key"}
+
+
+def test_rewrite_invalid_sets_a_limit_read_rejects(tmp_path):
+    proc, _ = run_dispatcher(tmp_path, read_payload("rewrite-invalid.txt"), args=S4)
+    assert decision_of(proc)["updatedInput"] == {"file_path": "/scratch/rewrite-invalid.txt", "limit": "ten"}
+
+
+@pytest.mark.parametrize("args,name,route", [
+    ((), "crash-open.txt", "no-decision"),            # s1 does not route it
+    (("--set", "s4-open"), "crash-open.txt", "crash"),
+    (("--set", "s4-open"), "crash.txt", "no-decision"),
+    (S4, "crash-open.txt", "no-decision"),            # the block-on-failure handler ignores the control's file
+    (S4, "allow.txt", "no-decision"),                 # s4 drops the s1-only routes
+    (("--set", "bogus"), "allow.txt", "allow"),       # an unknown set falls back to s1
+])
+def test_route_sets_are_disjoint_where_they_must_be(tmp_path, args, name, route):
+    _, lines = run_dispatcher(tmp_path, read_payload(name), args=args)
+    assert lines[0]["route"] == route
+
+
+def test_killswitch_allows_even_a_deny_route_and_logs_why(tmp_path):
+    (tmp_path / ".hookcap-off").write_text("")
+    proc, lines = run_dispatcher(tmp_path, read_payload("forbidden.txt"), args=S4)
+    assert proc.returncode == 0 and proc.stdout == ""
+    assert lines[0]["route"] == "killswitch" and lines[1]["decision"] == "no-decision"
+
+
+def test_s4_settings_wire_the_cases():
+    settings = json.loads((KIT / "settings-s4.json").read_text())
+    pre = settings["hooks"]["PreToolUse"][0]["hooks"]
+    main = pre[0]
+    assert "--set s4" in main["command"] and main["onFailure"] == "block" and "if" not in main
+    by_if = {h["if"]: h for h in pre[1:]}
+    assert set(by_if) == {"Read(./crash-open.txt)", "Read(./missing-script.txt)",
+                          "Read(./missing-exe.txt)", "Read(./missing-exe-block.txt)"}
+    assert "onFailure" not in by_if["Read(./crash-open.txt)"]
+    assert "onFailure" not in by_if["Read(./missing-script.txt)"]
+    assert "onFailure" not in by_if["Read(./missing-exe.txt)"]
+    assert by_if["Read(./missing-exe-block.txt)"]["onFailure"] == "block"
+    # The missing scripts must stay missing.
+    assert not (KIT / "no-such-hook.py").exists() and not (KIT / "no-such-hook.sh").exists()
+
+
+def test_s5_settings_wire_the_cases():
+    settings = json.loads((KIT / "settings-s5.json").read_text())
+    pre = {h["if"]: h for h in settings["hooks"]["PreToolUse"][0]["hooks"]}
+    assert pre["Read(./svc-*.txt)"]["type"] == "http" and pre["Read(./svc-*.txt)"]["onFailure"] == "block"
+    assert pre["Read(./prompt-control.txt)"]["timeout"] == 30
+    assert pre["Read(./prompt-timeout.txt)"]["timeout"] == 1
+    assert pre["Read(./prompt-control.txt)"]["prompt"] == pre["Read(./prompt-timeout.txt)"]["prompt"]
+
+
+def test_every_routed_file_has_a_sentinel():
+    script = (KIT / "make-sentinels.sh").read_text()
+    for routes in dispatcher.ROUTE_SETS.values():
+        for name in routes:
+            assert name in script, name
 
 
 # --- http guard --------------------------------------------------------------

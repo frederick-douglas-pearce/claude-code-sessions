@@ -36,7 +36,8 @@ from datetime import datetime
 from pathlib import Path
 
 KNOWN_SCRIPTS = frozenset(
-    {"dispatcher.py", "judge_client.py", "block_secret_reads.py", "detect_secrets_in_output.py"}
+    {"dispatcher.py", "judge_client.py", "block_secret_reads.py", "detect_secrets_in_output.py",
+     "no-such-hook.py", "no-such-hook.sh"}
 )
 SENTINELS = frozenset(
     {
@@ -44,6 +45,12 @@ SENTINELS = frozenset(
         "allow.txt", "ask.txt", "rewrite.txt", "rewrite-target.txt", "forbidden.txt",
         "denied-by-rule.txt", "slow.txt", "crash.txt",
         *(f"forbidden-http-{i}.txt" for i in range(1, 6)),
+        # #303
+        "forbidden-2.txt", "crash-open.txt", "badschema.txt", "raise-closed.txt", "deadline-closed.txt", "exit2.txt",
+        "rewrite-unknown-key.txt", "rewrite-invalid.txt",
+        "missing-script.txt", "missing-exe.txt", "missing-exe-block.txt",
+        *(f"svc-{i}.txt" for i in range(1, 5)),
+        "prompt-control.txt", "prompt-timeout.txt",
     }
 )
 WORD = re.compile(r"^[A-Za-z*][A-Za-z0-9_.:*\-]*$")
@@ -516,16 +523,20 @@ def report_session(path: Path) -> list:
             elif block.get("type") == "tool_result":
                 result = rec.get("toolUseResult")
                 read_path = (result.get("file") or {}).get("filePath") if isinstance(result, dict) else None
+                pd = rec.get("permissionDecision") if isinstance(rec.get("permissionDecision"), dict) else {}
                 results[block.get("tool_use_id")] = (word(block.get("is_error")), sentinel(read_path),
-                                                     word(rec.get("toolDenialKind")))
+                                                     word(rec.get("toolDenialKind")),
+                                                     "/".join(word(pd.get(k)) for k in ("decision", "source", "reasonType"))
+                                                     if pd else "-")
     out.append(table(["type", "lines"], sorted(types.items())))
     out.append("")
     out.append("system subtypes: " + (", ".join(f"{k}={v}" for k, v in sorted(subtypes.items())) or "none"))
     out.append("hook-related keys (lines carrying each): " + ", ".join(f"{k}={v}" for k, v in hook_keys.items()))
     out.append("toolDenialKind values: " + (", ".join(f"{k}={v}" for k, v in sorted(denial_kinds.items())) or "none"))
     out.append("")
-    out.append(table(["tool_use_id", "tool", "input file", "is_error", "file actually read", "toolDenialKind"],
-                     [(tail(i), *uses[i], *results.get(i, ("-", "-", "-"))) for i in uses]))
+    out.append(table(["tool_use_id", "tool", "input file", "is_error", "file actually read", "toolDenialKind",
+                      "permissionDecision"],
+                     [(tail(i), *uses[i], *results.get(i, ("-", "-", "-", "-"))) for i in uses]))
     out.append("")
     return out
 
