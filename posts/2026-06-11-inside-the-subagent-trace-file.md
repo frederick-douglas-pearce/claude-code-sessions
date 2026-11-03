@@ -2,7 +2,7 @@
 layout: post
 title: "Inside the subagent trace file"
 date: 2026-06-11 00:00:00-0800
-description: "Part 3 of the anatomy series. When Claude Code delegates to a subagent, the parent session records only a rollup — the subagent's real work lives in a separate trace file. Where it is, how it links back, and why isSidechain is the field that matters."
+description: "Part 3 of the Reading Claude Code Sessions series. When Claude Code delegates to a subagent, the parent session records only a rollup — the subagent's real work lives in a separate trace file. Where it is, how it links back, and why isSidechain is the field that matters."
 categories: ["claude-code-sessions"]
 tags: ["claude-code", "agent-sdk", "jsonl", "sessions", "subagents", "foundation"]
 og_image: https://frederick-douglas-pearce.github.io/assets/img/inside-the-subagent-trace-file-og.png

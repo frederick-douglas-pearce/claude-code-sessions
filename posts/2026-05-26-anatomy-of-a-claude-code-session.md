@@ -250,7 +250,7 @@ Configure for your own retention preferences, not for what you hope the default 
 
 You've been writing JSONL session files every time you've used Claude Code. Now you know where they are, what's in them at a high level, and why every major session management feature you use is reading them directly.
 
-This is Part 1 of an ongoing series. Part 2 goes field by field: the full message-type taxonomy (`assistant`, `user`, the types most parsers skip entirely), why tool results live inside `user` messages rather than as their own type, the `toolUseResult` envelope on Agent invocations and why it uses camelCase when nothing else does, and how subagent traces relate to parent sessions.
+This is Part 1 of the Reading Claude Code Sessions series. Part 2 goes field by field: the full message-type taxonomy (`assistant`, `user`, the types most parsers skip entirely), why tool results live inside `user` messages rather than as their own type, the `toolUseResult` envelope on Agent invocations and why it uses camelCase when nothing else does, and how subagent traces relate to parent sessions.
 
 If you want to get into the field-level detail before Part 2 lands, the [reference documentation at `reference/data-dictionary.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/data-dictionary.md) is being populated alongside this post series. It's the canonical home for format documentation as this repo matures.
 

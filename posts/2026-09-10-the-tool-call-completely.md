@@ -2,7 +2,7 @@
 layout: post
 title: "The tool call, completely"
 date: 2026-09-10 00:00:00-0800
-description: "Part 5 of the anatomy series. The tool_use/tool_result cycle as the format's smallest complete unit, the toolUseResult envelope by tool, and three places a fresh corpus scan found the reference doc wrong: Bash's missing exit code, Read's nested shape, and how parallel tool calls actually show up on disk."
+description: "Part 5 of the Reading Claude Code Sessions series. The tool_use/tool_result cycle as the format's smallest complete unit, the toolUseResult envelope by tool, and three places a fresh corpus scan found the reference doc wrong: Bash's missing exit code, Read's nested shape, and how parallel tool calls actually show up on disk."
 categories: ["claude-code-sessions"]
 tags: ["claude-code", "jsonl", "sessions", "tools", "foundation"]
 og_image: https://frederick-douglas-pearce.github.io/assets/img/the-tool-call-completely-og.png

@@ -2,7 +2,7 @@
 layout: post
 title: "Reading a Claude Code session, line by line"
 date: 2026-06-04 00:00:00-0800
-description: "Part 2 of the anatomy series. Every type of line in a session JSONL, the snake_case/camelCase split that reveals two layers (API content wrapped in Claude Code's bookkeeping), and why tool results live inside user messages."
+description: "Part 2 of the Reading Claude Code Sessions series. Every type of line in a session JSONL, the snake_case/camelCase split that reveals two layers (API content wrapped in Claude Code's bookkeeping), and why tool results live inside user messages."
 categories: ["claude-code-sessions"]
 tags: ["claude-code", "agent-sdk", "jsonl", "sessions", "foundation"]
 og_image: https://frederick-douglas-pearce.github.io/assets/img/reading-a-claude-code-session-line-by-line-og.png
@@ -16,7 +16,7 @@ Open any Claude Code session JSONL file and one structural quirk jumps out withi
 
 It isn't — it's a tell. `snake_case` fields are generally content the Anthropic API defines: things the model produces and consumes. `camelCase` fields are envelope metadata that Claude Code's harness adds on top — session identifiers, parent UUIDs, tool-invocation rollups. Once that split clicks, the format stops looking messy and starts providing architectural insight: Anthropic API conversations are always wrapped in Claude Code's bookkeeping.
 
-This is Part 2 of the [Anatomy of a Claude Code session](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-05-26-anatomy-of-a-claude-code-session.md) series. Part 1 covered where session files live and what Claude Code itself uses them for. This post is the structural tour: every type of line you'll find inside a session, the two layers (API content and harness metadata) that compose them, why tool results live inside `user` messages, and what the `toolUseResult` envelope carries that the model never sees.
+This is Part 2 of the Reading Claude Code Sessions series. [Part 1](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-05-26-anatomy-of-a-claude-code-session.md) covered where session files live and what Claude Code itself uses them for. This post is the structural tour: every type of line you'll find inside a session, the two layers (API content and harness metadata) that compose them, why tool results live inside `user` messages, and what the `toolUseResult` envelope carries that the model never sees.
 
 By the end you'll have a mental model for every distinct `type` value in a session JSONL — including the many "metadata" types that most parsers silently drop — and three `jq` snippets to start asking your own questions of any session file on your disk.
 
