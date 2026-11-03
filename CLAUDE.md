@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `claude-code-sessions` is the canonical public reference for Claude Code's JSONL session data format. Three deliverables coexist in this repo:
 
-1. **Posts** (`posts/`) — an ongoing blog series for human readers, synced from this repo to a Jekyll-based GitHub Pages site.
+1. **Posts** (`posts/`) — the *Reading Claude Code Sessions* blog series for human readers, synced from this repo to a Jekyll-based GitHub Pages site.
 2. **Reference** (`reference/`) — authoritative format documentation; the data dictionary, schema notes, and format-version history that sibling projects link to.
 3. **Tooling** (`tooling/`) — the sanitizer that scrubs raw session data for safe publication, the format-scan scanner that watches for format drift, the publish/OG helpers that sync posts to the Pages site, the fixture-hooks that produce hook-trace fixtures, and the fixture validator (planned) that gates fixtures.
 
@@ -142,6 +142,6 @@ If you're working on AgentFluent or CodeFluent and find new format details, they
 
 ## Status
 
-Active. The foundation post series is publishing (several posts live in `posts/`), `reference/` is being filled in section by section, and the sanitizer (`tooling/sanitizer/`) and format-scan scanner (`tooling/format-scan/`) are built and test-covered. The fixture-validator is the main remaining tooling gap.
+Active. The *Reading Claude Code Sessions* series is publishing (several posts live in `posts/`), `reference/` is being filled in section by section, and the sanitizer (`tooling/sanitizer/`) and format-scan scanner (`tooling/format-scan/`) are built and test-covered. The fixture-validator is the main remaining tooling gap.
 
 The original roadmap lives at [`.claude/specs/roadmap-v0.md`](.claude/specs/roadmap-v0.md) — it captures the five work items (W1-W5) and is now largely historical, with most of its scope shipped (the first posts, the sanitizer, Pages sync) or in progress. Read the roadmap for original intent; track current work in [GitHub issues](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues).

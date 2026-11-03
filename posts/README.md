@@ -1,6 +1,10 @@
 # posts/
 
-Markdown sources for the `claude-code-sessions` blog series. Synced from this repo to a Jekyll-based GitHub Pages site via [CI workflow TBD].
+Markdown sources for **Reading Claude Code Sessions**, the blog series this repo publishes. Synced from this repo to a Jekyll-based GitHub Pages site via [CI workflow TBD].
+
+## Series name
+
+The series is **Reading Claude Code Sessions**. Use that name wherever a post or doc names the series, for example "Part 7 of the Reading Claude Code Sessions series", and "this series" after the first mention. Part 1 keeps its own title, "Anatomy of a Claude Code session"; it is a post title, not the series name. The name was chosen on 2026-11-02, after ten posts: earlier posts called it "the anatomy series", which stopped fitting once the series moved into cost, retries and hooks. The `categories` slug stays `claude-code-sessions` (see [Categories and tags](#categories-and-tags)); the name is for prose and headings.
 
 ## Frontmatter convention
 

@@ -2,13 +2,13 @@
 
 The canonical public reference for Claude Code's JSONL session data format — what's in those files at `~/.claude/projects/`, what the fields mean, how the format evolves, and how to work with it safely.
 
-**Status:** Active. The foundation post series is publishing (several posts live in [`posts/`](posts/)), `reference/` is being filled in section by section, and the sanitizer ([`tooling/sanitizer/`](tooling/sanitizer/)) and format-drift scanner ([`tooling/format-scan/`](tooling/format-scan/)) are built and test-covered. See [`.claude/specs/roadmap-v0.md`](.claude/specs/roadmap-v0.md) for the original work plan and [open issues](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues) for current work.
+**Status:** Active. The blog series, *Reading Claude Code Sessions*, is publishing (several posts live in [`posts/`](posts/)), `reference/` is being filled in section by section, and the sanitizer ([`tooling/sanitizer/`](tooling/sanitizer/)) and format-drift scanner ([`tooling/format-scan/`](tooling/format-scan/)) are built and test-covered. See [`.claude/specs/roadmap-v0.md`](.claude/specs/roadmap-v0.md) for the original work plan and [open issues](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues) for current work.
 
 ## What this repo contains
 
 | Path | Purpose |
 |---|---|
-| `posts/` | Markdown sources for an ongoing blog series. Jekyll frontmatter; synced to a personal GitHub Pages site. |
+| `posts/` | Markdown sources for the *Reading Claude Code Sessions* blog series. Jekyll frontmatter; synced to a personal GitHub Pages site. |
 | `reference/` | Canonical format documentation — data dictionary, schema notes, format version history. Authoritative; sibling projects link here rather than duplicate. |
 | `fixtures/sanitized/` | Real session data scrubbed by the sanitizer. Every file must have a `.scrubbed` sidecar proving it passed validation. |
 | `fixtures/synthetic/` | Fabricated session data for cases real data can't (or shouldn't) cover. |

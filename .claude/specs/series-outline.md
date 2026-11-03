@@ -1,6 +1,6 @@
-# Session-data blog series — outline (Parts 1-7, plus Part 8 coda)
+# Reading Claude Code Sessions — series outline (Parts 1-7, plus Part 8 coda)
 
-**Status:** Drafted 2026-06-04. Source of truth for the spine of the session-data series. Parts 1 and 2 are recorded post-hoc from what shipped; Parts 3-7 were produced by the marketer agent from a parent-supplied shortlist (sharpened titles, scope, audience hooks, and bridges).
+**Status:** Drafted 2026-06-04. Source of truth for the spine of the series, named **Reading Claude Code Sessions** on 2026-11-02 (see [`posts/README.md`](../../posts/README.md#series-name)). Parts 1 and 2 are recorded post-hoc from what shipped; Parts 3-7 were produced by the marketer agent from a parent-supplied shortlist (sharpened titles, scope, audience hooks, and bridges).
 
 **Relation to other docs:**
 
