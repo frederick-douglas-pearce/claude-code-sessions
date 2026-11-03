@@ -2,27 +2,25 @@
 layout: post
 title: "Every lever that moves the bill"
 date: 2026-06-27 00:00:00-0800
-description: "An aside off Part 4. cache_creation_input_tokens is the sum of two TTLs that price differently. That's the most expensive gap, but it's not the only one. A complete picture of every input that moves the effective cost of a Claude Code turn."
+description: "An aside off Part 4. cache_creation_input_tokens is the sum of two TTLs that price differently. That's the most expensive gap of several. Here is the complete picture: every input that moves the effective cost of a Claude Code turn."
 categories: ["claude-code-sessions"]
 tags: ["claude-code", "jsonl", "tokens", "cost", "foundation"]
 og_image: https://frederick-douglas-pearce.github.io/assets/img/every-lever-that-moves-the-bill-og.png
 og_card_source: social/images/2026-06-27-linkedin-every-lever-that-moves-the-bill/og-card.png
 featured: false
 claude_code_version_verified: v2.1.150
-humanizer_pass: predates
+humanizer_pass: v3.0.0
 ---
 
-[Part 4](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-24-token-accounting-is-harder-than-it-looks.md) named three confounders that corrupt session cost estimates: the four token kinds price differently, `service_tier` shifts the rate, and per-model pricing means the same token count can cost several times more or less depending on which model generated it. That was deliberately scoped. It described the levers that corrupt the _count_. It barely touched the ones that shift the _rate_.
+[Part 4](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/posts/2026-06-24-token-accounting-is-harder-than-it-looks.md) named three confounders that corrupt session cost estimates: the four token kinds price differently, `service_tier` shifts the rate, and per-model pricing means the same token count can cost several times more or less depending on which model generated it. That was deliberately scoped: it covered the levers that corrupt the _count_ and barely touched the ones that shift the _rate_.
 
-This aside is the complete picture. Every field in the session JSONL that moves the effective cost of a turn, grounded in the canonical lever catalog at [`reference/cost-model.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/cost-model.md).
+This aside covers every field in the session JSONL that moves the effective cost of a turn, grounded in the canonical lever catalog at [`reference/cost-model.md`](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/cost-model.md).
 
 ---
 
 ## The gap Part 4 left open
 
-Part 4 used `cache_creation_input_tokens` throughout. It noted the 1.25x premium, named the `cache_creation` sub-object in passing, and moved on. That brevity hid something.
-
-`cache_creation_input_tokens` is the _sum_ of two separate fields:
+Part 4 used `cache_creation_input_tokens` throughout. It noted the 1.25x premium, named the `cache_creation` sub-object in passing, and moved on, which skipped over how that field is built. `cache_creation_input_tokens` is the _sum_ of two separate fields:
 
 ```json
 {
@@ -37,13 +35,13 @@ Those two TTLs price differently. The 5-minute write is roughly 1.25x base input
 
 In Claude Code sessions, the 1-hour TTL is commonly the dominant share by token volume. One observed corpus had roughly two-thirds of all cache-write tokens landing in the 1-hour bucket. The worked example in `cost-model.md` is concrete: a single Opus 4.7 request with 19,227 tokens in the 1-hour bucket costs $0.214 priced correctly and $0.142 priced at the 5-minute rate. That $0.072 gap per request compounds quickly across a session with heavy caching.
 
-The `cache_creation` sub-object is the fix. It's already in your sessions. The question is whether your cost tool reads it.
+The `cache_creation` sub-object that fixes this is already in your sessions, so what's left is whether your cost tool reads it.
 
 ---
 
 ## Who chose the 1-hour TTL?
 
-A natural question once you see the split: did I configure this? No. There is no user-facing setting for cache TTLs in Claude Code. No environment variable, no flag.
+A natural question once you see the split: did I configure this? No. Claude Code has no user-facing setting for cache TTLs, either as an environment variable or as a flag.
 
 The 5-minute TTL is the Anthropic API default. Claude Code, as the API client, sets the cache breakpoints and their TTLs automatically.
 
@@ -72,9 +70,9 @@ cat ~/.claude/projects/<slug>/<session-uuid>.jsonl \
 
 On a typical Claude Code session you will see the 1-hour column spike on the first turn (when the stable prefix is written for the first time) and hold near zero on subsequent turns (because it is now read, not written). The 5-minute column will show smaller repeated writes as the conversation tail grows. Summed over the session, the 1-hour total usually wins by volume.
 
-Anthropic does not publish the breakpoint placement strategy, and there is no knob to change it. The split is observable; the mechanism is inferred. Both the strategy and the pricing impact are candidates for a documentation request or a `/feedback` call.
+Anthropic does not publish the breakpoint placement strategy, and there is no knob to change it, so the split is observable but the mechanism is inferred. Both the strategy and the pricing impact are candidates for a documentation request or a `/feedback` call.
 
-One additional data point that pins the stakes: the two TTLs _price_ at 2x vs. 1.25x, but they count _identically_ toward API rate limits. Only uncached input tokens and cache-creation tokens count toward the input tokens per minute (ITPM) limit; cache reads do not count at all. So the TTL choice shifts your bill but does not change how fast you run into rate-limit walls.
+The two TTLs _price_ at 2x vs. 1.25x, but they count _identically_ toward API rate limits. Only uncached input tokens and cache-creation tokens count toward the input tokens per minute (ITPM) limit; cache reads do not count at all. So the TTL choice shifts your bill but does not change how fast you run into rate-limit walls.
 
 ---
 
@@ -86,11 +84,11 @@ Beyond the cache-write TTL split, the `usage` object carries several more fields
 
 **Batch API** (`usage.service_tier == "batch"`). The Batch API takes requests that don't need an immediate answer and processes them asynchronously, returning results within 24 hours in exchange for roughly 0.5x on both input and output. Worth noting if you're building anything that runs offline or asynchronous work through the API.
 
-**Priority tier** (`usage.service_tier == "priority"`). Priority tier prioritizes your requests to minimize "overloaded" errors during peak demand, buying availability and consistent access rather than the faster inference that fast mode provides; it is sold as a pre-purchased capacity commitment, which is why its pricing differs from both standard and batch. Anthropic has since closed Priority tier to new commitments, so in practice only organizations on an existing contract will see `priority` in their sessions.
+**Priority tier** (`usage.service_tier == "priority"`). Priority tier prioritizes your requests to minimize "overloaded" errors during peak demand. It buys availability and consistent access rather than the faster inference that fast mode provides, and it is sold as a pre-purchased capacity commitment, which is why its pricing differs from both standard and batch. Anthropic has since closed Priority tier to new commitments, so in practice only organizations on an existing contract will see `priority` in their sessions.
 
 **Data residency** (`usage.inference_geo == "us"`). A 1.1x multiplier on _all_ token categories, including cache writes and cache reads. Applies on Opus 4.6 / Sonnet 4.6 and later. The `inference_geo` field records `"global"` (default), `"us"`, `"not_available"`, or `""`. A cost tool that applies per-model rates and stops there under-reports by 10% for any US-residency request.
 
-**Server-side tool surcharges** (`usage.server_tool_use`). These are not token rates. They are separate line items billed outside the per-million calculation. Web search is $10 per 1,000 requests, recorded as `web_search_requests` in the `server_tool_use` sub-object. Web fetch is free. Code execution is billed by container-hour against a monthly org-level free tier. The session records the count in `code_execution_requests`, but not the duration or the monthly aggregate, so the dollar cost of code execution is not reconstructable from a single session file.
+**Server-side tool surcharges** (`usage.server_tool_use`). These are separate line items billed outside the per-million calculation, not token rates. Web search is $10 per 1,000 requests, recorded as `web_search_requests` in the `server_tool_use` sub-object. Web fetch is free. Code execution is billed by container-hour against a monthly org-level free tier. The session records the count in `code_execution_requests`, but not the duration or the monthly aggregate, so the dollar cost of code execution is not reconstructable from a single session file.
 
 No open pricing dataset currently models fast mode, batch, data residency, or server-tool surcharges for Anthropic. The best-known one ([pydantic/genai-prices](https://github.com/pydantic/genai-prices)) covers the four base token types and context-length tiers, with a single `cache_write_mtok` field that represents the 5-minute rate. The 1-hour TTL is not modeled at all. Any session cost tool that builds on that dataset without a local overlay is missing several of these levers.
 
@@ -98,7 +96,7 @@ No open pricing dataset currently models fast mode, batch, data residency, or se
 
 ## Two things that look like levers but are not
 
-Worth naming explicitly, because both produce counting errors when mishandled.
+Both produce counting errors when mishandled.
 
 **Thinking tokens** (`usage.output_tokens_details.thinking_tokens`). These are already _inside_ `output_tokens`. They are billed at the output rate as part of that total. Adding `thinking_tokens` on top of `output_tokens` double-counts; the `output_tokens_details` sub-object is a breakdown, not an addition. The field exists to tell you how much of your output spend went to reasoning. It has no separate billing line.
 
@@ -108,17 +106,17 @@ Worth naming explicitly, because both produce counting errors when mishandled.
 
 ## The honest ceiling
 
-Even a cost tool that handles the cache-write TTL split correctly, reads `speed` and `inference_geo` and `server_tool_use`, and applies the right per-model rate to every turn is still computing a list-price estimate. It is not necessarily computing your bill.
+Even a cost tool that handles the cache-write TTL split correctly, reads `speed` and `inference_geo` and `server_tool_use`, and applies the right per-model rate to every turn is still computing a list-price estimate, which is not necessarily your bill.
 
-Enterprise and negotiated discounts are applied at the billing layer. They never appear in session JSONL. A session-data cost tool cannot know about them.
+Enterprise and negotiated discounts are applied at the billing layer and never appear in session JSONL, so a session-data cost tool cannot know about them.
 
-Those billed dollars do exist, just not in the session file. Anthropic exposes them through the Usage and Cost Admin API (`/v1/organizations/cost_report`), the recommended source of truth for what an organization actually paid: costs in USD, reconcilable against your Anthropic bill, grouped by workspace and by a `description` field that parses out model and data residency. The discounts from the previous paragraph live at that billing layer, and this is the API where they surface. What it cannot give you is the other half. It reports daily totals at the organization and workspace level, with no per-session, per-turn, or per-subagent attribution, and it needs an Admin API key and an organization, so an individual account cannot call it at all. The two answer different questions and neither replaces the other. The Cost API tells you what you paid, in aggregate, after discounts. The JSONL tells you which session, which turn, and which subagent drove it, at list price. Reconstructing real spend for a specific run means pairing them: the JSONL for the breakdown, the Cost API for the authoritative total to check it against.
+Those billed dollars do exist, just not in the session file. Anthropic exposes them through the Usage and Cost Admin API (`/v1/organizations/cost_report`), the recommended source of truth for what an organization actually paid: costs in USD, reconcilable against your Anthropic bill, grouped by workspace and by a `description` field that parses out model and data residency. The discounts from the previous paragraph live at that billing layer, and this is the API where they surface. It cannot give you the other half: it reports daily totals at the organization and workspace level, with no per-session, per-turn, or per-subagent attribution, and it needs an Admin API key and an organization, so an individual account cannot call it at all. The two answer different questions and neither replaces the other. The Cost API tells you what you paid, in aggregate, after discounts. The JSONL tells you which session, which turn, and which subagent drove it, at list price. Reconstructing real spend for a specific run means pairing them: the JSONL for the breakdown, the Cost API for the authoritative total to check it against.
 
 The Pro and Max subscription usage caps add a different kind of opacity. Anthropic documents the caps as "usage" limits, but does not publish the unit: whether the cap is measured in tokens, in cost-equivalents, or in messages. The JSONL exposes no mapping from `usage.*_tokens` to whatever that unit is. A session-data tool cannot say how a given session counted against a subscription cap.
 
-So the right framing for any JSONL-derived cost estimate is this. It is a list-price figure, and specifically a _lower bound_ on list price: the one surcharge even a complete tool can't reconstruct, code-execution container-hours, only ever adds to the total, so the true list price sits at or above your estimate. Its relationship to your _actual_ spend runs the other way and has no fixed direction. A negotiated discount pushes actual spend below list; an unrecorded surcharge pushes it above. The two gaps point in opposite directions, so the net is genuinely unknown. For an individual paying list prices, the estimate is close enough to trust. For an enterprise account it is a principled base rather than a final number: apply your own contracted discount to the list-price figure and you close most of the gap yourself, leaving only the handful of unrecordable surcharges out of reach. For anyone on a Pro or Max cap, how a session counts against the cap stays unknown, because the JSONL exposes no mapping to whatever unit the cap uses.
+Any JSONL-derived cost estimate is a list-price figure, and specifically a _lower bound_ on list price: the one surcharge even a complete tool can't reconstruct, code-execution container-hours, only ever adds to the total, so the true list price sits at or above your estimate. Its relationship to your _actual_ spend runs the other way and has no fixed direction. A negotiated discount pushes actual spend below list; an unrecorded surcharge pushes it above. The two gaps point in opposite directions, so the net is unknown. For an individual paying list prices, the estimate is close enough to trust. For an enterprise account it is a principled base rather than a final number: apply your own contracted discount to the list-price figure and you close most of the gap yourself, leaving only the handful of unrecordable surcharges out of reach. For anyone on a Pro or Max cap, how a session counts against the cap stays unknown, because the JSONL exposes no mapping to whatever unit the cap uses.
 
-There is a version of this problem that ends with a blunt dollar cap enforced from outside: engineering teams getting monthly budgets and stopping when they hit the ceiling, because reading true agentic cost is genuinely this hard. The alternative, reading it from the JSONL with the right lever catalog, is why this post exists. The ceiling is real; it is not a reason to stop short of it.
+There is a version of this problem that ends with a blunt dollar cap enforced from outside: engineering teams getting monthly budgets and stopping when they hit the ceiling, because reading true agentic cost is this hard. The alternative is to read it from the JSONL with the right lever catalog, all the way up to that ceiling, and that alternative is why this post exists.
 
 ---
 
