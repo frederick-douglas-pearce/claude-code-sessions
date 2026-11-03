@@ -21,11 +21,12 @@ their verified version get re-verified or corrected. New drafts also get an edit
 [humanizer skill](https://github.com/blader/humanizer), which strips the structural tells of machine
 prose. Each post records in `humanizer_pass` which version of that skill was run over it, and CI
 requires the field to be present. CI checks the record, not the prose: `none` records a pass
-deliberately declined, and `predates` marks a post published before the convention existed.
-**Every post published before this convention landed carries `predates`**, so the pass describes new
-work, not the archive. Short-form derivatives on other platforms carry the
-same disclosure without the version clause; a few of the earliest ones, published before that
-convention landed, do not.
+deliberately declined. The eight posts published before the convention landed got their pass
+afterward ([#314](https://github.com/frederick-douglas-pearce/claude-code-sessions/issues/314)), so
+every post now records one. **That later pass was a voice edit only**: it changed no claim, and
+those posts keep the `claude_code_version_verified` they were fact-checked against. Short-form
+derivatives on other platforms carry the same disclosure without the version clause; a few of the
+earliest ones, published before that convention landed, do not.
 
 **[`reference/`](reference/)** — field-level documentation derived from observed session data, not from
 a model's recollection of the format. Every section that names a JSONL field carries a
