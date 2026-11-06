@@ -88,7 +88,7 @@ class GuardTestCase(unittest.TestCase):
         self.add_post("retry", "social/images/2026-01-04-linkedin-retry/og-card.png")
         code, text = self.run_guard()
         self.assertEqual(code, 0, text)
-        self.assertIn("resolvable OG card", text)
+        self.assertIn("resolvable OG card and a valid description", text)
 
     def test_default_glob_skips_readme(self):
         # A non-dated .md (like posts/README.md) must not be checked.

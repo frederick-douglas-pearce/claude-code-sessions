@@ -18,6 +18,7 @@ on:
       - "social/images/**"
       - "tooling/publish-to-pages.py"
       - "tooling/check-og-cards.py"
+      - "tooling/tests/test_check_og_cards.py"
       - ".github/workflows/og-card-guard.yml"
   push:
     branches: [main]
@@ -41,3 +42,7 @@ jobs:
       # Reads frontmatter and checks each post's og_card_source resolves to an
       # existing file. No npm, no Pages repo, no secrets.
       - run: python3 tooling/check-og-cards.py
+
+      # The guard's own tests (stdlib unittest). test_publish_to_pages.py runs in
+      # humanizer-guard.yml; this file had no CI runner until #313.
+      - run: python3 tooling/tests/test_check_og_cards.py

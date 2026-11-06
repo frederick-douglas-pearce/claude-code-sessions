@@ -48,6 +48,7 @@ failure (a missing card) is caught in Phase 1 before any write.
 """
 
 import argparse
+import json
 import re
 import sys
 from collections import namedtuple
@@ -150,14 +151,25 @@ def og_target_name(og_image: str | None) -> str:
     return name
 
 
+_DOUBLE_QUOTED = re.compile(r'"((?:[^"\\]|\\.)*)"\s*(?:#.*)?')
+_SINGLE_QUOTED = re.compile(r"'((?:[^']|'')*)'\s*(?:#.*)?")
+
+
 def _unquote(value: str) -> str:
-    """A single-line YAML scalar without its surrounding quotes, unescaped just
-    enough to measure: `\\"` in double quotes, `''` in single quotes."""
-    if len(value) >= 2 and value[0] == value[-1] == '"':
-        return value[1:-1].replace('\\"', '"')
-    if len(value) >= 2 and value[0] == value[-1] == "'":
-        return value[1:-1].replace("''", "'")
-    return value
+    """The text of a single-line YAML scalar, for measuring its length.
+
+    Drops the surrounding quotes and any trailing `# comment`. Double-quoted
+    escapes are decoded where they match JSON's (`\\"`, `\\\\`, `\\n`, `\\uXXXX`, ...);
+    a YAML-only escape such as `\\x41` falls back to the raw text, which can
+    overcount by a few characters near the bound. Single-quoted `''` is one `'`."""
+    if m := _DOUBLE_QUOTED.fullmatch(value):
+        try:
+            return json.loads(f'"{m.group(1)}"', strict=False)
+        except json.JSONDecodeError:
+            return m.group(1).replace('\\"', '"')
+    if m := _SINGLE_QUOTED.fullmatch(value):
+        return m.group(1).replace("''", "'")
+    return value.split(" #", 1)[0].rstrip()
 
 
 def check_description(description: str | None) -> None:
@@ -165,11 +177,13 @@ def check_description(description: str | None) -> None:
 
     It ships as the page's meta, og: and twitter: description. Bing flags anything
     outside roughly 25-160, and Google truncates snippets around 155-160 (#313).
-    Measured on the unquoted value. A block scalar (`>` / `|`) reads as one
-    character here and fails, which is the intended outcome: descriptions are
-    one quoted line."""
+    Measured on the unquoted value. Descriptions are one line: a block scalar
+    (`>` / `|`) continues on lines this line-level reader cannot see, so it is
+    rejected outright rather than mis-measured."""
     if not description:
         raise PublishError("missing `description` frontmatter field")
+    if description[0] in ">|":
+        raise PublishError("`description` must be a single-line (quoted) value, not a `>` / `|` block scalar")
     n = len(_unquote(description))
     if not DESCRIPTION_MIN <= n <= DESCRIPTION_MAX:
         raise PublishError(f"`description` is {n} characters; it must be {DESCRIPTION_MIN}-{DESCRIPTION_MAX}")
@@ -196,11 +210,13 @@ def build_plan(sources: list[Path], posts_dir: Path, assets_dir: Path) -> dict:
             raise PublishError(f"source not found: {src}")
         try:
             fm_block, body = split_frontmatter(src.read_text())
-            check_description(read_field(fm_block, "description"))
             _add(plan, posts_dir / src.name, transform_bytes(fm_block, body), "post", src.name)
             og_src = resolve_og_source(read_field(fm_block, "og_card_source"))
             target = assets_dir / og_target_name(read_field(fm_block, "og_image"))
             _add(plan, target, og_src.read_bytes(), "image", src.name)
+            # Last, so a card problem (the guard's original job) is still the one
+            # reported when a post has both. build_plan stops at the first error.
+            check_description(read_field(fm_block, "description"))
         except PublishError as e:
             raise PublishError(f"{src.name}: {e}")
     return plan

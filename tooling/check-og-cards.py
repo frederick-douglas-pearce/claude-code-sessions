@@ -63,7 +63,8 @@ def _bare(err: ptp.PublishError, name: str) -> str:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
-        description="Guard: every post under posts/ has a resolvable OG card "
+        description="Guard: every post under posts/ has a resolvable OG card and a "
+        "25-160 character description "
         "(runs publish-to-pages.py's own fail-closed validator).",
     )
     ap.add_argument(
@@ -119,7 +120,7 @@ def main(argv=None) -> int:
         )
         return 1
 
-    print(f"\nAll {len(posts)} post(s) have a resolvable OG card.")
+    print(f"\nAll {len(posts)} post(s) have a resolvable OG card and a valid description.")
     return 0
 
 

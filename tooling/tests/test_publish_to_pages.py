@@ -188,16 +188,37 @@ class PublishTestCase(unittest.TestCase):
                 self.assertIn(f"is {n} characters", str(cm.exception))
 
     def test_description_quote_styles(self):
-        # 25 characters each, measured after unquoting and unescaping.
-        for i, value in enumerate(('"' + "x" * 23 + '\\"y"', "'" + "x" * 23 + "''y'", "x" * 25)):
+        # 25 characters each, measured after unquoting, unescaping and dropping comments.
+        cases = (
+            '"' + "x" * 23 + '\\"y"',  # \" escape
+            '"' + "x" * 23 + '\\u00e9y"',  # \u escape counts as one character
+            "'" + "x" * 23 + "''y'",  # '' escape
+            "x" * 25,  # plain scalar
+            '"' + "x" * 25 + '"  # trimmed for Bing',  # trailing comment on a quoted value
+            "x" * 25 + "  # a comment",  # trailing comment on a plain value
+        )
+        for i, value in enumerate(cases):
             with self.subTest(value=value):
                 self._publish_description(value, slug=f"quote{i}")
 
-    def test_block_scalar_description_rejected(self):
+    def test_comment_does_not_rescue_short_description(self):
         with self.assertRaises(ptp.PublishError) as cm:
-            self._publish_description(">")
-        self.assertIn("is 1 characters", str(cm.exception))
+            self._publish_description('"' + "x" * 20 + '"  # a long trailing comment')
+        self.assertIn("is 20 characters", str(cm.exception))
 
+    def test_block_scalar_description_rejected(self):
+        for i, value in enumerate((">", ">-", "|")):
+            with self.subTest(value=value):
+                with self.assertRaises(ptp.PublishError) as cm:
+                    self._publish_description(value, slug=f"block{i}")
+                self.assertIn("block scalar", str(cm.exception))
+
+    def test_card_error_reported_before_description_error(self):
+        # A post with both problems reports the card one (build_plan stops at the first).
+        src = self.add_post("both", "social/images/x/og-card.png", write_card=False, description='"short"')
+        with self.assertRaises(ptp.PublishError) as cm:
+            self.run_publish([src])
+        self.assertIn("og card source not found", str(cm.exception))
 
 if __name__ == "__main__":
     unittest.main()
