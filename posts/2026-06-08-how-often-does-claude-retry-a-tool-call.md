@@ -2,7 +2,7 @@
 layout: post
 title: "How often does Claude retry a tool call?"
 date: 2026-06-08 00:00:00-0800
-description: "The session JSONL's tool_use_id pairing key (introduced in Part 2) lets you measure how often Claude retries after a tool error. The answer differs by tool, and that's where it gets interesting."
+description: "The tool_use_id pairing key lets you measure how often Claude retries after a tool error. The answer differs by tool, and that's where it gets interesting."
 categories: ["claude-code-sessions"]
 tags: ["claude-code", "jsonl", "sessions", "tool-use", "analysis"]
 og_image: https://frederick-douglas-pearce.github.io/assets/img/how-often-does-claude-retry-a-tool-call-og.png

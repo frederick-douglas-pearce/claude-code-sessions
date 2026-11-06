@@ -15,7 +15,7 @@ Every post requires this frontmatter block. All twelve fields are required: `og_
 layout: post
 title: "Post title"
 date: YYYY-MM-DD HH:MM:SS-0800
-description: "One-sentence summary used for previews and SEO"
+description: "One-sentence summary used for previews and SEO, 25-160 characters (Bing flags longer ones; aim for ~150)"
 categories: ["claude-code-sessions"]
 tags: ["claude-code", "jsonl", "sessions", "foundation | format-update | security | tooling"]
 og_image: https://frederick-douglas-pearce.github.io/assets/img/<slug>-og.png

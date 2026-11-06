@@ -2,7 +2,7 @@
 layout: post
 title: "What should a better leaderboard have measured?"
 date: 2026-07-25 00:00:00-0800
-description: "Meta, Amazon, and Uber each learned what happens when you rank engineers by tokens. Session data records everything up to the moment work is handed off and nothing after it. This post covers what that boundary permits and why the missing numerator was never the tool's to supply."
+description: "Meta, Amazon, and Uber learned what happens when you rank engineers by tokens. What session data can measure instead, and why the numerator was never its job."
 categories: ["claude-code-sessions"]
 tags: ["claude-code", "jsonl", "sessions", "cost", "metrics", "foundation"]
 og_image: https://frederick-douglas-pearce.github.io/assets/img/what-should-a-better-leaderboard-have-measured-og.png
@@ -34,7 +34,7 @@ Both posts reach the same conclusion: done right, the number is correct at list 
 
 Session JSONL is a remarkably complete record of how the work was built: the code that was committed, the defects Claude found while reading the codebase, and the tests, documentation, and refactors it proposed.
 
-It has one boundary: the file records what Claude Code handled. A fix a teammate hand-wrote, a review comment resolved without asking Claude, leaves no trace. That's mostly fine here, since the denominator only counts Claude's tokens either way. It stops being fine the moment you credit a session with a feature other people wrote parts of.
+It has one limitation: the file records what Claude Code handled. A fix a teammate hand-wrote, a review comment resolved without asking Claude, leaves no trace. That's mostly fine here, since the denominator only counts Claude's tokens either way. It stops being fine the moment you credit a session with a feature other people wrote parts of.
 
 What isn't there at all is anything that happened after the work left the session: whether the feature got used, whether the defect Claude flagged was load-bearing or cosmetic, whether the code survived six months in production or six days, whether the thing was worth building at all. The file is complete up to the moment of handoff and empty after it.
 

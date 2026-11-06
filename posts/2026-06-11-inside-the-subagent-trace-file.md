@@ -2,7 +2,7 @@
 layout: post
 title: "Inside the subagent trace file"
 date: 2026-06-11 00:00:00-0800
-description: "Part 3 of the Reading Claude Code Sessions series. When Claude Code delegates to a subagent, the parent session records only a rollup, and the subagent's real work lives in a separate trace file. This post covers where that file is, how it links back, and why isSidechain is the field that matters."
+description: "When Claude Code delegates to a subagent, the parent records only a rollup. The real work lives in a separate trace file: where it is, and how it links back."
 categories: ["claude-code-sessions"]
 tags: ["claude-code", "agent-sdk", "jsonl", "sessions", "subagents", "foundation"]
 og_image: https://frederick-douglas-pearce.github.io/assets/img/inside-the-subagent-trace-file-og.png
@@ -110,7 +110,7 @@ This has a concrete consequence for tooling: if you glob `~/.claude/projects/**/
 
 ## The subagent-specific fields, and the one that lies about its name
 
-Three subagent-specific fields show up alongside `agentId`, one of them an `attribution*` field and two not. Each has a **strict per-line-type presence pattern**: it appears on specific line types, consistently. Knowing the pattern lets you branch on `type` first and only check the fields that apply:
+Three subagent-specific fields show up alongside `agentId`. One of them is an `attribution*` field and two are not. Each has a **strict per-line-type presence pattern**: it appears on specific line types, consistently. Knowing the pattern lets you branch on `type` first and only check the fields that apply:
 
 | Field                     | `assistant` lines | `user` lines                 | What it is                                                                                                                        |
 | ------------------------- | ----------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
@@ -121,7 +121,7 @@ Three subagent-specific fields show up alongside `agentId`, one of them an `attr
 
 (There's also an `attributionMcpServer` / `attributionMcpTool` pair that shows up on `assistant` lines involved in an MCP-tool turn. You can see it on the first `assistant` line of the fixture, which calls `mcp__github__get_issue`. The exact trigger condition is still an [open verification item](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#open-verification-items).)
 
-(And one more, `attributionSkill`, marks an `assistant` turn that ran under an invoked Skill. It's the odd one out: Skills run in the main loop as well as inside subagents, so unlike the fields above it shows up in _parent_ sessions too and is _not_ a sidechain signal. For the "is this a subagent line?" question, `isSidechain` remains the field to branch on; the [reference doc](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#attribution-fields) covers `attributionSkill` in full.)
+(And one more, `attributionSkill`, marks an `assistant` turn that ran under an invoked Skill. It's the odd one out. Skills run in the main loop as well as inside subagents, so `attributionSkill` also shows up in _parent_ sessions, which the fields above never do. That makes it _not_ a sidechain signal. For the "is this a subagent line?" question, `isSidechain` remains the field to branch on; the [reference doc](https://github.com/frederick-douglas-pearce/claude-code-sessions/blob/main/reference/subagent-traces.md#attribution-fields) covers `attributionSkill` in full.)
 
 The interesting one is `sourceToolAssistantUUID`, because its name invites a wrong inference. It _sounds_ like it should point back at the parent's invoking `assistant` line, the "source tool" that launched the subagent. It does not.
 
