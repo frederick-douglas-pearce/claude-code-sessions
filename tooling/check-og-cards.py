@@ -10,8 +10,9 @@ sync red on `main`, after the fact. (It did, for the Part 3 post: the draft reac
 
 This guard runs the publisher's OWN Phase-1 validator (`build_plan`) on PRs, so the
 same fail-closed conditions — missing/empty `og_card_source`, an absolute or
-repo-escaping path, a missing source file, a missing `og_image`, and cross-post
-image-target collisions — surface on the PR instead of on `main`. By reusing
+repo-escaping path, a missing source file, a missing `og_image`, cross-post
+image-target collisions, and a `description` outside 25-160 characters (#313) —
+surface on the PR instead of on `main`. By reusing
 `build_plan` rather than re-deriving the rules, the guard cannot drift from what
 publish actually enforces; if a future format adds a fail-closed condition there,
 the guard inherits it for free.
@@ -62,7 +63,8 @@ def _bare(err: ptp.PublishError, name: str) -> str:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
-        description="Guard: every post under posts/ has a resolvable OG card "
+        description="Guard: every post under posts/ has a resolvable OG card and a "
+        "25-160 character description "
         "(runs publish-to-pages.py's own fail-closed validator).",
     )
     ap.add_argument(
@@ -109,15 +111,16 @@ def main(argv=None) -> int:
     if n_fail:
         sys.stdout.flush()  # ensure the per-post report precedes the stderr summary in CI logs
         print(
-            f"\n{n_fail} OG-card problem(s). This is the same fail-closed resolution the "
+            f"\n{n_fail} publish problem(s). This is the same fail-closed validation the "
             "Pages-sync\nAction runs at publish time — fixing it here keeps it off `main`. "
-            "Render the card\nwith the og-card skill (.claude/skills/og-card/SKILL.md) and "
-            "set the post's\n`og_card_source`, or correct the pointer.",
+            "For a card problem,\nrender the card with the og-card skill (.claude/skills/og-card/SKILL.md) "
+            "and set the\npost's `og_card_source`, or correct the pointer. For a `description` "
+            "problem, rewrite\nit to 25-160 characters.",
             file=sys.stderr,
         )
         return 1
 
-    print(f"\nAll {len(posts)} post(s) have a resolvable OG card.")
+    print(f"\nAll {len(posts)} post(s) have a resolvable OG card and a valid description.")
     return 0
 
 

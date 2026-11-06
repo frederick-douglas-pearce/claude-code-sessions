@@ -27,6 +27,9 @@ What it does, per post:
    `og_card_source` field (repo-root-relative) is the source; the target is
    `<assets-dir>/<basename of the post's og_image URL>`.
 
+3. **Check the description length.** `description` must be 25-160 characters
+   (unquoted), the range Bing accepts before it flags the meta description (#313).
+
 Resolution is **fail-closed, never a glob**: a missing field, an absolute or
 repo-escaping path, a missing source file, or two posts colliding on one target
 all abort the run with zero writes. A wrong image shipped under a green Action is
@@ -45,6 +48,7 @@ failure (a missing card) is caught in Phase 1 before any write.
 """
 
 import argparse
+import json
 import re
 import sys
 from collections import namedtuple
@@ -64,6 +68,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 #   humanizer_pass               — which humanizer skill version was run over the
 #                                  draft (#223); an editorial record, not content
 DROP_FIELDS = {"claude_code_version_verified", "og_card_source", "humanizer_pass"}
+
+# Accepted `description` length, in characters of the unquoted value (#313).
+DESCRIPTION_MIN = 25
+DESCRIPTION_MAX = 160
 
 # One intended write. The Phase-1 plan is keyed by resolved destination Path so
 # collisions are detectable and a future "delete targets with no source" diff is
@@ -143,6 +151,44 @@ def og_target_name(og_image: str | None) -> str:
     return name
 
 
+_DOUBLE_QUOTED = re.compile(r'"((?:[^"\\]|\\.)*)"\s*(?:#.*)?')
+_SINGLE_QUOTED = re.compile(r"'((?:[^']|'')*)'\s*(?:#.*)?")
+
+
+def _unquote(value: str) -> str:
+    """The text of a single-line YAML scalar, for measuring its length.
+
+    Drops the surrounding quotes and any trailing `# comment`. Double-quoted
+    escapes are decoded where they match JSON's (`\\"`, `\\\\`, `\\n`, `\\uXXXX`, ...);
+    a YAML-only escape such as `\\x41` falls back to the raw text, which can
+    overcount by a few characters near the bound. Single-quoted `''` is one `'`."""
+    if m := _DOUBLE_QUOTED.fullmatch(value):
+        try:
+            return json.loads(f'"{m.group(1)}"', strict=False)
+        except json.JSONDecodeError:
+            return m.group(1).replace('\\"', '"')
+    if m := _SINGLE_QUOTED.fullmatch(value):
+        return m.group(1).replace("''", "'")
+    return value.split(" #", 1)[0].rstrip()
+
+
+def check_description(description: str | None) -> None:
+    """Fail closed unless `description` is DESCRIPTION_MIN..DESCRIPTION_MAX characters.
+
+    It ships as the page's meta, og: and twitter: description. Bing flags anything
+    outside roughly 25-160, and Google truncates snippets around 155-160 (#313).
+    Measured on the unquoted value. Descriptions are one line: a block scalar
+    (`>` / `|`) continues on lines this line-level reader cannot see, so it is
+    rejected outright rather than mis-measured."""
+    if not description:
+        raise PublishError("missing `description` frontmatter field")
+    if description[0] in ">|":
+        raise PublishError("`description` must be a single-line (quoted) value, not a `>` / `|` block scalar")
+    n = len(_unquote(description))
+    if not DESCRIPTION_MIN <= n <= DESCRIPTION_MAX:
+        raise PublishError(f"`description` is {n} characters; it must be {DESCRIPTION_MIN}-{DESCRIPTION_MAX}")
+
+
 def _add(plan: dict, dest: Path, data: bytes, kind: str, post_name: str) -> None:
     """Record an intended write, failing closed on a target collision."""
     dest = dest.resolve()
@@ -168,6 +214,9 @@ def build_plan(sources: list[Path], posts_dir: Path, assets_dir: Path) -> dict:
             og_src = resolve_og_source(read_field(fm_block, "og_card_source"))
             target = assets_dir / og_target_name(read_field(fm_block, "og_image"))
             _add(plan, target, og_src.read_bytes(), "image", src.name)
+            # Last, so a card problem (the guard's original job) is still the one
+            # reported when a post has both. build_plan stops at the first error.
+            check_description(read_field(fm_block, "description"))
         except PublishError as e:
             raise PublishError(f"{src.name}: {e}")
     return plan

@@ -25,12 +25,15 @@ ptp = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ptp)
 
 
+# A valid (25-160 character) description, quoted the way posts/ quotes it.
+VALID_DESCRIPTION = '"A description long enough to pass the publish gate."'
+
 POST_TEMPLATE = """\
 ---
 layout: post
 title: "A title"
 date: 2026-01-01 00:00:00-0800
-description: "desc"
+description: {description}
 categories: ["foundation"]
 tags: ["claude-code"]
 og_image: https://example.github.io/assets/img/{slug}-og.png
@@ -63,7 +66,7 @@ class PublishTestCase(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
-    def add_post(self, slug, card_rel, *, write_card=True, card_bytes=b"PNGDATA"):
+    def add_post(self, slug, card_rel, *, write_card=True, card_bytes=b"PNGDATA", description=VALID_DESCRIPTION):
         """Write a post with og_card_source = `card_rel` (None -> empty field).
         Also renders the card file, unless write_card is False (the "field points
         at a card that was never generated" case)."""
@@ -72,7 +75,9 @@ class PublishTestCase(unittest.TestCase):
             card.parent.mkdir(parents=True, exist_ok=True)
             card.write_bytes(card_bytes)
         src = self.posts_src / f"2026-01-01-{slug}.md"
-        src.write_text(POST_TEMPLATE.format(slug=slug, card_rel="" if card_rel is None else card_rel))
+        src.write_text(
+            POST_TEMPLATE.format(slug=slug, card_rel="" if card_rel is None else card_rel, description=description)
+        )
         return src
 
     def run_publish(self, sources, dry_run=False):
@@ -141,13 +146,79 @@ class PublishTestCase(unittest.TestCase):
         src_b = self.posts_src / "2026-01-02-dup.md"  # different post filename -> distinct post dest
         (self.repo / "social/images/2026-01-08-linkedin-b").mkdir(parents=True, exist_ok=True)
         (self.repo / "social/images/2026-01-08-linkedin-b/og-card.png").write_bytes(b"B")
-        src_b.write_text(POST_TEMPLATE.format(slug="dup", card_rel="social/images/2026-01-08-linkedin-b/og-card.png"))
+        src_b.write_text(
+            POST_TEMPLATE.format(
+                slug="dup", card_rel="social/images/2026-01-08-linkedin-b/og-card.png", description=VALID_DESCRIPTION
+            )
+        )
         with self.assertRaises(ptp.PublishError) as cm:
             self.run_publish([a, src_b])
         self.assertIn("target collision", str(cm.exception))
         self.assertFalse(any(self.pages_assets.iterdir()), "collision must abort before any write")
         self.assertFalse(any(self.pages_posts.iterdir()), "collision must abort before any write")
 
+    # --- description length gate (#313) ---
+
+    def _publish_description(self, description, slug="desc"):
+        src = self.add_post(slug, f"social/images/2026-01-09-linkedin-{slug}/og-card.png", description=description)
+        return self.run_publish([src])
+
+    def test_missing_description(self):
+        with self.assertRaises(ptp.PublishError) as cm:
+            self._publish_description("")  # field present but empty
+        self.assertIn("missing `description`", str(cm.exception))
+        self.assertFalse(any(self.pages_posts.iterdir()), "a bad description must abort before any write")
+
+    def test_absent_description(self):
+        src = self.add_post("absent", "social/images/2026-01-10-linkedin-absent/og-card.png")
+        src.write_text("\n".join(l for l in src.read_text().splitlines() if not l.startswith("description:")) + "\n")
+        with self.assertRaises(ptp.PublishError) as cm:
+            self.run_publish([src])
+        self.assertIn("missing `description`", str(cm.exception))
+
+    def test_description_bounds(self):
+        # Lengths are of the unquoted value: the quotes must not count.
+        for n in (25, 160):
+            with self.subTest(length=n):
+                self._publish_description(f'"{"x" * n}"', slug=f"ok{n}")
+        for n in (24, 161):
+            with self.subTest(length=n):
+                with self.assertRaises(ptp.PublishError) as cm:
+                    self._publish_description(f'"{"x" * n}"', slug=f"bad{n}")
+                self.assertIn(f"is {n} characters", str(cm.exception))
+
+    def test_description_quote_styles(self):
+        # 25 characters each, measured after unquoting, unescaping and dropping comments.
+        cases = (
+            '"' + "x" * 23 + '\\"y"',  # \" escape
+            '"' + "x" * 23 + '\\u00e9y"',  # \u escape counts as one character
+            "'" + "x" * 23 + "''y'",  # '' escape
+            "x" * 25,  # plain scalar
+            '"' + "x" * 25 + '"  # trimmed for Bing',  # trailing comment on a quoted value
+            "x" * 25 + "  # a comment",  # trailing comment on a plain value
+        )
+        for i, value in enumerate(cases):
+            with self.subTest(value=value):
+                self._publish_description(value, slug=f"quote{i}")
+
+    def test_comment_does_not_rescue_short_description(self):
+        with self.assertRaises(ptp.PublishError) as cm:
+            self._publish_description('"' + "x" * 20 + '"  # a long trailing comment')
+        self.assertIn("is 20 characters", str(cm.exception))
+
+    def test_block_scalar_description_rejected(self):
+        for i, value in enumerate((">", ">-", "|")):
+            with self.subTest(value=value):
+                with self.assertRaises(ptp.PublishError) as cm:
+                    self._publish_description(value, slug=f"block{i}")
+                self.assertIn("block scalar", str(cm.exception))
+
+    def test_card_error_reported_before_description_error(self):
+        # A post with both problems reports the card one (build_plan stops at the first).
+        src = self.add_post("both", "social/images/x/og-card.png", write_card=False, description='"short"')
+        with self.assertRaises(ptp.PublishError) as cm:
+            self.run_publish([src])
+        self.assertIn("og card source not found", str(cm.exception))
 
 if __name__ == "__main__":
     unittest.main()
