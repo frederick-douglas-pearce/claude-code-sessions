@@ -18,13 +18,15 @@ scope correction the reader needs), and four of six surviving uses of "actually"
 is worse than no lint. So the frontmatter field is an attestation, and the guard
 only enforces that one was made.
 
-Two non-version values are valid (#223, D-5). `predates` marks a post published
-before this convention landed: a closed set, frozen, never actionable. `none`
-marks a pass deliberately declined for that post: open-ended, and the only one
-that is real debt. Both keep a post green without claiming work that never
-happened, and both stay visible in the file instead of hidden in a script
-allowlist. The guard counts them separately so the actionable number is not
-buried under a permanent archive.
+One non-version value is valid (#223, D-5): `none` marks a pass deliberately
+declined for that post. It keeps a post green without claiming work that never
+happened, stays visible in the file instead of hidden in a script allowlist,
+and is counted so the debt stays legible.
+
+`predates` used to be a second one, marking the eight posts published before
+this convention landed. #314 ran the pass over all eight, which emptied that
+closed set, so the value is retired: the guard now rejects it with a pointed
+message instead of letting a new post use it to skip the pass.
 
 Frontmatter parsing is reused verbatim from publish-to-pages.py, so the guard
 sees exactly the fields the publisher sees and cannot drift from it.
@@ -55,20 +57,16 @@ _spec.loader.exec_module(ptp)
 
 FIELD = "humanizer_pass"
 
-# Two non-version values, kept distinct on purpose (#223, D-5 as amended). Both
-# mean "no pass was run", but they are different facts and only one is a choice:
-#
-#   predates — published before the convention existed. A CLOSED set, frozen at
-#              the eight posts live when #223 landed. Nothing new can join it,
-#              so it never poses a question to a future author.
-#   none     — a pass was deliberately declined for this post. Open-ended, and
-#              the only one that is actionable debt.
-#
-# Collapsing them would make every future `none` ambiguous and hide the one
-# signal worth acting on behind an archive that can never change.
-PREDATES = "predates"
+# The one accepted non-version value (#223, D-5): a pass deliberately declined
+# for this post. Open-ended, and actionable debt, so the guard counts it.
 DECLINED = "none"
-NON_VERSION_VALUES = (PREDATES, DECLINED)
+NON_VERSION_VALUES = (DECLINED,)
+
+# Retired in #314. It marked the eight posts published before #223, a closed
+# set that could never grow; #314 ran the pass over all eight, leaving it empty.
+# Rejected with its own message, because the likeliest way to hit it now is a
+# post copied from an old branch, and "not a skill version" would not say why.
+RETIRED_PREDATES = "predates"
 
 # A recorded pass names the skill version that ran (#223, D-2), so that when the
 # skill changes its pattern list, the field identifies which posts predate the
@@ -103,10 +101,16 @@ def check_value(raw: str | None) -> str | None:
         return f"`{FIELD}` is empty"
     if value in NON_VERSION_VALUES:
         return None
+    if value == RETIRED_PREDATES:
+        return (
+            f"`{FIELD}: {RETIRED_PREDATES}` was retired in #314, once every post it "
+            f"covered had a pass. Run the humanizer and record its version, or "
+            f"record `{DECLINED}`"
+        )
     if not _VERSION_RE.match(value):
         return (
             f"`{FIELD}: {value}` is not a skill version "
-            f"(expected e.g. `v3.0.0`, or `{DECLINED}`, or `{PREDATES}`)"
+            f"(expected e.g. `v3.0.0`, or `{DECLINED}`)"
         )
     return None
 
@@ -166,14 +170,11 @@ def main(argv=None) -> int:
     for name, err, raw in results:
         if err:
             print(f"  [FAIL] {name}: {err}")
-        elif _normalize(raw) == PREDATES:
-            print(f"  [ok]   {name}: {PREDATES} (published before the convention)")
         elif _normalize(raw) == DECLINED:
             print(f"  [ok]   {name}: {DECLINED} (pass deliberately declined)")
         else:
             print(f"  [ok]   {name}: {raw}")
 
-    n_predates = sum(1 for _, err, raw in results if not err and _normalize(raw) == PREDATES)
     n_declined = sum(1 for _, err, raw in results if not err and _normalize(raw) == DECLINED)
     n_fail = sum(1 for _, err, _ in results if err)
 
@@ -182,15 +183,12 @@ def main(argv=None) -> int:
         print(
             f"\n{n_fail} post(s) with no recorded humanizer pass. Run the humanizer skill over the\n"
             f"draft, then set `{FIELD}: v<version>` in its frontmatter. If the pass was\n"
-            f"deliberately skipped, set `{FIELD}: {DECLINED}` to record that instead.\n"
-            f"(`{PREDATES}` is reserved for posts published before this convention landed.)",
+            f"deliberately skipped, set `{FIELD}: {DECLINED}` to record that instead.",
             file=sys.stderr,
         )
         return 1
 
     summary = f"\nAll {len(posts)} post(s) record a humanizer pass."
-    if n_predates:
-        summary += f" {n_predates} predate the convention."
     if n_declined:
         # The actionable number: posts that could have had a pass and did not.
         summary += f" {n_declined} declined a pass."

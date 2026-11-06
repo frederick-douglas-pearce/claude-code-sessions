@@ -101,19 +101,19 @@ class GuardTestCase(unittest.TestCase):
         self.assertIn("1 declined a pass", text)
         self.assertIn("deliberately declined", text)
 
-    def test_predates_passes_and_counts_separately(self):
-        """`predates` is a frozen archive fact, not actionable debt; collapsing it
-        into `none` would bury the one number worth acting on."""
-        self.add_post("anatomy", chp.PREDATES)
-        self.add_post("retry", chp.DECLINED)
-        self.add_post("subagent", "v3.0.0")
-        code, text = self.run_guard()
-        self.assertEqual(code, 0, text)
-        self.assertIn("1 predate the convention", text)
-        self.assertIn("1 declined a pass", text)
-        self.assertIn("published before the convention", text)
-
     # --- failures ---------------------------------------------------------
+
+    def test_retired_predates_fails_with_pointed_message(self):
+        """`predates` was retired in #314 once its closed set of eight posts all
+        had a pass. A new post carrying it (most likely copied from an old
+        branch) must fail, and say why rather than "not a skill version"."""
+        self.add_post("anatomy", chp.RETIRED_PREDATES)
+        self.add_post("retry", "v3.0.0")
+        code, text = self.run_guard()
+        self.assertEqual(code, 1, text)
+        self.assertIn("was retired in #314", text)
+        self.assertNotIn("is not a skill version", text)
+        self.assertNotIn("predate the convention", text)
 
     def test_missing_field_fails(self):
         self.add_post("anatomy", omit=True)
@@ -219,8 +219,8 @@ class GuardTestCase(unittest.TestCase):
             ("  v3.0.0  ", True),
             ("'v3.0.0'", True),
             (chp.DECLINED, True),
-            (chp.PREDATES, True),
-            ("  predates  ", True),
+            (chp.RETIRED_PREDATES, False),
+            ("  predates  ", False),
             (None, False),
             ("", False),
             ("   ", False),

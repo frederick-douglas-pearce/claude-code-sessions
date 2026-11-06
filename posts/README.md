@@ -15,20 +15,20 @@ Every post requires this frontmatter block. All twelve fields are required: `og_
 layout: post
 title: "Post title"
 date: YYYY-MM-DD HH:MM:SS-0800
-description: "One-sentence summary used for previews and SEO"
+description: "One-sentence summary used for previews and SEO, 25-160 characters (Bing flags longer ones; aim for ~150)"
 categories: ["claude-code-sessions"]
 tags: ["claude-code", "jsonl", "sessions", "foundation | format-update | security | tooling"]
 og_image: https://frederick-douglas-pearce.github.io/assets/img/<slug>-og.png
 og_card_source: social/images/YYYY-MM-DD-linkedin-<slug>/og-card.png
 featured: false
 claude_code_version_verified: vX.Y.Z
-humanizer_pass: vX.Y.Z | none | predates
+humanizer_pass: vX.Y.Z | none
 ---
 ```
 
 The `claude_code_version_verified` field records the Claude Code version the post was last fact-checked against. Posts more than ~3 minor versions behind current should be re-verified before being treated as authoritative.
 
-The `humanizer_pass` field records which version of the [humanizer skill](https://github.com/blader/humanizer) was run over the draft, and is enforced by `tooling/check-humanizer-pass.py` (issue #223). The skill strips structural AI-writing tells: not-X-but-Y staging, one-line closers, staged run-ups, forced triads, dashes used as a universal connector, inflated significance. Record the version rather than a boolean, so that when the skill changes its pattern list you can tell which posts predate the change. Two non-version values are valid. `none` records a pass deliberately skipped for that post; the guard accepts it and counts it separately, so the skip stays visible instead of silent. `predates` marks a post published before this convention landed, a closed set that can never grow. They are kept distinct so the `none` count means "debt someone can act on" rather than being buried under a permanent archive. Both fields are upstream-only and stripped by `tooling/publish-to-pages.py` on publish.
+The `humanizer_pass` field records which version of the [humanizer skill](https://github.com/blader/humanizer) was run over the draft, and is enforced by `tooling/check-humanizer-pass.py` (issue #223). The skill strips structural AI-writing tells: not-X-but-Y staging, one-line closers, staged run-ups, forced triads, dashes used as a universal connector, inflated significance. Record the version rather than a boolean, so that when the skill changes its pattern list you can tell which posts predate the change. One non-version value is valid. `none` records a pass deliberately skipped for that post; the guard accepts it and counts it separately, so the skip stays visible instead of silent. A second value, `predates`, used to mark the eight posts published before this convention landed. Issue #314 ran the pass over all eight, which left that closed set empty, so the value is retired and the guard rejects it. Both fields are upstream-only and stripped by `tooling/publish-to-pages.py` on publish.
 
 ## Categories and tags
 
