@@ -31,6 +31,7 @@ POST_TEMPLATE = """\
 layout: post
 title: "Test post"
 date: 2026-01-01 00:00:00-0800
+description: "A description long enough to pass the publish gate."
 og_image: https://example.github.io/assets/img/{og_basename}
 og_card_source: {card_rel}
 claude_code_version_verified: v2.1.150
@@ -122,7 +123,16 @@ class GuardTestCase(unittest.TestCase):
         self.assertIn("2026-01-01-ghost.md", text)
         self.assertIn("2026-01-01-nofield.md", text)
         self.assertIn("[ok] 2026-01-01-good.md", text)
-        self.assertIn("2 OG-card problem(s)", text)
+        self.assertIn("2 publish problem(s)", text)
+
+    def test_bad_description_fails(self):
+        # The guard inherits build_plan's description gate (#313).
+        src = self.add_post("longdesc", "social/images/2026-01-10-linkedin-longdesc/og-card.png")
+        src.write_text(src.read_text().replace('"A description long enough to pass the publish gate."', '"' + "x" * 161 + '"'))
+        code, text = self.run_guard()
+        self.assertEqual(code, 1, text)
+        self.assertIn("`description` is 161 characters", text)
+        self.assertIn("2026-01-01-longdesc.md", text)
 
     def test_cross_post_image_collision_fails(self):
         # Two distinct posts, both with present cards, colliding on one og_image

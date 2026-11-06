@@ -27,6 +27,9 @@ What it does, per post:
    `og_card_source` field (repo-root-relative) is the source; the target is
    `<assets-dir>/<basename of the post's og_image URL>`.
 
+3. **Check the description length.** `description` must be 25-160 characters
+   (unquoted), the range Bing accepts before it flags the meta description (#313).
+
 Resolution is **fail-closed, never a glob**: a missing field, an absolute or
 repo-escaping path, a missing source file, or two posts colliding on one target
 all abort the run with zero writes. A wrong image shipped under a green Action is
@@ -64,6 +67,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 #   humanizer_pass               — which humanizer skill version was run over the
 #                                  draft (#223); an editorial record, not content
 DROP_FIELDS = {"claude_code_version_verified", "og_card_source", "humanizer_pass"}
+
+# Accepted `description` length, in characters of the unquoted value (#313).
+DESCRIPTION_MIN = 25
+DESCRIPTION_MAX = 160
 
 # One intended write. The Phase-1 plan is keyed by resolved destination Path so
 # collisions are detectable and a future "delete targets with no source" diff is
@@ -143,6 +150,31 @@ def og_target_name(og_image: str | None) -> str:
     return name
 
 
+def _unquote(value: str) -> str:
+    """A single-line YAML scalar without its surrounding quotes, unescaped just
+    enough to measure: `\\"` in double quotes, `''` in single quotes."""
+    if len(value) >= 2 and value[0] == value[-1] == '"':
+        return value[1:-1].replace('\\"', '"')
+    if len(value) >= 2 and value[0] == value[-1] == "'":
+        return value[1:-1].replace("''", "'")
+    return value
+
+
+def check_description(description: str | None) -> None:
+    """Fail closed unless `description` is DESCRIPTION_MIN..DESCRIPTION_MAX characters.
+
+    It ships as the page's meta, og: and twitter: description. Bing flags anything
+    outside roughly 25-160, and Google truncates snippets around 155-160 (#313).
+    Measured on the unquoted value. A block scalar (`>` / `|`) reads as one
+    character here and fails, which is the intended outcome: descriptions are
+    one quoted line."""
+    if not description:
+        raise PublishError("missing `description` frontmatter field")
+    n = len(_unquote(description))
+    if not DESCRIPTION_MIN <= n <= DESCRIPTION_MAX:
+        raise PublishError(f"`description` is {n} characters; it must be {DESCRIPTION_MIN}-{DESCRIPTION_MAX}")
+
+
 def _add(plan: dict, dest: Path, data: bytes, kind: str, post_name: str) -> None:
     """Record an intended write, failing closed on a target collision."""
     dest = dest.resolve()
@@ -164,6 +196,7 @@ def build_plan(sources: list[Path], posts_dir: Path, assets_dir: Path) -> dict:
             raise PublishError(f"source not found: {src}")
         try:
             fm_block, body = split_frontmatter(src.read_text())
+            check_description(read_field(fm_block, "description"))
             _add(plan, posts_dir / src.name, transform_bytes(fm_block, body), "post", src.name)
             og_src = resolve_og_source(read_field(fm_block, "og_card_source"))
             target = assets_dir / og_target_name(read_field(fm_block, "og_image"))
